@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shop-templates"
+version = "0.1.0"
+description = "Validated role-prompt templates for shops in the shop-system. Distributed as package data; consumed via the `shop-templates` CLI rather than read from a known filesystem path."
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "David Stenglein"}]
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/dstengle/shopsystem-templates"
+Homepage = "https://github.com/dstengle/shopsystem-product"
+
+[project.scripts]
+shop-templates = "shop_templates.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+shop_templates = ["templates/*.md"]

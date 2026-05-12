@@ -338,3 +338,475 @@ def then_content_distinguishes_reading_from_running(context: dict) -> None:
         "template must label the 'running it' side as a fact "
         "(Finding 17 / S16)"
     )
+
+
+# -----------------------------------------------------------------------
+# Then steps — role-complete restructure: identity / posture / CLI ordering
+# -----------------------------------------------------------------------
+#
+# Scenarios lead-kq0 (f1ac9534c1d58318, e522f7393dfcd1c1, a481db51463526d2,
+# a6b3e510821aba52) pin the structural ordering of the lead-po and
+# lead-architect templates: role identity (depth-1 #) and default-posture
+# header (depth-2 ##) must lead the document, and procedural shop-msg CLI
+# content must come after both the posture header AND after every §3.2
+# activity has been named at least once. The §3.2 activity lists for each
+# role are hard-coded below because the scenarios reference them by index
+# ("scenario 10" / "scenario 14") within the dispatched feature file.
+
+_LEAD_PO_ACTIVITY_NAMES_FROM_SCENARIO_10 = (
+    "Interview stakeholder",
+    "Maintain product brief",
+    "Write PDR for new functionality",
+    "Write Gherkin scenarios",
+    "Respond to BC `clarify`",
+)
+
+_LEAD_ARCHITECT_ACTIVITY_NAMES_FROM_SCENARIO_14 = (
+    "Write ADRs",
+    "Maintain structurizr workspace",
+    "Collaborate with PO on BC decomposition",
+    "Assign scenarios to BCs",
+    "Reconcile scenario registers",
+    # The naming scenario phrases this one as an alternation:
+    # either "Send `request_bugfix`" appears OR both message-type names
+    # appear. Treat the canonical token as `request_bugfix` for ordering
+    # purposes — that is the substring all renderings share.
+    "request_bugfix",
+    "Read a BC-shop's card via `request_shop_card`",
+    "Respond to BC `clarify`",
+)
+
+
+def _first_index(content: str, needle: str) -> int:
+    idx = content.find(needle)
+    assert idx >= 0, f"expected substring {needle!r} to appear in content"
+    return idx
+
+
+@then(parsers.parse('a "{header}" identity header appears in the output'))
+def then_identity_header_appears(header: str, context: dict) -> None:
+    # The identity header is the depth-1 (#) heading that opens the role
+    # prompt — the bare-presence check; ordering is asserted by separate
+    # byte-offset steps below.
+    content = context["template_content"]
+    assert header in content, (
+        f"template {context.get('shown_template_name')!r} is missing identity "
+        f"header {header!r}"
+    )
+    # Stash the offset for the byte-offset Then steps that follow.
+    context["identity_header_offset"] = content.index(header)
+
+
+@then(parsers.parse('a "{header}" posture header appears in the output'))
+def then_posture_header_appears(header: str, context: dict) -> None:
+    content = context["template_content"]
+    assert header in content, (
+        f"template {context.get('shown_template_name')!r} is missing posture "
+        f"header {header!r}"
+    )
+    context["posture_header_offset"] = content.index(header)
+    context["posture_header_text"] = header
+
+
+@then(
+    parsers.parse(
+        'the byte offset of the identity header is less than the byte offset '
+        'of the first occurrence of the string "{needle}"'
+    )
+)
+def then_identity_before_needle(needle: str, context: dict) -> None:
+    content = context["template_content"]
+    identity_offset = context["identity_header_offset"]
+    needle_offset = _first_index(content, needle)
+    assert identity_offset < needle_offset, (
+        f"identity header at byte {identity_offset} must precede first "
+        f"{needle!r} at byte {needle_offset}; template "
+        f"{context.get('shown_template_name')!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the byte offset of the posture header is less than the byte offset '
+        'of the first occurrence of the string "{needle}"'
+    )
+)
+def then_posture_before_needle(needle: str, context: dict) -> None:
+    content = context["template_content"]
+    posture_offset = context["posture_header_offset"]
+    needle_offset = _first_index(content, needle)
+    assert posture_offset < needle_offset, (
+        f"posture header at byte {posture_offset} must precede first "
+        f"{needle!r} at byte {needle_offset}; template "
+        f"{context.get('shown_template_name')!r}"
+    )
+
+
+# -----------------------------------------------------------------------
+# Then steps — role-complete restructure: §3.2 activity coverage
+# -----------------------------------------------------------------------
+#
+# Scenarios dddd6c3b2eed7e45 (PO) and 0aea22a97e63d4f8 (Architect) pin
+# that each §3.2 activity must be NAMED in the template. The qualifier
+# variant additionally asserts that a qualifier word appears in proximity
+# to the activity name. The alternation variant accepts either the
+# "Send `request_bugfix`" phrasing or both bare message-type names.
+
+
+@then(
+    parsers.re(
+        r'^the content names the activity "(?P<activity>[^"]+)"$'
+    )
+)
+def then_content_names_activity(activity: str, context: dict) -> None:
+    content = context["template_content"]
+    assert activity in content, (
+        f"template {context.get('shown_template_name')!r} does not name §3.2 "
+        f"activity {activity!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'^the content names the activity "(?P<activity>[^"]+)" with the '
+        r'qualifier "(?P<qualifier>[^"]+)"$'
+    )
+)
+def then_content_names_activity_with_qualifier(
+    activity: str, qualifier: str, context: dict
+) -> None:
+    content = context["template_content"]
+    assert activity in content, (
+        f"template {context.get('shown_template_name')!r} does not name §3.2 "
+        f"activity {activity!r}"
+    )
+    # The qualifier must appear in the same paragraph / contiguous block as
+    # the activity name. We approximate "same block" as: somewhere within
+    # 200 bytes after the activity name OR on the same line. That's broad
+    # enough to allow a parenthetical, a sentence-following clause, or the
+    # next sentence, but tight enough that the qualifier is contextually
+    # bound to the activity rather than an unrelated mention elsewhere.
+    idx = content.index(activity)
+    window = content[idx : idx + 200 + len(activity)]
+    assert qualifier in window, (
+        f"qualifier {qualifier!r} must appear near activity {activity!r} in "
+        f"template {context.get('shown_template_name')!r}; window after "
+        f"activity:\n{window!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'^the content names the activity "(?P<activity>[^"]+)" with the '
+        r'qualifier "(?P<q1>[^"]+)" or "(?P<q2>[^"]+)"$'
+    )
+)
+def then_content_names_activity_with_either_qualifier(
+    activity: str, q1: str, q2: str, context: dict
+) -> None:
+    content = context["template_content"]
+    assert activity in content, (
+        f"template {context.get('shown_template_name')!r} does not name §3.2 "
+        f"activity {activity!r}"
+    )
+    idx = content.index(activity)
+    window = content[idx : idx + 200 + len(activity)]
+    assert q1 in window or q2 in window, (
+        f"at least one of qualifiers {q1!r} / {q2!r} must appear near "
+        f"activity {activity!r} in template "
+        f"{context.get('shown_template_name')!r}; window after activity:\n"
+        f"{window!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'^the content names the activity "(?P<activity>[^"]+)" or '
+        r'equivalently mentions both "(?P<token_a>[^"]+)" and '
+        r'"(?P<token_b>[^"]+)" as dispatch vehicles$'
+    )
+)
+def then_content_names_activity_or_equivalent_pair(
+    activity: str, token_a: str, token_b: str, context: dict
+) -> None:
+    content = context["template_content"]
+    # Either: the explicit "Send `request_bugfix`" phrasing appears,
+    # OR both message-type names appear somewhere in the content. The
+    # latter satisfies the §3.2 activity entry "Send `request_bugfix` /
+    # `request_maintenance`" without forcing the template to repeat the
+    # "Send " prefix.
+    if activity in content:
+        return
+    assert token_a in content and token_b in content, (
+        f"template {context.get('shown_template_name')!r} must either name "
+        f"activity {activity!r} OR mention both {token_a!r} and {token_b!r} "
+        f"as dispatch vehicles; neither condition held"
+    )
+
+
+# -----------------------------------------------------------------------
+# Given + Then steps — §3.2 activity guidance coverage (scenarios
+# 9a9421ad59ee5d67 and 5ccb3fb1122f9341)
+# -----------------------------------------------------------------------
+#
+# The Given step stashes the activity list (literal phrasing as it
+# appears in the dispatched scenario) on context. The Then step iterates
+# that list and, for each activity, verifies either:
+#   (a) the activity name appears on a line that also contains a colon
+#       followed by non-whitespace prose (one-line guidance), OR
+#   (b) the activity name appears as a subsection heading whose body
+#       carries at least one sentence of prose, OR
+#   (c) within a 240-byte window after the activity name the literal
+#       phrase "guidance pending" appears (case-insensitive).
+# The "no bare list item" assertion checks that no line of the form
+# "- <activity>" or "* <activity>" exists without trailing colon/prose.
+
+
+def _activity_block_satisfies_guidance(content: str, activity: str) -> tuple[bool, str]:
+    """Return (ok, reason) for the activity-guidance check.
+
+    The check accepts any of three shapes:
+      1. "guidance pending" within a 240-byte window after the activity
+         name (case-insensitive).
+      2. A line that names the activity AND contains a colon followed by
+         non-whitespace prose on the same line — one-line guidance.
+      3. A subsection heading (## or ### or ####) whose text names the
+         activity, with at least one non-blank, non-heading line after
+         it in the same subsection — multi-line guidance.
+    """
+    lower_content = content.lower()
+    lower_activity = activity.lower()
+
+    # Shape 1: explicit "guidance pending" marker near the activity.
+    idx = lower_content.find(lower_activity)
+    while idx != -1:
+        window = lower_content[idx : idx + 240 + len(lower_activity)]
+        if "guidance pending" in window:
+            return True, "guidance-pending marker present"
+        idx = lower_content.find(lower_activity, idx + 1)
+
+    # Shapes 2 and 3: walk line by line.
+    lines = content.splitlines()
+    for i, line in enumerate(lines):
+        if activity not in line:
+            continue
+        stripped = line.lstrip()
+        # Shape 3: heading naming the activity.
+        if stripped.startswith("#"):
+            # Look for at least one non-blank, non-heading line after.
+            for j in range(i + 1, len(lines)):
+                follow = lines[j].strip()
+                if follow.startswith("#"):
+                    break  # next heading reached; no body in this subsection
+                if follow:
+                    return True, "subsection-with-body"
+            # Heading with no body — fall through to bare-list check.
+            continue
+        # Shape 2: one-line guidance. Activity name followed by a colon
+        # and then non-whitespace on the same line.
+        after = line.split(activity, 1)[1]
+        if ":" in after:
+            tail = after.split(":", 1)[1]
+            if tail.strip():
+                return True, "one-line guidance"
+        # Bullet line with just the activity name and nothing else after.
+        # Continue scanning — another occurrence might satisfy.
+    return False, "no satisfying block found"
+
+
+@given(
+    parsers.re(
+        r'^the §3\.2 PO activities (?P<activity_list>".+")$'
+    )
+)
+def given_po_activity_list(activity_list: str, context: dict) -> None:
+    # `activity_list` is the literal comma- and "and"-separated tail
+    # after "the §3.2 PO activities ". Extract each quoted activity name
+    # in order; ", and " is just punctuation between items.
+    import re
+
+    items = re.findall(r'"([^"]+)"', activity_list)
+    assert items, (
+        f"Given step parsed no activity names out of {activity_list!r}"
+    )
+    context["activity_list"] = items
+
+
+@given(
+    parsers.re(
+        r'^the §3\.2 Architect activities (?P<activity_list>".+")$'
+    )
+)
+def given_architect_activity_list(activity_list: str, context: dict) -> None:
+    import re
+
+    items = re.findall(r'"([^"]+)"', activity_list)
+    assert items, (
+        f"Given step parsed no activity names out of {activity_list!r}"
+    )
+    context["activity_list"] = items
+
+
+@then(
+    'for each activity in that list, the content has a contiguous block — '
+    'either a subsection that names the activity or a line that names the '
+    'activity — that contains at minimum one sentence of guidance OR an '
+    'explicit marker of the form "guidance pending" (case-insensitive)'
+)
+def then_each_activity_has_guidance(context: dict) -> None:
+    content = context["template_content"]
+    activities = context["activity_list"]
+    failures: list[str] = []
+    for activity in activities:
+        ok, reason = _activity_block_satisfies_guidance(content, activity)
+        if not ok:
+            failures.append(f"  - {activity!r}: {reason}")
+    assert not failures, (
+        f"template {context.get('shown_template_name')!r} has activities "
+        f"without guidance or a 'guidance pending' marker:\n"
+        + "\n".join(failures)
+    )
+
+
+@then(
+    parsers.re(
+        r'^no §3\.2 (PO|Architect) activity appears as a bare list item with '
+        r'neither guidance nor a "guidance pending" marker$'
+    )
+)
+def then_no_bare_list_item(context: dict) -> None:
+    content = context["template_content"]
+    activities = context["activity_list"]
+    lower = content.lower()
+    failures: list[str] = []
+    for activity in activities:
+        # A bare list item is a line that starts with a bullet marker
+        # (- or *) followed by only the activity name and optional
+        # whitespace, with no trailing prose on the same line AND no
+        # "guidance pending" marker in the immediate vicinity.
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not (stripped.startswith("- ") or stripped.startswith("* ")):
+                continue
+            payload = stripped[2:].strip()
+            if payload != activity:
+                continue
+            # Bare list item suspected. Check for nearby guidance-pending.
+            idx = lower.find(activity.lower())
+            window = lower[idx : idx + 240 + len(activity)]
+            if "guidance pending" not in window:
+                failures.append(
+                    f"  - {activity!r}: bare list item without guidance "
+                    f"or 'guidance pending' marker"
+                )
+    assert not failures, (
+        f"template {context.get('shown_template_name')!r} has bare §3.2 "
+        f"activity list items:\n" + "\n".join(failures)
+    )
+
+
+# -----------------------------------------------------------------------
+# Then steps — role-complete restructure: CLI subordination ordering
+# (scenarios e522f7393dfcd1c1 and a6b3e510821aba52)
+# -----------------------------------------------------------------------
+
+
+@then(
+    'every heading whose text mentions "shop-msg" appears at heading depth '
+    'three (###) or deeper, never at depth two (##) or depth one (#)'
+)
+def then_shop_msg_headings_depth_three_or_deeper(context: dict) -> None:
+    content = context["template_content"]
+    offenders: list[tuple[int, str]] = []
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        stripped = line.lstrip()
+        if not stripped.startswith("#"):
+            continue
+        if "shop-msg" not in stripped:
+            continue
+        # Count the leading # characters to determine depth.
+        depth = 0
+        for ch in stripped:
+            if ch == "#":
+                depth += 1
+            else:
+                break
+        if depth < 3:
+            offenders.append((lineno, line.rstrip()))
+    assert not offenders, (
+        f"template {context.get('shown_template_name')!r} has shop-msg "
+        f"headings at depth < 3:\n"
+        + "\n".join(f"  line {n}: {l!r}" for n, l in offenders)
+    )
+
+
+@then(
+    parsers.parse(
+        'the first occurrence of the substring "shop-msg" in the content '
+        'appears after the "{header}" header'
+    )
+)
+def then_first_shop_msg_after_header(header: str, context: dict) -> None:
+    content = context["template_content"]
+    header_idx = content.find(header)
+    assert header_idx >= 0, (
+        f"premise of Then violated: template "
+        f"{context.get('shown_template_name')!r} is missing header {header!r}"
+    )
+    shop_msg_idx = content.find("shop-msg")
+    assert shop_msg_idx >= 0, (
+        f"premise of Then violated: template "
+        f"{context.get('shown_template_name')!r} has no 'shop-msg' substring"
+    )
+    assert header_idx < shop_msg_idx, (
+        f"header {header!r} at byte {header_idx} must precede first "
+        f"'shop-msg' at byte {shop_msg_idx} in template "
+        f"{context.get('shown_template_name')!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'^the first occurrence of the substring "shop-msg" in the content '
+        r'appears after every §3\.2 (?P<role>PO|Architect) activity name '
+        r'from scenario (?P<scen_idx>\d+) has appeared at least once$'
+    )
+)
+def then_first_shop_msg_after_all_activities(
+    role: str, scen_idx: str, context: dict
+) -> None:
+    content = context["template_content"]
+    if role == "PO":
+        activities = _LEAD_PO_ACTIVITY_NAMES_FROM_SCENARIO_10
+    elif role == "Architect":
+        activities = _LEAD_ARCHITECT_ACTIVITY_NAMES_FROM_SCENARIO_14
+    else:
+        raise AssertionError(f"unrecognized role {role!r}")
+    shop_msg_idx = content.find("shop-msg")
+    assert shop_msg_idx >= 0, (
+        f"premise of Then violated: template "
+        f"{context.get('shown_template_name')!r} has no 'shop-msg' substring"
+    )
+    missing: list[str] = []
+    too_late: list[tuple[str, int, int]] = []
+    for activity in activities:
+        idx = content.find(activity)
+        if idx < 0:
+            missing.append(activity)
+            continue
+        if idx >= shop_msg_idx:
+            too_late.append((activity, idx, shop_msg_idx))
+    assert not missing, (
+        f"premise of Then violated: template "
+        f"{context.get('shown_template_name')!r} is missing §3.2 {role} "
+        f"activity name(s): {missing!r}"
+    )
+    assert not too_late, (
+        f"first 'shop-msg' at byte {shop_msg_idx} in template "
+        f"{context.get('shown_template_name')!r} precedes §3.2 {role} "
+        f"activity name(s) (each must appear at least once before):\n"
+        + "\n".join(
+            f"  - {a!r} first appears at byte {ai} (>= {smi})"
+            for a, ai, smi in too_late
+        )
+    )

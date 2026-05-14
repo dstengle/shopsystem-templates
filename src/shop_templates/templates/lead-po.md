@@ -157,8 +157,9 @@ outbound vehicles (`assign_scenarios`, `request_bugfix`,
 
 ### Responding to a clarify via the shop-msg CLI
 
-1. **Read** the inbox YAML (`shop-msg read outbox` from the BC's outbox, or
-   read the file directly during a dispatch).
+1. **Read** the BC's clarify via `shop-msg read outbox --bc-root <BC
+   root> --work-id <work_id>`. The `shop-msg` CLI is the messaging BC's
+   boundary; do not bypass it to read outbox storage by other means.
 2. **Verify the clarify is yours** — scope and vocabulary clarifies route to
    PO; architecture clarifies route to Architect. If the clarify is
    ambiguous, default to answering and note the routing question in your

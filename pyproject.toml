@@ -32,4 +32,9 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-shop_templates = ["templates/*.md"]
+shop_templates = [
+    "templates/*.md",
+    "templates/*.template",
+    "templates/claude/*.md",
+    "templates/claude_settings/*.json",
+]

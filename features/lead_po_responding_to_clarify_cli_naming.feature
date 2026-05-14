@@ -1,0 +1,9 @@
+Feature: lead-po 'Responding to a clarify' subsection names shop-msg read outbox per step
+
+  @scenario_hash:14837e4ef2ea004d @bc:shopsystem-templates
+  Scenario: lead-po template's "Responding to a clarify" subsection names "shop-msg read outbox" on every step whose action is reading the BC's outbox, never relying on a surrounding clause
+  When I read the lead-po template via "shop-templates show lead-po"
+  And I locate the subsection that begins with the heading "### Responding to a clarify via the shop-msg CLI" and ends at the next heading of depth two (##) or depth three (###), whichever comes first
+  Then within that subsection, every numbered step whose action is reading the clarify from the BC's outbox names the literal substring "shop-msg read outbox" on the same step
+  And within that subsection, no numbered step describes reading the BC's outbox using a bare action verb — "open", "cat", "ls", "grep", "inspect", "view", "edit", "tail", "head", or a bare "Read" — without naming the literal substring "shop-msg read outbox" on the same step
+  And within that subsection, no numbered step refers to the BC's outbox by a path-shaped reference such as "outbox/", "<BC root>/outbox/", or "the outbox file" without naming the literal substring "shop-msg read outbox" on the same step

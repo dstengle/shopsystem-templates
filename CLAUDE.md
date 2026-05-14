@@ -16,31 +16,34 @@ positions — **Implementer** and **Reviewer** per the shop-system spec §4 /
 §4.4 — are dispatched as subagents. Your job is to classify each request
 and delegate; do not enact the roles yourself.
 
-- **Dispatch to the `bc-implementer` subagent** when:
-  `inbox/` holds an unprocessed message (no matching outbox file for its
-  `work_id`) and its `message_type` is `assign_scenarios`,
-  `request_bugfix`, or `request_maintenance`. The implementer reads the
-  inbox YAML, applies the sufficiency check matching the message type,
-  and either emits `clarify` via `shop-msg respond clarify` or does the
-  work (feature file under `features/`, step defs in `tests/conftest.py`,
+- **Dispatch to the `bc-implementer` subagent** when `shop-msg pending
+  inbox --bc-root <this BC root>` reports an unprocessed dispatch whose
+  `message_type` is `assign_scenarios`, `request_bugfix`, or
+  `request_maintenance`. The implementer reads the message via
+  `shop-msg read inbox --bc-root <this BC root> --work-id <work_id>`,
+  applies the sufficiency check matching the message type, and either
+  emits `clarify` via `shop-msg respond clarify` or does the work
+  (feature file under `features/`, step defs in `tests/conftest.py`,
   implementation under `src/`, BDD passing).
 
-- **Dispatch to the `bc-reviewer` subagent** AFTER the implementer's turn
-  on an `assign_scenarios` (or scenario-carrying `request_bugfix`)
+- **Dispatch to the `bc-reviewer` subagent** AFTER the implementer's
+  turn on an `assign_scenarios` (or scenario-carrying `request_bugfix`)
   message has finished and the BC is in its post-work state with no
-  outbox file yet. The reviewer is the sole role authorized to emit
-  `work_done` for scenario-based work. It re-runs BDD, adversarially
-  probes the implementation, and either signs off (`work_done` complete),
-  escalates a scenario gap (`clarify`), or reports an implementation gap
-  (`work_done` blocked).
+  outbox response yet. (Confirm via `shop-msg pending inbox` — the
+  inbox entry the implementer worked on still appears as pending until
+  the outbox response is written.) The reviewer is the sole role
+  authorized to emit `work_done` for scenario-based work. It re-runs
+  BDD, adversarially probes the implementation, and either signs off
+  (`work_done` complete), escalates a scenario gap (`clarify`), or
+  reports an implementation gap (`work_done` blocked).
 
 - **Do NOT dispatch** for: routine git / beads / shell operations;
-  reporting current repo state; reading or summarizing the inbox/outbox
-  files without acting on them; conversational clarification of what was
-  just done; routine maintenance (`request_maintenance`) where the
-  implementer also emits the terminal `work_done` itself per the
-  template's contract. Handle simple read-only inspections in main-agent
-  context.
+  reporting current repo state; running `shop-msg pending inbox` or
+  `shop-msg read inbox` for read-only inspection without acting on the
+  result; conversational clarification of what was just done; routine
+  maintenance (`request_maintenance`) where the implementer also emits
+  the terminal `work_done` itself per the template's contract. Handle
+  simple read-only inspections in main-agent context.
 
 Subagent definitions are at [`.claude/agents/bc-implementer.md`](.claude/agents/bc-implementer.md)
 and [`.claude/agents/bc-reviewer.md`](.claude/agents/bc-reviewer.md).
@@ -50,19 +53,29 @@ inline copies of the canonical templates in this repo at
 edit the inline copies independently of the canonical source — those
 files are this BC's product.
 
-## BC inbox / outbox protocol
+## BC messaging protocol — shop-msg CLI
 
-- **Inbox** (`inbox/`) holds messages from the lead shop. Filename
-  convention: `<work_id>.yaml`. One file per dispatch.
-- **Outbox** (`outbox/`) holds this BC's responses. Filename convention:
-  `<work_id>-<response_type>.yaml`. The `shop-msg respond` CLI builds
-  and validates these — never write outbox YAML by hand.
-- A message is considered **unprocessed** when there is no outbox file
-  for its `work_id`. Check both directories before dispatching.
+This BC participates in the inter-shop messaging protocol exclusively
+through the `shop-msg` CLI; the on-disk storage layout is the messaging
+BC's private detail.
+
+- **List pending dispatches** with
+  `shop-msg pending inbox --bc-root <this BC root>`. The output names
+  the dispatches that the lead shop has sent into this BC and that this
+  BC has not yet responded to. That definition — "pending" — comes from
+  `shop-msg`; you do not derive it from filesystem state.
+- **Read a specific dispatch** with
+  `shop-msg read inbox --bc-root <this BC root> --work-id <work_id>`.
+- **Send a response** with `shop-msg respond clarify | work_done |
+  mechanism_observation` (each subcommand has its own flag shape;
+  `shop-msg respond <type> --help` documents it).
+- **Never write to mailbox storage by other means.** Hand-written YAML,
+  direct `cat`/`open`/`ls` against the mailboxes, and reasoning about
+  filenames are all failure modes — the CLI is the only sanctioned
+  boundary.
 - The `shop-msg` CLI is installed in the product-level venv at
   `/workspaces/shopsystem-product/.venv/bin/shop-msg`. Subagents should
-  invoke that absolute path (or activate the venv) for `shop-msg respond
-  clarify | work_done | mechanism_observation`.
+  invoke that absolute path (or activate the venv).
 
 ## What does NOT happen in this repo
 
@@ -76,10 +89,11 @@ files are this BC's product.
   without an inbox message authorizing it.** Those files are this BC's
   product; changes to them flow through `assign_scenarios` /
   `request_bugfix` / `request_maintenance` like any other BC work.
-- **No writing to `inbox/` or `outbox/` by hand.** `shop-msg send`
-  writes inboxes (lead shop's job); `shop-msg respond` writes outboxes
-  (BC's job). Both validate against the schema. Hand-written YAML is a
-  failure mode.
+- **No writing mailbox YAML by hand.** `shop-msg send` writes the
+  lead-to-BC side (lead shop's job); `shop-msg respond` writes the
+  BC-to-lead side (BC's job). Both validate against the schema. Routing
+  mailbox writes through the CLI is the only sanctioned path; the
+  storage layout is the messaging BC's private detail.
 
 ## Repo layout
 

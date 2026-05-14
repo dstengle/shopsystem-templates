@@ -148,9 +148,43 @@ ALL must be answered before composing an outbound message:
    sentence: "I ran `<command>` and observed `<result>` in the resulting
    YAML" or "I composed `<fixture>` and confirmed it passes/fails today."
 
+5. **Have you enumerated the BC's pinned @scenario_hash set when the dispatch
+   retires, supersedes, or contradicts prior BC-side coverage?** The BC's
+   `features/` directory is the authoritative source for its pinned
+   `@scenario_hash` set — not the lead shop's scenario register, which may
+   lag or miss intermediate BC-side pinning. Before composing any dispatch
+   that would retire, supersede, or contradict existing BC-side coverage, you
+   must enumerate the BC's current `@scenario_hash` set by running:
+
+   ```
+   grep -r "@scenario_hash" <BC root>/features/*.feature
+   ```
+
+   This enumeration is a discrete pre-state step alongside the empirical
+   behavior-verification step above — not optional guidance. Both steps must
+   run before the dispatch is composed.
+
+   **On every dispatch in a clarify-correction chain:** a prior Implementer
+   `clarify` is evidence that your prior enumeration was incomplete — it is
+   not a definitive list of every conflicting BC-side `@scenario_hash`. Re-run
+   the full enumeration (`grep` across the BC's entire `features/` tree) on
+   each dispatch in the chain, not only on the initial dispatch. Do not limit
+   the re-enumeration to only the `@scenario_hash` entries the prior clarify
+   named.
+
+   **Observable evidence in the dispatch text:** for any dispatch that retires,
+   supersedes, or contradicts prior BC-side coverage, the dispatch text must
+   reference each conflicting BC-side `@scenario_hash` entry by its hash ID,
+   or carry an explicit retirement instruction for that hash. This is the
+   observable evidence the BC Implementer can use to confirm the architect ran
+   the enumeration step. Cite the enumeration in the dispatch description (in
+   the same shape that the existing behavior-verification step is cited), so
+   the Implementer does not have to re-run the enumeration to discover
+   conflicts the architect missed.
+
 If you find yourself reaching for a vehicle without doing these checks
-in order — including the empirical step — you are pattern-matching.
-STOP. Run the checks.
+in order — including the empirical step and the @scenario_hash enumeration —
+you are pattern-matching. STOP. Run the checks.
 
 ## Sufficiency check — `assign_scenarios`
 
@@ -227,10 +261,13 @@ the PO template articulates applies: punting is the worst outcome.
 
 ## Constraints
 
-- All inter-shop messages go via the CLI mechanics below. Do not write
-  inbox or outbox YAML files by hand.
+- All inter-shop communication — outbound dispatches and inbound
+  response inspection alike — goes through the `shop-msg` CLI. Do not
+  bypass it to read or write mailbox storage by other means.
 - One message_type per outbound message.
-- Inbox filename convention: `<work_id>.yaml` (no message-type suffix).
+- The mailbox-storage layout is the messaging BC's private detail. You
+  address messages by `--bc-root` and `--work-id`; you do not reason
+  about filenames.
 - Hash discipline: compute via `scenarios hash` (the dispatch CLI does
   this automatically). The hash on each ScenarioPayload must match
   `scenarios hash` of the body.
@@ -255,16 +292,21 @@ on the wire.
    For `assign_scenarios` and `request_bugfix` that carry scenarios,
    prepare scenario body files (no Feature line, no tags) and pass via
    repeatable `--scenario-file`; the CLI handles hashing and wrapping.
-5. **Verify the message was deposited** by reading the inbox file with
-   `shop-msg read outbox` (yes, it works for inbox too if you point at
-   the BC root). Confirm the scenario hashes match what `scenarios hash`
-   produces for the bodies.
+5. **Verify the message was deposited** by reading it back via
+   `shop-msg read inbox --bc-root <BC root> --work-id <work_id>`.
+   Confirm the scenario hashes match what `scenarios hash` produces
+   for the bodies. To see at a glance which BCs currently have pending
+   outbound responses to your lead-shop, run
+   `shop-msg pending outbox --lead-root <lead root>`.
 6. **Report** which vehicle you selected, which sufficiency-check question
    made the call, the work_id, and the scenario hashes (if any).
 
 ### Responding to a BC clarify via shop-msg respond
 
-1. **Read the clarify** from the BC's outbox.
+1. **Read the clarify** from the BC's outbox via `shop-msg read outbox
+   --bc-root <BC root> --work-id <work_id>`. The `shop-msg` CLI is the
+   messaging BC's boundary; do not bypass it to read outbox storage by
+   other means.
 2. **Verify the clarify is yours.** Architecture / decomposition / contract
    questions route to you; scope and vocabulary route to the PO. If
    ambiguous, default to answering and note the routing question.

@@ -26,15 +26,7 @@ Feature: Bootstrap CLI surface — bd-init side-effect closure (lead-k8v round 2
       | bc        |
       | lead      |
 
-  @scenario_hash:2afb5cba3ea3de25 @bc:shopsystem-templates
-  Scenario Outline: the top-level "CLAUDE.md" that bootstrap writes into the target directory references the bd (beads) discipline by naming "bd prime", for both shop types, so the bootstrapped shop is self-describing about its working discipline without depending on bd's own AGENTS.md generation
-    Given an existing git repository at a target directory "<target>" with no top-level "CLAUDE.md"
-    When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
-    Then the exit code is 0
-    And the target directory contains a top-level file named "CLAUDE.md"
-    And the content of that file contains the literal substring "bd prime"
-
-    Examples:
-      | shop_type | shop_name               | target                       |
-      | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
-      | lead      | shopsystem-product      | /tmp/example-lead-shop       |
+  # @scenario_hash:2afb5cba3ea3de25 RETIRED (lead-3c6)
+  # Asserted CLAUDE.md body contains "bd prime". Under PDR-003 alt F, CLAUDE.md
+  # is a pure @-import file; the "bd prime" invariant relocated to
+  # .claude/canonical/<shop_type>-primer.md, pinned by lead-shop scenarios 52 + 53.

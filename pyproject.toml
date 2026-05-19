@@ -36,5 +36,6 @@ shop_templates = [
     "templates/*.md",
     "templates/*.template",
     "templates/claude/*.md",
+    "templates/claude_body/*.md",
     "templates/claude_settings/*.json",
 ]

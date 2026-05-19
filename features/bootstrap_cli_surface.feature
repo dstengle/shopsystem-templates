@@ -149,14 +149,12 @@ Feature: shop-templates bootstrap CLI surface (brief 002, items A-E)
     And after the invocation the directory ".claude/agents/" in the target directory contains a file named "<new-bc-role>.md" whose content equals the current canonical "<new-bc-role>" template package-data file contents byte-for-byte
     And after the invocation the set of files in ".claude/agents/" whose names match the canonical role-set naming convention equals the current canonical role set for shop type "bc"
 
-  @scenario_hash:56a0ac7107ba5c15 @bc:shopsystem-templates
-  Scenario: update does not overwrite or otherwise modify the target directory's top-level "CLAUDE.md", even when the canonical "CLAUDE.md" primer template has changed since the shop was bootstrapped
-    Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "bc" shop named "example-shop"
-    And the file at "CLAUDE.md" in the target directory has been edited since bootstrap so that its content includes a literal shop-authored sentence that the canonical "CLAUDE.md" primer template does not contain
-    And I record the byte contents of the file at "CLAUDE.md" in the target directory before the invocation
-    When I invoke the "shop-templates" update entry point against the target directory "/tmp/example-shop"
-    Then the exit code is 0
-    And after the invocation the file at "CLAUDE.md" in the target directory has byte-for-byte the same on-disk contents as before the invocation
+  # @scenario_hash:56a0ac7107ba5c15 RETIRED (lead-ro8, superseded by lead-2oe scenario c458502d8632952b + PDR-003 alt F)
+  # Asserted update does NOT overwrite CLAUDE.md. Under PDR-003 alt F, CLAUDE.md is a
+  # canonical-managed @-import file; update now overwrites it when it has drifted,
+  # restoring byte-for-byte equality with the canonical body template. The non-touch
+  # invariant moves to .claude/shop/primer.md (shop-authored content). Pinned by
+  # lead-2oe scenario c458502d8632952b and lead-shop scenarios 77-78.
 
   @scenario_hash:ca0f0a249d025267 @bc:shopsystem-templates
   Scenario: update does not overwrite or otherwise modify the target directory's top-level ".gitignore", even when the canonical ".gitignore" template has changed since the shop was bootstrapped
@@ -197,29 +195,14 @@ Feature: shop-templates bootstrap CLI surface (brief 002, items A-E)
     Then the exit code is 0
     And after the invocation the file at ".claude/agents/bc-implementer.md" in the target directory equals the current canonical "bc-implementer" template package-data file contents byte-for-byte
 
-  @scenario_hash:0cce58eb573d3c91 @bc:shopsystem-templates
-  Scenario Outline: shopsystem-templates ships a canonical "CLAUDE.md" primer template for each shop type, accessible through the same package-data surface as the role-prompt templates
-    When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "<shop_type>" through its public template-access surface
-    Then a non-empty template body is returned
-    And the returned body is the source of truth from which the bootstrap entry point generates the target directory's top-level "CLAUDE.md" for a shop of type "<shop_type>"
-    And the returned body is not read from any path under this product's top-level working directory at lookup time
+  # @scenario_hash:0cce58eb573d3c91 RETIRED (lead-ro8, superseded by lead-shop scenarios 77-78 + PDR-003 alt F)
+  # Asserted primer body is source of truth for CLAUDE.md content. Under PDR-003 alt F,
+  # the CLAUDE.md body template is a pure @-import file (new surface); the primer body
+  # (read_claude_md_primer()) becomes the canonical content for .claude/canonical/<type>-primer.md,
+  # not CLAUDE.md directly. The invariant is preserved by lead-shop scenarios 77-78.
 
-    Examples:
-      | shop_type |
-      | bc        |
-      | lead      |
-
-  @scenario_hash:a15dac2f87549b8a @bc:shopsystem-templates
-  Scenario Outline: the top-level "CLAUDE.md" that bootstrap writes into the target directory names the shop's own identity — its shop name and its role set — and is consistent with the canonical primer template for the chosen shop type
-    Given an existing git repository at a target directory "<target>" with no top-level "CLAUDE.md"
-    When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
-    Then the exit code is 0
-    And the target directory contains a top-level file named "CLAUDE.md"
-    And the content of that file contains the literal substring "<shop_name>"
-    And the content of that file names every role in the canonical role set for shop type "<shop_type>" by name
-    And the content of that file does not name any role from the canonical role set of the other shop type
-
-    Examples:
-      | shop_type | shop_name               | target                       |
-      | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
-      | lead      | shopsystem-product      | /tmp/example-lead-shop       |
+  # @scenario_hash:a15dac2f87549b8a RETIRED (lead-ro8, superseded by lead-shop scenario 79 + PDR-003 alt F)
+  # Asserted bootstrapped CLAUDE.md contains shop name + role names. Under PDR-003 alt F,
+  # bootstrap writes CLAUDE.md as a pure @-import file (byte-for-byte from canonical body
+  # template, no shop-specific splicing). Shop name now lives in .claude/shop/name.md,
+  # pinned by lead-shop scenario 79 (bootstrap-writes-claude-shop-name-md-with-literal-shop-name).

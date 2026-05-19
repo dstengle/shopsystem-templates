@@ -36,6 +36,7 @@ from pathlib import Path
 
 _TEMPLATES_PKG = "shop_templates.templates"
 _CLAUDE_TEMPLATES_PKG = "shop_templates.templates.claude"
+_CLAUDE_BODY_TEMPLATES_PKG = "shop_templates.templates.claude_body"
 _CLAUDE_SETTINGS_PKG = "shop_templates.templates.claude_settings"
 
 # The canonical role-set assignment per shop type. The bootstrap surface
@@ -106,6 +107,32 @@ def read_claude_md_primer(shop_type: str) -> str:
             f"{', '.join(_SHOP_TYPES)}"
         )
     resource = files(_CLAUDE_TEMPLATES_PKG) / f"{shop_type}.md"
+    return resource.read_text()
+
+
+def read_claude_md_body_template(shop_type: str) -> str:
+    """Return the canonical CLAUDE.md body template for a shop type.
+
+    The body template is the file that bootstrap writes byte-for-byte as
+    the target directory's top-level CLAUDE.md. It contains only @-import
+    directives referencing the four typed files that bootstrap also writes
+    (.claude/shop/name.md, .claude/shop/type.md,
+    .claude/canonical/<shop_type>-primer.md, .claude/shop/primer.md).
+    No shop-specific substitution is applied; the body is written
+    byte-for-byte.
+
+    Loaded from package data via importlib.resources; never read from a
+    filesystem path under the product working directory.
+
+    Per scenarios cad9ccb5b462978d and 2b9bd9c82017b0c6 (lead-2oe /
+    PDR-003 alt F).
+    """
+    if shop_type not in _CANONICAL_ROLE_SETS:
+        raise ValueError(
+            f"unknown shop type {shop_type!r}; accepted values: "
+            f"{', '.join(_SHOP_TYPES)}"
+        )
+    resource = files(_CLAUDE_BODY_TEMPLATES_PKG) / f"{shop_type}.md"
     return resource.read_text()
 
 
@@ -187,12 +214,18 @@ def _cmd_show(args: argparse.Namespace) -> int:
 
 
 def _render_claude_md(shop_type: str, shop_name: str) -> str:
-    """Render the CLAUDE.md primer for a shop type by substituting the
-    shop name. The primer must name the shop's identity (its shop_name
-    and its role set) per scenario a15dac2f87549b8a.
+    """Return the CLAUDE.md body template for a shop type.
+
+    Under PDR-003 alt F, bootstrap writes CLAUDE.md byte-for-byte from
+    the canonical body template (no shop-specific substitution into the
+    file itself). The shop name is recorded separately in
+    .claude/shop/name.md (scenario 207dcfa0f8b3ca91). The {{SHOP_NAME}}
+    parameter is retained in the signature for call-site compatibility
+    but is not used.
+
+    Scenarios a15dac2f87549b8a and 0cce58eb573d3c91 are RETIRED (lead-ro8).
     """
-    primer = read_claude_md_primer(shop_type)
-    return primer.replace("{{SHOP_NAME}}", shop_name)
+    return read_claude_md_body_template(shop_type)
 
 
 def _bd_init_in(target: Path) -> int:
@@ -348,8 +381,33 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
             return 1
         (agents_dir / f"{role_name}.md").write_text(body)
 
-    # Top-level CLAUDE.md — render the primer with the shop's identity.
+    # Top-level CLAUDE.md — write the canonical body template byte-for-byte.
+    # Under PDR-003 alt F, CLAUDE.md is a pure @-import file; no shop-specific
+    # substitution is applied (scenarios 2b9bd9c82017b0c6 and cad9ccb5b462978d).
     (target / "CLAUDE.md").write_text(_render_claude_md(shop_type, shop_name))
+
+    # .claude/shop/name.md — literal shop name with a single trailing newline
+    # and no other content (scenario 207dcfa0f8b3ca91).
+    shop_dir = target / ".claude" / "shop"
+    shop_dir.mkdir(parents=True, exist_ok=True)
+    (shop_dir / "name.md").write_text(shop_name + "\n")
+
+    # .claude/shop/type.md — literal shop type with a single trailing newline
+    # and no other content (scenario 510520660d55522a).
+    (shop_dir / "type.md").write_text(shop_type + "\n")
+
+    # .claude/canonical/<shop_type>-primer.md — canonical primer template
+    # byte-for-byte from package data (scenario 35c34f0e2d11c092).
+    canonical_dir = target / ".claude" / "canonical"
+    canonical_dir.mkdir(parents=True, exist_ok=True)
+    (canonical_dir / f"{shop_type}-primer.md").write_text(
+        read_claude_md_primer(shop_type)
+    )
+
+    # .claude/shop/primer.md — shop-authored placeholder; written as an empty
+    # file so the operator may populate it later. Must NOT contain canonical
+    # primer text (scenario 0bba99e6f592a788).
+    (shop_dir / "primer.md").write_text("")
 
     # Top-level .gitignore — pour the canonical template.
     (target / ".gitignore").write_text(read_gitignore_template())
@@ -482,16 +540,6 @@ def _install_sibling_bc_clones_editable(target: Path) -> int:
 
 
 def _cmd_update(args: argparse.Namespace) -> int:
-    # Update requires shop_type as an explicit argument so the
-    # reconciliation step (scenario 03b4e3fa31d72031) can compare the
-    # current contents of .claude/agents/ against the current canonical
-    # role set for the right shop type. Inferring the shop type from
-    # .claude/agents/ contents is unsafe: a hand-mutated shop may have
-    # zero files whose names are in either canonical set.
-    err = _validate_shop_type(args.shop_type, "update")
-    if err is not None:
-        return 2
-
     # Validate target early. Scenario 8fe363bd46cb766c pins exit 2 +
     # stderr names "--target" + no traceback + every file under the
     # previously-bootstrapped shop's .claude/agents/ is byte+mtime
@@ -503,7 +551,45 @@ def _cmd_update(args: argparse.Namespace) -> int:
         return 2
 
     target = Path(args.target)
-    shop_type: str = args.shop_type
+
+    # Resolve shop type. PDR-003 alt F: the canonical shop type is
+    # recorded in .claude/shop/type.md at bootstrap time (scenario
+    # f55678f733a5427a). If --shop-type is provided explicitly (backward
+    # compatibility), use it. Otherwise, read from .claude/shop/type.md.
+    # If neither is available (legacy shop predating PDR-003 alt F),
+    # exit non-zero with a migration diagnostic (scenario e51ac69bba8fd909).
+    if args.shop_type is not None:
+        # Explicit --shop-type provided; validate it.
+        err = _validate_shop_type(args.shop_type, "update")
+        if err is not None:
+            return 2
+        shop_type: str = args.shop_type
+    else:
+        type_file = target / ".claude" / "shop" / "type.md"
+        if not type_file.exists():
+            print(
+                f"shop-templates update: .claude/shop/type.md not found in "
+                f"{target!s}. This appears to be a legacy shop that was "
+                f"bootstrapped before PDR-003 alternative F. migration steps: "
+                f"(1) run `shop-templates bootstrap --shop-type <type> "
+                f"--shop-name <name> --target {target!s}` to re-bootstrap "
+                f"with the current shop structure, or (2) manually create "
+                f".claude/shop/type.md containing the shop type (bc or lead) "
+                f"and re-run update.",
+                file=sys.stderr,
+            )
+            return 2
+        shop_type = type_file.read_text().strip()
+        if shop_type not in _CANONICAL_ROLE_SETS:
+            print(
+                f"shop-templates update: .claude/shop/type.md in {target!s} "
+                f"contains invalid shop type {shop_type!r}. migration steps: "
+                f"update the file to contain a valid shop type (one of: "
+                f"{', '.join(_SHOP_TYPES)}) and re-run update.",
+                file=sys.stderr,
+            )
+            return 2
+
     agents_dir = target / ".claude" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
 
@@ -581,10 +667,7 @@ def _cmd_update(args: argparse.Namespace) -> int:
     # Step 3: re-pour the canonical .claude/settings.json. Per scenarios
     # d29cd723439faae1 and d3066d4476d0a975: settings.json is treated as
     # bootstrap-managed (not init-only) — stale content is replaced and
-    # already-current content is left byte-for-byte unchanged. This is
-    # additive to the prior update contract: the non-touch invariant on
-    # CLAUDE.md / .gitignore / .beads/ (scenarios 56a0ac7107ba5c15,
-    # ca0f0a249d025267, 3f4d7d2256a97ae7, efae77e534588357) still holds.
+    # already-current content is left byte-for-byte unchanged.
     canonical_settings = read_claude_settings_template(shop_type)
     settings_file = target / ".claude" / "settings.json"
     settings_file.parent.mkdir(parents=True, exist_ok=True)
@@ -592,6 +675,33 @@ def _cmd_update(args: argparse.Namespace) -> int:
         pass  # leave byte+mtime unchanged
     else:
         settings_file.write_text(canonical_settings)
+
+    # Step 4: re-pour the top-level CLAUDE.md from the canonical body
+    # template byte-for-byte. Per scenario c458502d8632952b (PDR-003 alt F):
+    # update overwrites a drifted CLAUDE.md. Per scenario ac5a21e046564d01:
+    # if already matching, leave byte+mtime unchanged.
+    canonical_body = read_claude_md_body_template(shop_type)
+    claude_md_file = target / "CLAUDE.md"
+    if claude_md_file.exists() and claude_md_file.read_text() == canonical_body:
+        pass  # leave byte+mtime unchanged
+    else:
+        claude_md_file.write_text(canonical_body)
+
+    # Step 5: re-pour .claude/canonical/<shop_type>-primer.md from the
+    # canonical primer template byte-for-byte. Per scenario ce122bcb7d794888
+    # (PDR-003 alt F): update overwrites a drifted canonical primer. Per
+    # scenario ac5a21e046564d01: if already matching, leave byte+mtime
+    # unchanged. .claude/shop/name.md, .claude/shop/type.md, and
+    # .claude/shop/primer.md are NEVER touched by update (scenarios
+    # 3d3f8c8427366491, ca3fc9ec7c67ddb2, 91e2db0f9e3e58d5).
+    canonical_primer = read_claude_md_primer(shop_type)
+    canonical_dir = target / ".claude" / "canonical"
+    canonical_dir.mkdir(parents=True, exist_ok=True)
+    primer_file = canonical_dir / f"{shop_type}-primer.md"
+    if primer_file.exists() and primer_file.read_text() == canonical_primer:
+        pass  # leave byte+mtime unchanged
+    else:
+        primer_file.write_text(canonical_primer)
 
     return 0
 

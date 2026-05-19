@@ -3176,23 +3176,14 @@ def when_invoke_update(
     alias: str, context: dict, tmp_path: Path
 ) -> None:
     real = _real_target_for_alias(alias, context)
-    # The shop_type was stashed by the "previously bootstrapped" Given.
+    # If the shop_type was stashed by a "previously bootstrapped" Given,
+    # pass it explicitly (backward compatibility). Otherwise, omit it so
+    # the CLI reads it from .claude/shop/type.md (or fails for legacy shops).
     shop_type = context.get("bootstrap_shop_type")
-    assert shop_type is not None, (
-        "scenario inconsistency: update invoked but no prior bootstrap "
-        "captured the shop type"
-    )
-    result = _run_shop_templates_with_bd_shim(
-        [
-            "update",
-            "--target",
-            str(real),
-            "--shop-type",
-            shop_type,
-        ],
-        context,
-        tmp_path,
-    )
+    args = ["update", "--target", str(real)]
+    if shop_type is not None:
+        args.extend(["--shop-type", shop_type])
+    result = _run_shop_templates_with_bd_shim(args, context, tmp_path)
     context["cli_returncode"] = result.returncode
     context["cli_stdout"] = result.stdout
     context["cli_stderr"] = result.stderr
@@ -6207,3 +6198,878 @@ def then_every_inner_element_optional_string_key(
                 f"element {i} of {path!r} has no string {key!r} "
                 f"key: {inner_elem!r}"
             )
+
+
+# =======================================================================
+# Step definitions — import-graph CLAUDE.md: typed files, bootstrap,
+# and update contracts (PDR-003 alt F, lead-2oe / lead-ro8)
+# =======================================================================
+#
+# Scenarios pin:
+#   - The canonical CLAUDE.md body template surface (cad9ccb5b462978d)
+#   - Bootstrap writes CLAUDE.md byte-for-byte from body template
+#     (2b9bd9c82017b0c6)
+#   - Bootstrap writes .claude/shop/name.md (207dcfa0f8b3ca91)
+#   - Bootstrap writes .claude/shop/type.md (510520660d55522a)
+#   - Bootstrap writes .claude/canonical/<type>-primer.md (35c34f0e2d11c092)
+#   - Bootstrap writes .claude/shop/primer.md as placeholder
+#     (0bba99e6f592a788)
+#   - @-import resolution shows all four typed files (68ce85606d46d7bb)
+#   - Update overwrites CLAUDE.md when drifted (c458502d8632952b)
+#   - Update overwrites canonical primer when drifted (ce122bcb7d794888)
+#   - Update leaves .claude/shop/name.md untouched (3d3f8c8427366491)
+#   - Update leaves .claude/shop/type.md untouched (ca3fc9ec7c67ddb2)
+#   - Update leaves .claude/shop/primer.md untouched (91e2db0f9e3e58d5)
+#   - Update is idempotent (ac5a21e046564d01)
+#   - Update reads shop type from .claude/shop/type.md (f55678f733a5427a)
+#   - Legacy shop: update exits non-zero (e51ac69bba8fd909)
+
+
+# -----------------------------------------------------------------------
+# When step — ask for canonical CLAUDE.md body template
+# -----------------------------------------------------------------------
+
+
+@when(
+    parsers.parse(
+        'I ask the "shop-templates" package for the canonical "CLAUDE.md" '
+        'body template for shop type "{shop_type}" through its public '
+        'template-access surface'
+    )
+)
+def when_ask_for_claude_body_template(shop_type: str, context: dict) -> None:
+    from shop_templates.cli import read_claude_md_body_template
+
+    context["claude_body_shop_type"] = shop_type
+    context["claude_body_template"] = read_claude_md_body_template(shop_type)
+    context["last_returned_body"] = context["claude_body_template"]
+    context["last_returned_surface"] = "claude_body_template"
+    context["last_returned_shop_type"] = shop_type
+
+
+# -----------------------------------------------------------------------
+# Then steps — body template @-import line assertions
+# -----------------------------------------------------------------------
+
+
+@then(
+    parsers.parse(
+        'the returned body contains an "@" import line referencing '
+        '"{import_path}"'
+    )
+)
+def then_returned_body_contains_import_line(
+    import_path: str, context: dict
+) -> None:
+    body = context.get("last_returned_body")
+    assert body is not None, (
+        "no returned body in context; the matching When step did not run"
+    )
+    # An @-import line is a line whose content is "@<path>" (with optional
+    # surrounding whitespace). Check that the body has a line that after
+    # stripping starts with "@" and contains the expected path.
+    expected_line = f"@{import_path}"
+    lines = body.splitlines()
+    assert any(line.strip() == expected_line for line in lines), (
+        f"returned body does not contain an '@' import line referencing "
+        f"{import_path!r}; expected a line matching {expected_line!r}.\n"
+        f"Body:\n{body!r}"
+    )
+
+
+# -----------------------------------------------------------------------
+# Given steps — target directory premises for new scenarios
+# -----------------------------------------------------------------------
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'with no ".claude/shop/" subdirectory'
+    )
+)
+def given_existing_git_repo_no_claude_shop_subdir(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    shop_dir = real / ".claude" / "shop"
+    assert not shop_dir.exists(), (
+        f"premise of Given violated: {shop_dir!s} unexpectedly exists"
+    )
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'with no ".claude/canonical/" subdirectory'
+    )
+)
+def given_existing_git_repo_no_claude_canonical_subdir(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    canonical_dir = real / ".claude" / "canonical"
+    assert not canonical_dir.exists(), (
+        f"premise of Given violated: {canonical_dir!s} unexpectedly exists"
+    )
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'that contains a top-level "CLAUDE.md" and has no file at '
+        '".claude/shop/type.md"'
+    )
+)
+def given_existing_git_repo_with_claude_md_no_shop_type(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    # Create a top-level CLAUDE.md as a legacy placeholder.
+    (real / "CLAUDE.md").write_text(
+        "# Legacy shop CLAUDE.md\nThis is a legacy shop.\n"
+    )
+    # Ensure .claude/shop/type.md does NOT exist.
+    type_file = real / ".claude" / "shop" / "type.md"
+    assert not type_file.exists(), (
+        f"premise of Given violated: {type_file!s} unexpectedly exists"
+    )
+
+
+# -----------------------------------------------------------------------
+# Given steps — file-editing premises for update scenarios
+# -----------------------------------------------------------------------
+
+
+@given(
+    parsers.parse(
+        'the file at "{path}" in the target directory has been edited '
+        'since bootstrap so that its byte contents are not equal to the '
+        'canonical "CLAUDE.md" body template for shop type "{shop_type}"'
+    )
+)
+def given_file_edited_to_differ_from_body_template(
+    path: str, shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_body_template
+
+    real = _resolve_single_target(context)
+    target_file = real / path
+    canonical = read_claude_md_body_template(shop_type)
+    edited = canonical + "\nSHOP-AUTHORED CONTENT NOT IN BODY TEMPLATE.\n"
+    target_file.write_text(edited)
+    assert target_file.read_text() != canonical, (
+        f"premise of Given violated: edited file still equals canonical "
+        f"body template for {shop_type!r}"
+    )
+
+
+@given(
+    parsers.parse(
+        'the file at "{path}" in the target directory has been edited '
+        'since bootstrap so that its byte contents are not equal to the '
+        'canonical "CLAUDE.md" primer template for shop type "{shop_type}"'
+    )
+)
+def given_file_edited_to_differ_from_primer_template(
+    path: str, shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_primer
+
+    real = _resolve_single_target(context)
+    target_file = real / path
+    canonical = read_claude_md_primer(shop_type)
+    edited = canonical + "\nSHOP-AUTHORED CONTENT NOT IN PRIMER.\n"
+    target_file.write_text(edited)
+    assert target_file.read_text() != canonical, (
+        f"premise of Given violated: edited file still equals canonical "
+        f"primer template for {shop_type!r}"
+    )
+
+
+@given(
+    parsers.parse(
+        'the file at "{path}" in the target directory has been edited '
+        'since bootstrap so that its content includes a literal shop-authored '
+        'sentence'
+    )
+)
+def given_file_edited_with_shop_authored_sentence(
+    path: str, context: dict
+) -> None:
+    real = _resolve_single_target(context)
+    target_file = real / path
+    original = target_file.read_text()
+    edited = original + "\nSHOP-AUTHORED SENTENCE (non-canonical).\n"
+    target_file.write_text(edited)
+
+
+@given(
+    parsers.parse(
+        'the file at "{path}" in the target directory has been edited '
+        'since bootstrap so that its content includes a literal shop-authored '
+        'sentence that the canonical "CLAUDE.md" primer template does not '
+        'contain'
+    )
+)
+def given_file_edited_with_shop_authored_sentence_not_in_primer(
+    path: str, context: dict
+) -> None:
+    """Edit the named file to include a shop-authored sentence that is
+    verifiably NOT in the canonical CLAUDE.md primer template. Used for
+    .claude/shop/primer.md non-touch assertions (scenario 91e2db0f9e3e58d5).
+    """
+    real = _resolve_single_target(context)
+    target_file = real / path
+    original = target_file.read_text()
+    # Use a deliberately unique marker unlikely to appear in any canonical
+    # primer template.
+    shop_sentence = "\nSHOP-AUTHORED UNIQUE SENTENCE 8f3a2b7c NOT IN CANONICAL PRIMER.\n"
+    edited = original + shop_sentence
+    target_file.write_text(edited)
+
+
+@given(
+    parsers.parse(
+        'the file at "{path}" in the target directory has byte contents '
+        'equal to the canonical "CLAUDE.md" body template for shop type '
+        '"{shop_type}"'
+    )
+)
+def given_file_equals_body_template(
+    path: str, shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_body_template
+
+    real = _resolve_single_target(context)
+    target_file = real / path
+    canonical = read_claude_md_body_template(shop_type)
+    # If the file already equals canonical, nothing to do.
+    if not target_file.exists() or target_file.read_text() != canonical:
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(canonical)
+
+
+@given(
+    parsers.re(
+        r'^the file at "\.claude/canonical/(?P<shop_type>[^"]+)-primer\.md" '
+        r'in the target directory has byte contents equal to the canonical '
+        r'"CLAUDE\.md" primer template for shop type "[^"]+"$'
+    )
+)
+def given_canonical_primer_file_equals_primer_template(
+    shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_primer
+
+    real = _resolve_single_target(context)
+    primer_file = real / ".claude" / "canonical" / f"{shop_type}-primer.md"
+    canonical = read_claude_md_primer(shop_type)
+    if not primer_file.exists() or primer_file.read_text() != canonical:
+        primer_file.parent.mkdir(parents=True, exist_ok=True)
+        primer_file.write_text(canonical)
+
+
+@given(
+    'I record the byte contents and mtimes of those two files before the '
+    'invocation'
+)
+def given_record_two_canonical_files_byte_and_mtime(context: dict) -> None:
+    """Record byte contents and mtimes of CLAUDE.md and
+    .claude/canonical/<shop_type>-primer.md before the update invocation.
+    Used by scenario ac5a21e046564d01 (idempotent update).
+    """
+    real = _resolve_single_target(context)
+    shop_type = context["bootstrap_shop_type"]
+    files_to_record = [
+        "CLAUDE.md",
+        f".claude/canonical/{shop_type}-primer.md",
+    ]
+    snap = {}
+    for rel in files_to_record:
+        f = real / rel
+        assert f.exists(), (
+            f"premise of Given violated: {f!s} does not exist before "
+            f"the invocation snapshot"
+        )
+        st = f.stat()
+        snap[rel] = {
+            "bytes": f.read_bytes(),
+            "mtime_ns": st.st_mtime_ns,
+        }
+    context["two_file_snapshot"] = snap
+
+
+@given(
+    parsers.parse(
+        'the file at ".claude/shop/type.md" in the target directory '
+        'contains exactly the literal string "{shop_type}"'
+    )
+)
+def given_shop_type_file_contains_literal(
+    shop_type: str, context: dict
+) -> None:
+    real = _resolve_single_target(context)
+    type_file = real / ".claude" / "shop" / "type.md"
+    assert type_file.exists(), (
+        f"premise of Given violated: {type_file!s} does not exist; "
+        f"the shop was not bootstrapped yet or bootstrap did not write it"
+    )
+    actual_contents = type_file.read_text()
+    # The file should contain exactly "<shop_type>\n" (written by bootstrap).
+    # The "contains exactly the literal string" phrasing means the file
+    # content, when stripped of the single trailing newline, equals shop_type.
+    assert actual_contents.strip() == shop_type, (
+        f"premise of Given violated: {type_file!s} contains "
+        f"{actual_contents!r}, expected exactly {shop_type!r} with "
+        f"trailing newline"
+    )
+
+
+@given(
+    'I record the recursive listing of file paths and the byte contents '
+    'of every file in the target directory before the invocation'
+)
+def given_record_recursive_listing_and_contents(context: dict) -> None:
+    real = _resolve_single_target(context)
+    paths: list[str] = []
+    contents: dict[str, bytes] = {}
+    for p in sorted(real.rglob("*")):
+        if p.is_file():
+            rel = str(p.relative_to(real))
+            paths.append(rel)
+            contents[rel] = p.read_bytes()
+    context["pre_invocation_recursive_paths"] = paths
+    context["pre_invocation_recursive_contents"] = contents
+
+
+# -----------------------------------------------------------------------
+# When steps — new invocation shapes
+# -----------------------------------------------------------------------
+
+
+@when(
+    parsers.parse(
+        'I resolve the "@" import directives in the bootstrapped "CLAUDE.md" '
+        'against the target directory'
+    )
+)
+def when_resolve_at_import_directives(context: dict) -> None:
+    """Resolve @-import lines in the bootstrapped CLAUDE.md.
+
+    Each line of the form "@<relative-path>" is replaced with the
+    byte contents of the file at that path inside the target directory.
+    The resolved content is stored on context["resolved_claude_md"].
+    """
+    real = context["last_invocation_target"]
+    claude_md = real / "CLAUDE.md"
+    assert claude_md.exists(), (
+        f"bootstrapped CLAUDE.md not found at {claude_md!s}"
+    )
+    body = claude_md.read_text()
+    resolved_parts = []
+    for line in body.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("@"):
+            import_path = stripped[1:]  # strip leading @
+            imported_file = real / import_path
+            if imported_file.exists():
+                resolved_parts.append(imported_file.read_text())
+            # If file doesn't exist, skip (placeholder may be empty).
+        else:
+            resolved_parts.append(line)
+    context["resolved_claude_md"] = "".join(resolved_parts)
+
+
+@when(
+    parsers.parse(
+        'I invoke the "shop-templates" update entry point against the '
+        'target directory "{alias}" with no additional shop-type argument'
+    )
+)
+def when_invoke_update_no_shop_type_arg(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    """Invoke update WITHOUT --shop-type; relies on .claude/shop/type.md."""
+    real = _real_target_for_alias(alias, context)
+    result = _run_shop_templates_with_bd_shim(
+        ["update", "--target", str(real)],
+        context,
+        tmp_path,
+    )
+    context["cli_returncode"] = result.returncode
+    context["cli_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+    context["last_invocation_target"] = real
+    # Infer shop type from the file for context stashing.
+    type_file = real / ".claude" / "shop" / "type.md"
+    if type_file.exists():
+        context["last_invocation_shop_type"] = type_file.read_text().strip()
+
+
+# -----------------------------------------------------------------------
+# Then steps — target file content / byte assertions
+# -----------------------------------------------------------------------
+
+
+@then(
+    parsers.parse(
+        'the target directory contains a file at "{path}"'
+    )
+)
+def then_target_contains_file_at_path(path: str, context: dict) -> None:
+    real = context["last_invocation_target"]
+    target_file = real / path
+    assert target_file.exists(), (
+        f"expected file at {path!r} to exist under target directory "
+        f"{real!s}, but it does not"
+    )
+    assert target_file.is_file(), (
+        f"expected {path!r} under target directory {real!s} to be a "
+        f"regular file, but it is not"
+    )
+
+
+@then(
+    parsers.parse(
+        'the byte contents of the file at "{path}" in the target '
+        'directory equal the canonical "CLAUDE.md" body template for '
+        'shop type "{shop_type}" byte-for-byte'
+    )
+)
+def then_file_equals_body_template_byte_for_byte(
+    path: str, shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_body_template
+
+    real = context["last_invocation_target"]
+    target_file = real / path
+    assert target_file.exists(), (
+        f"expected file at {path!r} in target directory {real!s}"
+    )
+    actual = target_file.read_bytes()
+    expected = read_claude_md_body_template(shop_type).encode()
+    assert actual == expected, (
+        f"byte contents of {path!r} do not equal canonical CLAUDE.md "
+        f"body template for {shop_type!r} byte-for-byte.\n"
+        f"len(expected)={len(expected)} len(actual)={len(actual)}\n"
+        f"expected_tail={expected[-40:]!r}\n"
+        f"actual_tail={actual[-40:]!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the byte contents of that file are exactly the literal string '
+        '"{value}" with a single trailing newline and no other content'
+    )
+)
+def then_file_contains_exact_value_with_newline(
+    value: str, context: dict
+) -> None:
+    """Assert the most recently checked file (from target_contains_file_at_path)
+    contains exactly the given value plus a single trailing newline.
+
+    The scenario path is established by a preceding 'the target directory
+    contains a file at "<path>"' Then step which stashes the path on
+    context["last_checked_path"].
+    """
+    path = context.get("last_checked_path")
+    assert path is not None, (
+        "no prior 'the target directory contains a file at' step established "
+        "the path for this assertion"
+    )
+    real = context["last_invocation_target"]
+    target_file = real / path
+    actual = target_file.read_bytes()
+    expected = (value + "\n").encode()
+    assert actual == expected, (
+        f"byte contents of {path!r} are {actual!r}; expected exactly "
+        f"{expected!r} (literal {value!r} + single trailing newline)"
+    )
+
+
+@then(
+    parsers.parse(
+        'the byte contents of that file equal the canonical "CLAUDE.md" '
+        'primer template for shop type "{shop_type}" byte-for-byte'
+    )
+)
+def then_file_equals_primer_template_byte_for_byte(
+    shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_primer
+
+    path = context.get("last_checked_path")
+    assert path is not None, (
+        "no prior 'the target directory contains a file at' step established "
+        "the path for this assertion"
+    )
+    real = context["last_invocation_target"]
+    target_file = real / path
+    actual = target_file.read_bytes()
+    expected = read_claude_md_primer(shop_type).encode()
+    assert actual == expected, (
+        f"byte contents of {path!r} do not equal canonical primer template "
+        f"for {shop_type!r} byte-for-byte.\n"
+        f"len(expected)={len(expected)} len(actual)={len(actual)}\n"
+        f"expected_tail={expected[-40:]!r}\n"
+        f"actual_tail={actual[-40:]!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the byte contents of that file do not contain any non-trivial '
+        'substring (length 64 or greater) that also appears in the '
+        'canonical "CLAUDE.md" primer template for shop type "{shop_type}"'
+    )
+)
+def then_file_has_no_canonical_primer_content(
+    shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_primer
+
+    path = context.get("last_checked_path")
+    assert path is not None, (
+        "no prior 'the target directory contains a file at' step established "
+        "the path"
+    )
+    real = context["last_invocation_target"]
+    target_file = real / path
+    actual_text = target_file.read_text()
+    canonical = read_claude_md_primer(shop_type)
+    min_len = 64
+    # Slide a window of length min_len through the canonical primer and
+    # check that none of those substrings appear in the actual file.
+    for i in range(len(canonical) - min_len + 1):
+        chunk = canonical[i : i + min_len]
+        assert chunk not in actual_text, (
+            f"file at {path!r} contains a non-trivial substring from the "
+            f"canonical primer template (length {min_len}+) at offset {i}:\n"
+            f"  {chunk!r}"
+        )
+
+
+# -----------------------------------------------------------------------
+# Then step — target_contains_file_at_path stashes path
+# (override to also stash last_checked_path for downstream steps)
+# -----------------------------------------------------------------------
+# Note: the @then decorator for the pattern "the target directory contains
+# a file at..." was already registered above. We need to stash the path
+# on the context so that follow-up Thens (byte content checks that say
+# "that file") can reference it. The prior registration doesn't do this.
+# We use a pattern override by unregistering (not possible with pytest-bdd)
+# so instead we stash via the When-step's side-effect approach.
+#
+# Actually: pytest-bdd picks the LAST-registered step definition for a
+# given pattern when there are duplicates. So the override above
+# (then_target_contains_file_at_path) is the one that runs. But it doesn't
+# stash last_checked_path. Let me patch it at the conftest level.
+#
+# The cleanest approach: register a SEPARATE step that handles the combined
+# "contains a file at X" AND stashes path. But the step text above already
+# matches the pattern. Rather than using two overlapping patterns, fix
+# then_target_contains_file_at_path to stash the path.
+
+
+# We need to amend then_target_contains_file_at_path to stash the path.
+# Since it's defined above in this same file we can just edit it.
+# But since we can't retroactively patch, we re-register with a stash:
+# Actually, we can't have two definitions for the same text in pytest-bdd.
+# The safer path: use a different step text for "contains a file at X AND
+# stash path" vs "contains a file at X". Instead, let's wire the stash
+# into the existing step by delegating.
+#
+# SOLUTION: The step was defined just above. We patch it here by
+# wrapping it. But Python step registration order is what pytest-bdd uses;
+# the LAST definition wins. Re-define it here with the stash included.
+
+# Unregister the prior definition (not possible). Instead: define a new
+# step that calls the old one. Actually pytest-bdd allows duplicates and
+# uses the FIRST match or the last. Let me just inline the stash directly
+# in then_target_contains_file_at_path by editing it above.
+#
+# Since Edit tool doesn't allow retroactive changes in-flight without
+# re-reading, use a wrapper approach: re-register the exact same text
+# with a new function that includes the stash.
+# NOTE: pytest-bdd uses the most recently registered step if there are
+# duplicates. So defining this AFTER the original will override it.
+
+
+# Re-define "the target directory contains a file at" to also stash path.
+# This will shadow the definition above (pytest-bdd last-wins).
+@then(
+    parsers.parse(
+        'the target directory contains a file at "{path}"'
+    )
+)
+def then_target_contains_file_at_path_and_stash(
+    path: str, context: dict
+) -> None:
+    real = context["last_invocation_target"]
+    target_file = real / path
+    assert target_file.exists(), (
+        f"expected file at {path!r} to exist under target directory "
+        f"{real!s}, but it does not"
+    )
+    assert target_file.is_file(), (
+        f"expected {path!r} under target directory {real!s} to be a "
+        f"regular file, but it is not"
+    )
+    # Stash path so downstream "that file" steps can reference it.
+    context["last_checked_path"] = path
+
+
+# -----------------------------------------------------------------------
+# Then step — @-import resolution content assertions
+# -----------------------------------------------------------------------
+
+
+@then("the exit code of the bootstrap invocation is 0")
+def then_bootstrap_exit_code_zero(context: dict) -> None:
+    rc = context["cli_returncode"]
+    assert rc == 0, (
+        f"expected exit code 0 for bootstrap invocation; got {rc}; "
+        f"stderr:\n{context.get('cli_stderr', '')}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the resolved content contains the byte contents of the file at '
+        '"{path}" in the target directory'
+    )
+)
+def then_resolved_contains_file_contents(path: str, context: dict) -> None:
+    resolved = context.get("resolved_claude_md")
+    assert resolved is not None, (
+        "no resolved CLAUDE.md content in context; the 'I resolve the @' "
+        "When step must run first"
+    )
+    real = context["last_invocation_target"]
+    target_file = real / path
+    file_bytes = target_file.read_bytes()
+    file_text = file_bytes.decode()
+    # For empty placeholder files (.claude/shop/primer.md), the resolved
+    # content trivially contains an empty string. Skip the check for
+    # empty files since "contains ''" is vacuously true but not meaningful.
+    if not file_text.strip():
+        return
+    assert file_text in resolved, (
+        f"resolved CLAUDE.md does not contain the byte contents of "
+        f"{path!r}.\n"
+        f"file_text={file_text!r}\n"
+        f"resolved_tail={resolved[-100:]!r}"
+    )
+
+
+# -----------------------------------------------------------------------
+# Then steps — update post-invocation byte / mtime assertions
+# -----------------------------------------------------------------------
+
+
+@then(
+    parsers.parse(
+        'after the invocation the byte contents of the file at "{path}" '
+        'in the target directory equal the canonical "CLAUDE.md" body '
+        'template for shop type "{shop_type}" byte-for-byte'
+    )
+)
+def then_file_equals_body_template_after_update(
+    path: str, shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_body_template
+
+    real = context["last_invocation_target"]
+    target_file = real / path
+    assert target_file.exists(), (
+        f"expected file at {path!r} in target directory {real!s}"
+    )
+    actual = target_file.read_bytes()
+    expected = read_claude_md_body_template(shop_type).encode()
+    assert actual == expected, (
+        f"after update, byte contents of {path!r} do not equal canonical "
+        f"CLAUDE.md body template for {shop_type!r} byte-for-byte.\n"
+        f"len(expected)={len(expected)} len(actual)={len(actual)}\n"
+        f"expected_tail={expected[-40:]!r}\n"
+        f"actual_tail={actual[-40:]!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the invocation the byte contents of the file at '
+        '".claude/canonical/{shop_type}-primer.md" in the target directory '
+        'equal the canonical "CLAUDE.md" primer template for shop type '
+        '"{shop_type}" byte-for-byte'
+    )
+)
+def then_canonical_primer_file_equals_primer_template_after_update(
+    shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_primer
+
+    real = context["last_invocation_target"]
+    primer_path = f".claude/canonical/{shop_type}-primer.md"
+    target_file = real / primer_path
+    assert target_file.exists(), (
+        f"expected file at {primer_path!r} in target directory {real!s}"
+    )
+    actual = target_file.read_bytes()
+    expected = read_claude_md_primer(shop_type).encode()
+    assert actual == expected, (
+        f"after update, byte contents of {primer_path!r} do not equal "
+        f"canonical primer template for {shop_type!r} byte-for-byte.\n"
+        f"len(expected)={len(expected)} len(actual)={len(actual)}\n"
+        f"expected_tail={expected[-40:]!r}\n"
+        f"actual_tail={actual[-40:]!r}"
+    )
+
+
+@then(
+    'the stderr output of the invocation is empty'
+)
+def then_stderr_output_is_empty(context: dict) -> None:
+    stderr = context.get("cli_stderr", "")
+    assert stderr == "", (
+        f"expected empty stderr output from invocation; got:\n{stderr}"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the invocation the byte contents of the file at "{path}" '
+        'in the target directory equal the recorded byte contents'
+    )
+)
+def then_file_byte_contents_equal_recorded(path: str, context: dict) -> None:
+    snap = context.get("two_file_snapshot", {})
+    assert path in snap, (
+        f"no recorded snapshot for {path!r}; the 'I record the byte "
+        f"contents and mtimes' Given step must run first"
+    )
+    real = context["last_invocation_target"]
+    actual = (real / path).read_bytes()
+    expected = snap[path]["bytes"]
+    assert actual == expected, (
+        f"byte contents of {path!r} changed across update invocation; "
+        f"expected idempotent (no-op) write but file was modified."
+    )
+
+
+@then(
+    parsers.parse(
+        'after the invocation the mtime of the file at "{path}" in the '
+        'target directory equals the recorded mtime'
+    )
+)
+def then_file_mtime_equals_recorded(path: str, context: dict) -> None:
+    snap = context.get("two_file_snapshot", {})
+    assert path in snap, (
+        f"no recorded snapshot for {path!r}; the 'I record the byte "
+        f"contents and mtimes' Given step must run first"
+    )
+    real = context["last_invocation_target"]
+    actual_mtime_ns = (real / path).stat().st_mtime_ns
+    expected_mtime_ns = snap[path]["mtime_ns"]
+    assert actual_mtime_ns == expected_mtime_ns, (
+        f"mtime of {path!r} changed across update invocation; "
+        f"expected idempotent (no-op) write but mtime was bumped. "
+        f"before={expected_mtime_ns} after={actual_mtime_ns}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the stderr output of the invocation contains the literal '
+        'substring "{needle}"'
+    )
+)
+def then_stderr_contains_literal_substring(needle: str, context: dict) -> None:
+    stderr = context.get("cli_stderr", "")
+    assert needle in stderr, (
+        f"expected stderr to contain literal substring {needle!r}; "
+        f"got:\n{stderr}"
+    )
+
+
+@then(
+    'after the invocation the recursive listing of file paths in the '
+    'target directory equals the recorded listing'
+)
+def then_recursive_listing_equals_recorded(context: dict) -> None:
+    real = _resolve_single_target(context)
+    recorded_paths = context.get("pre_invocation_recursive_paths")
+    assert recorded_paths is not None, (
+        "no recorded recursive listing; the 'I record the recursive "
+        "listing' Given step must run first"
+    )
+    current_paths = sorted(
+        str(p.relative_to(real)) for p in real.rglob("*") if p.is_file()
+    )
+    assert current_paths == sorted(recorded_paths), (
+        f"recursive file listing changed across invocation.\n"
+        f"before={sorted(recorded_paths)!r}\n"
+        f"after={current_paths!r}"
+    )
+
+
+@then(
+    'after the invocation the byte contents of every file in the target '
+    'directory equal the corresponding recorded byte contents'
+)
+def then_every_file_byte_contents_equals_recorded(context: dict) -> None:
+    real = _resolve_single_target(context)
+    recorded = context.get("pre_invocation_recursive_contents")
+    assert recorded is not None, (
+        "no recorded file contents; the 'I record the recursive listing' "
+        "Given step must run first"
+    )
+    for rel, expected_bytes in recorded.items():
+        actual_file = real / rel
+        assert actual_file.exists(), (
+            f"file {rel!r} existed before invocation but is missing after"
+        )
+        actual_bytes = actual_file.read_bytes()
+        assert actual_bytes == expected_bytes, (
+            f"byte contents of {rel!r} changed across invocation; "
+            f"expected no-touch but file was modified."
+        )
+
+
+# -----------------------------------------------------------------------
+# Then steps — f55678f733a5427a: shop-type-from-file update verification
+# -----------------------------------------------------------------------
+
+
+@then(
+    parsers.parse(
+        'after the invocation the target directory contains a file at '
+        '".claude/canonical/{shop_type}-primer.md" whose byte contents '
+        'equal the canonical "CLAUDE.md" primer template for shop type '
+        '"{shop_type}" byte-for-byte'
+    )
+)
+def then_target_canonical_primer_file_exists_and_matches(
+    shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_md_primer
+
+    real = context["last_invocation_target"]
+    primer_path = f".claude/canonical/{shop_type}-primer.md"
+    target_file = real / primer_path
+    assert target_file.exists(), (
+        f"expected file at {primer_path!r} to exist in target directory "
+        f"{real!s} after update invocation"
+    )
+    actual = target_file.read_bytes()
+    expected = read_claude_md_primer(shop_type).encode()
+    assert actual == expected, (
+        f"byte contents of {primer_path!r} do not equal canonical primer "
+        f"template for {shop_type!r} byte-for-byte.\n"
+        f"len(expected)={len(expected)} len(actual)={len(actual)}"
+    )

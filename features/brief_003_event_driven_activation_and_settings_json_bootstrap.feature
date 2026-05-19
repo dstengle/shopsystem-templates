@@ -39,21 +39,10 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:cad1153ef4dfd18c @bc:shopsystem-templates
-  Scenario Outline: the top-level "CLAUDE.md" that bootstrap writes names the host-level prereqs the canonical SessionStart activation hook depends on ("inotify-tools" providing "inotifywait", and "coreutils" providing "stdbuf"), so an operator on a host missing those packages has a documented expectation to point at
-  Given an existing git repository at a target directory "<target>" with no top-level "CLAUDE.md"
-  When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
-  Then the exit code is 0
-  And the target directory contains a top-level file named "CLAUDE.md"
-  And the content of that file contains the literal substring "inotify-tools"
-  And the content of that file contains the literal substring "coreutils"
-  And the content of that file contains the literal substring "inotifywait"
-  And the content of that file contains the literal substring "stdbuf"
-
-  Examples:
-    | shop_type | shop_name               | target                       |
-    | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
-    | lead      | shopsystem-product      | /tmp/example-lead-shop       |
+  # @scenario_hash:cad1153ef4dfd18c RETIRED (lead-3c6)
+  # Asserted CLAUDE.md body contains "inotify-tools", "coreutils", "inotifywait", "stdbuf".
+  # Under PDR-003 alt F, CLAUDE.md is a pure @-import file; host-prereq naming relocated
+  # to .claude/canonical/<shop_type>-primer.md, pinned by lead-shop scenario 64.
 
   @scenario_hash:6bc3eb5f62115d91 @bc:shopsystem-templates
   Scenario Outline: the canonical "CLAUDE.md" primer template for each shop type names the host-level prereqs the canonical SessionStart activation hook depends on, so the prereq naming is package-data property and not a per-shop hand-edit
@@ -131,22 +120,11 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
       | bc        |
       | lead      |
 
-  @scenario_hash:9f15982aa00829f1 @bc:shopsystem-templates
-  Scenario Outline: the top-level "CLAUDE.md" that bootstrap writes into the target directory contains the router-side Monitor activation instruction for the shop type, so a freshly-bootstrapped shop is reactive on its first session start without depending on a SessionStart hook
-    Given an existing git repository at a target directory "<target>" with no top-level "CLAUDE.md"
-    When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
-    Then the exit code is 0
-    And the target directory contains a top-level file named "CLAUDE.md"
-    And the content of that file contains the literal substring "Monitor"
-    And the content of that file contains the literal substring "session start"
-    And the content of that file contains the literal substring "stdbuf -oL inotifywait"
-    And the content of that file contains the literal substring "-m -e create,moved_to"
-    And the content of that file contains the literal substring "<watch_target>"
-
-    Examples:
-      | shop_type | shop_name               | target                       | watch_target       |
-      | bc        | shopsystem-messaging    | /tmp/example-bc-shop         | inbox/             |
-      | lead      | shopsystem-product      | /tmp/example-lead-shop       | repos/*/outbox/    |
+  # @scenario_hash:9f15982aa00829f1 RETIRED (lead-3c6)
+  # Asserted CLAUDE.md body contains Monitor activation instruction strings.
+  # Under PDR-003 alt F, CLAUDE.md is a pure @-import file; Monitor activation instruction
+  # relocated to .claude/canonical/<shop_type>-primer.md, pinned by lead-shop scenarios
+  # 71, 72, and 73.
 
   @scenario_hash:11cf1e054f79fed4 @bc:shopsystem-templates
   Scenario: the canonical ".claude/settings.json" template for shop type "bc" parses as a JSON object whose "hooks" key maps to a JSON object containing no "SessionStart" entries, so a BC shop's canonical settings.json carries no activation hook and no speculative non-activation hooks today

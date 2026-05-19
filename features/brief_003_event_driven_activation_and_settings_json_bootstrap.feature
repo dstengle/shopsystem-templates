@@ -126,14 +126,19 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # relocated to .claude/canonical/<shop_type>-primer.md, pinned by lead-shop scenarios
   # 71, 72, and 73.
 
-  @scenario_hash:11cf1e054f79fed4 @bc:shopsystem-templates
-  Scenario: the canonical ".claude/settings.json" template for shop type "bc" parses as a JSON object whose "hooks" key maps to a JSON object containing no "SessionStart" entries, so a BC shop's canonical settings.json carries no activation hook and no speculative non-activation hooks today
+  # @scenario_hash:11cf1e054f79fed4 RETIRED (lead-7yh)
+  # Asserted BC settings.json has no SessionStart entries.
+  # Superseded by lead-7yh: BC settings.json now declares "shop-msg prime"
+  # as the sole SessionStart hook, analogous to the lead template's "bd prime".
+
+  @scenario_hash:ec6b7da92e34ef12 @bc:shopsystem-templates
+  Scenario: the canonical ".claude/settings.json" template for shop type "bc" declares "shop-msg prime" as the sole inner-hook command under "SessionStart" and conforms to the Claude Code matcher+hooks wrapper schema
     When I ask the "shop-templates" package for the canonical ".claude/settings.json" template for shop type "bc" through its public template-access surface
     And the returned body is parsed as JSON
     Then the parsed value at top-level key "hooks" is a JSON object
-    And the parsed value at "hooks" has no key named "SessionStart", or the value at "hooks.SessionStart" is a JSON array of length 0
-    And the returned body does not contain the literal substring "inotifywait"
-    And the returned body does not contain the literal substring "stdbuf"
+    And the parsed value at "hooks.SessionStart" is a JSON array of length at least 1
+    And exactly one JSON-object element of "hooks.SessionStart" has an inner "hooks" array containing an entry whose "command" string equals "shop-msg prime"
+    And every element of "hooks.SessionStart" is a JSON object with a "matcher" key whose value is a string and a "hooks" key whose value is a JSON array of length at least 1
 
   @scenario_hash:71797e9017c95fed @bc:shopsystem-templates
   Scenario: the canonical ".claude/settings.json" template for shop type "lead" declares "bd prime" as the sole inner-hook command under "SessionStart", carries no activation hook, and conforms to the Claude Code matcher+hooks wrapper schema

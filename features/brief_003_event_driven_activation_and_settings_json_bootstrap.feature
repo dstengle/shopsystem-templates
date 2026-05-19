@@ -132,12 +132,12 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # as the sole SessionStart hook, analogous to the lead template's "bd prime".
 
   @scenario_hash:ec6b7da92e34ef12 @bc:shopsystem-templates
-  Scenario: the canonical ".claude/settings.json" template for shop type "bc" declares "shop-msg prime" as the sole inner-hook command under "SessionStart" and conforms to the Claude Code matcher+hooks wrapper schema
+  Scenario: the canonical ".claude/settings.json" template for shop type "bc" declares "shop-msg prime --bc-root ." as the sole inner-hook command under "SessionStart" and conforms to the Claude Code matcher+hooks wrapper schema
     When I ask the "shop-templates" package for the canonical ".claude/settings.json" template for shop type "bc" through its public template-access surface
     And the returned body is parsed as JSON
     Then the parsed value at top-level key "hooks" is a JSON object
     And the parsed value at "hooks.SessionStart" is a JSON array of length at least 1
-    And exactly one JSON-object element of "hooks.SessionStart" has an inner "hooks" array containing an entry whose "command" string equals "shop-msg prime"
+    And exactly one JSON-object element of "hooks.SessionStart" has an inner "hooks" array containing an entry whose "command" string equals "shop-msg prime --bc-root ."
     And every element of "hooks.SessionStart" is a JSON object with a "matcher" key whose value is a string and a "hooks" key whose value is a JSON array of length at least 1
 
   @scenario_hash:71797e9017c95fed @bc:shopsystem-templates

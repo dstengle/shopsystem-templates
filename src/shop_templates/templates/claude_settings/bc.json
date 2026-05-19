@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "shop-msg prime"
+            "command": "shop-msg prime --bc-root ."
           }
         ]
       }

@@ -44,19 +44,10 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # Under PDR-003 alt F, CLAUDE.md is a pure @-import file; host-prereq naming relocated
   # to .claude/canonical/<shop_type>-primer.md, pinned by lead-shop scenario 64.
 
-  @scenario_hash:6bc3eb5f62115d91 @bc:shopsystem-templates
-  Scenario Outline: the canonical "CLAUDE.md" primer template for each shop type names the host-level prereqs the canonical SessionStart activation hook depends on, so the prereq naming is package-data property and not a per-shop hand-edit
-  When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "<shop_type>" through its public template-access surface
-  Then a non-empty template body is returned
-  And the returned body contains the literal substring "inotify-tools"
-  And the returned body contains the literal substring "coreutils"
-  And the returned body contains the literal substring "inotifywait"
-  And the returned body contains the literal substring "stdbuf"
-
-  Examples:
-    | shop_type |
-    | bc        |
-    | lead      |
+  # @scenario_hash:6bc3eb5f62115d91 RETIRED (lead-5r0)
+  # Asserted bc primer contains "inotify-tools", "coreutils", "inotifywait", "stdbuf".
+  # Superseded by lead-5r0: session-start section now describes shop-msg prime/watch;
+  # host-level filesystem watcher prereqs removed entirely from bc primer.
 
   @scenario_hash:3957f255c35aff60 @bc:shopsystem-templates
   Scenario: on session start in a bootstrapped lead shop, every BC CLI installed into the product venv (for example "shop-msg", "shop-templates") resolves invocations to the current source tree of that BC's clone under "repos/", so an edit to a BC's source is reflected in the next CLI invocation without an intervening manual reinstall
@@ -89,36 +80,37 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # 287e6a4f31533336) were retired in this round.
   # ---------------------------------------------------------------------
 
-  @scenario_hash:206ca3d0fa40bcad @bc:shopsystem-templates
-  Scenario Outline: the canonical "CLAUDE.md" primer template for each shop type contains an instruction telling the session router to arm the in-session "Monitor" tool, at session start, on a line-buffered "inotifywait" pipeline watching the shop-type's inbound mailbox surface, so the in-session Monitor primitive — not a synchronous SessionStart hook — carries the reactivity invariant
-    When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "<shop_type>" through its public template-access surface
+  # @scenario_hash:206ca3d0fa40bcad RETIRED (lead-5r0)
+  # Asserted bc primer contains "stdbuf -oL inotifywait", "-m -e create,moved_to",
+  # "inbox/" as the Monitor pipeline.
+  # Superseded by lead-5r0: bc primer now instructs "shop-msg watch --bc-root ."
+  # (postgres LISTEN/NOTIFY) instead of inotifywait. Lead primer [repos/*/outbox/]
+  # also superseded by the same replacement.
+
+  @scenario_hash:206ca3d0fa40bcad-lead-only @bc:shopsystem-templates
+  Scenario: the canonical "CLAUDE.md" primer template for shop type "lead" contains an instruction telling the session router to arm the in-session "Monitor" tool at session start watching the outbox surface
+    When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
     Then a non-empty template body is returned
     And the returned body contains the literal substring "Monitor"
     And the returned body contains the literal substring "session start"
     And the returned body contains the literal substring "stdbuf -oL inotifywait"
     And the returned body contains the literal substring "-m -e create,moved_to"
-    And the returned body contains the literal substring "<watch_target>"
+    And the returned body contains the literal substring "repos/*/outbox/"
     And the returned body does not contain any instruction to arm the watcher via a "SessionStart" hook in ".claude/settings.json"
 
-    Examples:
-      | shop_type | watch_target       |
-      | bc        | inbox/             |
-      | lead      | repos/*/outbox/    |
+  # @scenario_hash:d87ccb133fa64d2f[bc] RETIRED (lead-5r0)
+  # Asserted bc primer contains inotifywait, stdbuf, refuse-to-arm instruction.
+  # Superseded by lead-5r0: bc primer now uses shop-msg watch; no host prereqs required.
 
   @scenario_hash:d87ccb133fa64d2f @bc:shopsystem-templates
-  Scenario Outline: the activation instruction in the canonical "CLAUDE.md" primer template for each shop type explicitly names both host prerequisites the router's Monitor invocation depends on AND explicitly instructs the router to refuse to arm the watcher and surface a visible diagnostic when either prerequisite is missing, so that the loud-fail invariant carrying over from the prior hook-realization is preserved as a router-honored instruction
-    When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "<shop_type>" through its public template-access surface
+  Scenario: the activation instruction in the canonical "CLAUDE.md" primer template for shop type "lead" explicitly names both host prerequisites the router's Monitor invocation depends on AND explicitly instructs the router to refuse to arm the watcher and surface a visible diagnostic when either prerequisite is missing
+    When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
     Then a non-empty template body is returned
     And the returned body contains the literal substring "inotifywait"
     And the returned body contains the literal substring "stdbuf"
     And the returned body contains an instruction substring directing the router to verify these executables are on PATH before arming the Monitor
     And the returned body contains an instruction substring directing the router to refuse to arm the Monitor and surface a visible diagnostic when either executable is missing
     And the returned body does not contain any instruction telling the router to silently fall back to a no-watcher state when a prerequisite is missing
-
-    Examples:
-      | shop_type |
-      | bc        |
-      | lead      |
 
   # @scenario_hash:9f15982aa00829f1 RETIRED (lead-3c6)
   # Asserted CLAUDE.md body contains Monitor activation instruction strings.

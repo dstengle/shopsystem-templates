@@ -300,6 +300,12 @@ write inbox or outbox YAML files by hand. The role activity sections
 above name what the work is; the subsections below name how to put it
 on the wire.
 
+**Hard stop on CLI failures.** If a CLI command returns an unexpected
+error, stop and report the exact error to the router. Do not infer
+command behaviour from help text alone without running the command.
+Never work around a CLI failure with direct database access or
+hand-written files. A CLI error is signal, not an obstacle.
+
 ### Sending a message to a BC via shop-msg send
 
 1. **Identify the work.** New capability, tightening, or flat change?
@@ -333,6 +339,10 @@ on the wire.
 3. **Apply the clarify-response sufficiency check** (same shape as the
    PO's, just on architecture content).
 4. **Respond via `shop-msg respond clarify`** with the BC's work_id.
+   `shop-msg respond clarify` is run by the **lead** to answer a BC's
+   question. It writes into the lead's inbox namespace; the BC retrieves
+   the lead's answer from there. This is not a BC command — the lead is
+   the caller.
 5. **Report** what the BC asked, what you answered, and whether the answer
    implies a structural change (ADR update, structurizr workspace edit,
    Domain & Context Map revision).

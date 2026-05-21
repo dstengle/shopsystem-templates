@@ -1255,8 +1255,30 @@ def given_file_at_path_is_named_shop_claude_md(
 
 @when("I read that file")
 def when_read_that_file(context: dict) -> None:
-    path = context["file_path"]
-    context["file_content"] = Path(path).read_text()
+    """Read the file and resolve @-import lines before storing content.
+
+    CLAUDE.md files use lines of the form "@<relative-path>" to compose
+    content from multiple files. Asserting substrings against the raw
+    CLAUDE.md misses content that lives in the imported files. This step
+    resolves each @-import line by inlining the content of the referenced
+    file (relative to the CLAUDE.md's parent directory), matching the
+    resolution approach used in the import_graph bootstrap scenarios.
+    """
+    path = Path(context["file_path"])
+    base_dir = path.parent
+    raw_content = path.read_text()
+    resolved_parts = []
+    for line in raw_content.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith("@"):
+            import_path = stripped[1:]  # strip leading @
+            imported_file = base_dir / import_path
+            if imported_file.exists():
+                resolved_parts.append(imported_file.read_text())
+            # If file doesn't exist, skip (placeholder may be empty).
+        else:
+            resolved_parts.append(line)
+    context["file_content"] = "".join(resolved_parts)
 
 
 # -----------------------------------------------------------------------
@@ -1627,6 +1649,12 @@ def then_file_every_outbox_inspection_names_shop_msg(context: dict) -> None:
         if "outbox" not in lower:
             continue
         if not any(v in lower for v in inspection_verbs):
+            continue
+        # Markdown section headings (lines whose stripped form starts with "#")
+        # are structural labels, not sentences that instruct an operation.
+        # The word "inspection" in a heading like "## BC-shop loop and outbox
+        # inspection" is a label, not a procedural step — skip such lines.
+        if line.lstrip().startswith("#"):
             continue
         # Local window for shop-msg presence.
         window_start = max(0, i - 2)

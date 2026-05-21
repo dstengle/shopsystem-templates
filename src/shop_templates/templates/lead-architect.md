@@ -285,7 +285,7 @@ the PO template articulates applies: punting is the worst outcome.
   bypass it to read or write mailbox storage by other means.
 - One message_type per outbound message.
 - The mailbox-storage layout is the messaging BC's private detail. You
-  address messages by `--bc-root` and `--work-id`; you do not reason
+  address messages by `--bc <name>` or `--lead <name>` and `--work-id`; you do not reason
   about filenames.
 - Hash discipline: compute via `scenarios hash` (the dispatch CLI does
   this automatically). The hash on each ScenarioPayload must match
@@ -312,19 +312,20 @@ on the wire.
    prepare scenario body files (no Feature line, no tags) and pass via
    repeatable `--scenario-file`; the CLI handles hashing and wrapping.
 5. **Verify the message was deposited** by reading it back via
-   `shop-msg read inbox --bc-root <BC root> --work-id <work_id>`.
+   `shop-msg read inbox --bc <name> --work-id <work_id>`.
    Confirm the scenario hashes match what `scenarios hash` produces
    for the bodies. To see at a glance which BCs currently have pending
-   outbound responses to your lead-shop, run
-   `shop-msg pending outbox --lead-root <lead root>`.
+   responses to your lead-shop, run
+   `shop-msg pending outbox --lead <name>`.
 6. **Report** which vehicle you selected, which sufficiency-check question
    made the call, the work_id, and the scenario hashes (if any).
 
 ### Responding to a BC clarify via shop-msg respond
 
-1. **Read the clarify** from the BC's outbox via `shop-msg read outbox
-   --bc-root <BC root> --work-id <work_id>`. The `shop-msg` CLI is the
-   messaging BC's boundary; do not bypass it to read outbox storage by
+1. **Read the clarify** from the lead inbox via `shop-msg read inbox
+   --lead <name> --work-id <work_id>`. BC responses (clarify, work_done)
+   now route to the lead shop's inbox rather than the BC's outbox. The
+   `shop-msg` CLI is the messaging BC's boundary; do not bypass it by
    other means.
 2. **Verify the clarify is yours.** Architecture / decomposition / contract
    questions route to you; scope and vocabulary route to the PO. If

@@ -22,10 +22,16 @@ Feature: Inter-shop messaging encapsulation: templates use shop-msg CLI exclusiv
     And the content does not contain the literal substring "<BC root>/outbox/"
     And the content does not instruct the reader to read the inbox YAML file directly or by any non-shop-msg means
 
-  @scenario_hash:f279d66b8313e3fc @bc:shopsystem-templates
-  Scenario: lead-po template directs the PO to read an inbound clarify via the shop-msg CLI, never by reading mailbox YAML directly
+  # @scenario_hash:f279d66b8313e3fc RETIRED (lead-eqn)
+  # Asserted lead-po template contains literal substring "shop-msg read outbox".
+  # Superseded by lead-eqn: Brief 006 replaced read outbox with read inbox --lead;
+  # lead-po CLI mechanics now uses "shop-msg read inbox --lead <name> --work-id <work_id>".
+
+  @scenario_hash:f279d66b8313e3fc-replacement @bc:shopsystem-templates
+  Scenario: lead-po template directs the PO to read an inbound clarify via the shop-msg CLI using lead inbox, never by reading mailbox YAML directly
     When I read the lead-po template via "shop-templates show lead-po"
-    Then the content contains the literal substring "shop-msg read outbox"
+    Then the content contains the literal substring "shop-msg read inbox"
+    And the content does not contain the literal substring "shop-msg read outbox"
     And the content does not contain the literal substring "read the file directly"
     And the content does not contain the literal substring "ls inbox"
     And the content does not contain the literal substring "ls outbox"

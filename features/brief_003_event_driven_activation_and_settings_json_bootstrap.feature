@@ -87,30 +87,31 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # (postgres LISTEN/NOTIFY) instead of inotifywait. Lead primer [repos/*/outbox/]
   # also superseded by the same replacement.
 
-  @scenario_hash:206ca3d0fa40bcad-lead-only @bc:shopsystem-templates
-  Scenario: the canonical "CLAUDE.md" primer template for shop type "lead" contains an instruction telling the session router to arm the in-session "Monitor" tool at session start watching the outbox surface
-    When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
-    Then a non-empty template body is returned
-    And the returned body contains the literal substring "Monitor"
-    And the returned body contains the literal substring "session start"
-    And the returned body contains the literal substring "stdbuf -oL inotifywait"
-    And the returned body contains the literal substring "-m -e create,moved_to"
-    And the returned body contains the literal substring "repos/*/outbox/"
-    And the returned body does not contain any instruction to arm the watcher via a "SessionStart" hook in ".claude/settings.json"
+  # @scenario_hash:206ca3d0fa40bcad-lead-only RETIRED (lead-51u)
+  # Asserted returned body contains stdbuf -oL inotifywait, -m -e create,moved_to, repos/*/outbox/.
+  # Superseded by lead-51u: lead primer now uses shop-msg watch --lead-root .; no host prereqs required.
+
+  # @scenario_hash:206ca3d0fa40bcad-lead-only-replacement RETIRED (lead-eqn)
+  # Asserted the lead CLAUDE.md primer template contains literal substring "--lead-root".
+  # This flag no longer exists; shop-msg now uses --lead <name> for lead-side commands.
+  # Superseded by lead-eqn: Brief 006 replaced --lead-root with --lead <name>.
 
   # @scenario_hash:d87ccb133fa64d2f[bc] RETIRED (lead-5r0)
   # Asserted bc primer contains inotifywait, stdbuf, refuse-to-arm instruction.
   # Superseded by lead-5r0: bc primer now uses shop-msg watch; no host prereqs required.
 
-  @scenario_hash:d87ccb133fa64d2f @bc:shopsystem-templates
-  Scenario: the activation instruction in the canonical "CLAUDE.md" primer template for shop type "lead" explicitly names both host prerequisites the router's Monitor invocation depends on AND explicitly instructs the router to refuse to arm the watcher and surface a visible diagnostic when either prerequisite is missing
+  # @scenario_hash:d87ccb133fa64d2f RETIRED (lead-51u)
+  # Asserted returned body contains inotifywait, stdbuf, and instructions to verify PATH and refuse-to-arm.
+  # Superseded by lead-51u: lead primer now uses shop-msg watch --lead-root .; no host prereqs required.
+
+  @scenario_hash:d87ccb133fa64d2f-replacement @bc:shopsystem-templates
+  Scenario: the canonical "CLAUDE.md" primer template for shop type "lead" instructs the router to use "shop-msg watch" and states that no host-level prerequisites are required for the Monitor activation pipeline
     When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
     Then a non-empty template body is returned
-    And the returned body contains the literal substring "inotifywait"
-    And the returned body contains the literal substring "stdbuf"
-    And the returned body contains an instruction substring directing the router to verify these executables are on PATH before arming the Monitor
-    And the returned body contains an instruction substring directing the router to refuse to arm the Monitor and surface a visible diagnostic when either executable is missing
-    And the returned body does not contain any instruction telling the router to silently fall back to a no-watcher state when a prerequisite is missing
+    And the returned body contains the literal substring "shop-msg watch"
+    And the returned body does not contain the literal substring "inotifywait"
+    And the returned body does not contain the literal substring "stdbuf"
+    And the returned body contains the literal substring "no host-level"
 
   # @scenario_hash:9f15982aa00829f1 RETIRED (lead-3c6)
   # Asserted CLAUDE.md body contains Monitor activation instruction strings.
@@ -123,14 +124,11 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # Superseded by lead-7yh: BC settings.json now declares "shop-msg prime"
   # as the sole SessionStart hook, analogous to the lead template's "bd prime".
 
-  @scenario_hash:ec6b7da92e34ef12 @bc:shopsystem-templates
-  Scenario: the canonical ".claude/settings.json" template for shop type "bc" declares "shop-msg prime --bc-root ." as the sole inner-hook command under "SessionStart" and conforms to the Claude Code matcher+hooks wrapper schema
-    When I ask the "shop-templates" package for the canonical ".claude/settings.json" template for shop type "bc" through its public template-access surface
-    And the returned body is parsed as JSON
-    Then the parsed value at top-level key "hooks" is a JSON object
-    And the parsed value at "hooks.SessionStart" is a JSON array of length at least 1
-    And exactly one JSON-object element of "hooks.SessionStart" has an inner "hooks" array containing an entry whose "command" string equals "shop-msg prime --bc-root ."
-    And every element of "hooks.SessionStart" is a JSON object with a "matcher" key whose value is a string and a "hooks" key whose value is a JSON array of length at least 1
+  # @scenario_hash:ec6b7da92e34ef12 RETIRED (lead-eqn)
+  # Asserted the bc settings.json SessionStart hook command equals "shop-msg prime --bc-root .".
+  # This flag no longer exists; shop-msg now uses --bc <name> for BC-side commands.
+  # Superseded by lead-eqn: Brief 006 replaced --bc-root with --bc <name>; bc.json
+  # template now uses "shop-msg prime --bc {{SHOP_NAME}}".
 
   @scenario_hash:71797e9017c95fed @bc:shopsystem-templates
   Scenario: the canonical ".claude/settings.json" template for shop type "lead" declares "bd prime" as the sole inner-hook command under "SessionStart", carries no activation hook, and conforms to the Claude Code matcher+hooks wrapper schema

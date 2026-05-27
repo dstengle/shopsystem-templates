@@ -130,13 +130,11 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # Superseded by lead-eqn: Brief 006 replaced --bc-root with --bc <name>; bc.json
   # template now uses "shop-msg prime --bc {{SHOP_NAME}}".
 
-  @scenario_hash:71797e9017c95fed @bc:shopsystem-templates
-  Scenario: the canonical ".claude/settings.json" template for shop type "lead" declares "bd prime" as the sole inner-hook command under "SessionStart", carries no activation hook, and conforms to the Claude Code matcher+hooks wrapper schema
-    When I ask the "shop-templates" package for the canonical ".claude/settings.json" template for shop type "lead" through its public template-access surface
-    And the returned body is parsed as JSON
-    Then the parsed value at top-level key "hooks" is a JSON object
-    And the parsed value at "hooks.SessionStart" is a JSON array of length at least 1
-    And exactly one JSON-object element of "hooks.SessionStart" has an inner "hooks" array containing an entry whose "command" string equals "bd prime"
-    And no element of "hooks.SessionStart" has an inner "hooks" array containing an entry whose "command" string contains the substring "inotifywait"
-    And no element of "hooks.SessionStart" has an inner "hooks" array containing an entry whose "command" string contains the substring "stdbuf"
-    And every element of "hooks.SessionStart" is a JSON object with a "matcher" key whose value is a string and a "hooks" key whose value is a JSON array of length at least 1
+  # @scenario_hash:71797e9017c95fed RETIRED (lead-33r)
+  # Asserted "bd prime" was the SOLE inner-hook command under SessionStart
+  # for the lead canonical. Under PDR-009, "shop-msg prime" is a second
+  # short-lived, cleanly-terminating SessionStart hook that belongs
+  # alongside "bd prime" (the bare command, no addressing flag, identity
+  # resolved via CWD walk-up). The "sole" qualifier is retired; the
+  # composition is pinned by features/canonical_settings_hooks_no_shop_identity_pdr009.feature
+  # scenarios 9317b34e56712c7c and d3cc63377ac86cce.

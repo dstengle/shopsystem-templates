@@ -7101,3 +7101,525 @@ def then_target_canonical_primer_file_exists_and_matches(
         f"template for {shop_type!r} byte-for-byte.\n"
         f"len(expected)={len(expected)} len(actual)={len(actual)}"
     )
+
+
+# -----------------------------------------------------------------------
+# Step definitions — lead-33r / PDR-009 scenarios:
+#   0c157533eb3145c8 — canonical settings.json hook commands contain no
+#                      "{{" or "}}" substrings (publisher-side guard).
+#   9317b34e56712c7c — exactly one inner-hook command equals literal
+#                      "shop-msg prime" (bare, no addressing flag).
+#   d3cc63377ac86cce — both "bd prime" and "shop-msg prime" present as
+#                      two distinct inner-hook entries under SessionStart.
+#   e74510bc2af8f058 — bootstrap- or update-poured settings.json on
+#                      disk also contains no "{{" or "}}" substrings.
+#   ef68be19d7b3a3bb — update over a stale placeholder-bearing hook
+#                      command replaces it with the current canonical
+#                      bare "shop-msg prime".
+# -----------------------------------------------------------------------
+
+
+# Scenario 0c157533eb3145c8 — for every top-level hook-event key under
+# "hooks" (e.g. SessionStart, PreCompact), iterate every element of the
+# array, every inner-hook entry, and assert the entry's "command" string
+# contains neither "{{" nor "}}".
+@then(
+    'for every top-level hook-event key under "hooks", and for every '
+    'element of that hook-event\'s array, and for every entry of that '
+    'element\'s inner "hooks" array, the entry\'s "command" string '
+    'contains no occurrence of the substring "{{" and no occurrence of '
+    'the substring "}}"'
+)
+def then_no_placeholder_substrings_in_any_hook_command(
+    context: dict,
+) -> None:
+    parsed = context.get("last_parsed_body")
+    assert parsed is not None, (
+        "no parsed body in context; an earlier 'the returned body is "
+        "parsed as JSON' step must run first"
+    )
+    assert isinstance(parsed, dict), (
+        f"parsed body is not a JSON object: {parsed!r}"
+    )
+    hooks = parsed.get("hooks")
+    assert isinstance(hooks, dict), (
+        f"parsed body has no top-level 'hooks' object: {parsed!r}"
+    )
+    for event_key, event_array in hooks.items():
+        if not isinstance(event_array, list):
+            continue
+        for i, elem in enumerate(event_array):
+            if not isinstance(elem, dict):
+                continue
+            inner = elem.get("hooks")
+            if not isinstance(inner, list):
+                continue
+            for j, inner_elem in enumerate(inner):
+                if not isinstance(inner_elem, dict):
+                    continue
+                cmd = inner_elem.get("command")
+                if not isinstance(cmd, str):
+                    continue
+                assert "{{" not in cmd, (
+                    f"hook-event {event_key!r} element {i} inner hook "
+                    f"{j} has command string containing forbidden "
+                    f"substring '{{{{': {cmd!r}"
+                )
+                assert "}}" not in cmd, (
+                    f"hook-event {event_key!r} element {i} inner hook "
+                    f"{j} has command string containing forbidden "
+                    f"substring '}}}}': {cmd!r}"
+                )
+
+
+# Helpers — extract the flat list of inner-hook command strings under
+# hooks.SessionStart from either the in-memory parsed body or an
+# on-disk poured settings.json file.
+def _collect_sessionstart_commands(parsed_body: dict) -> list[str]:
+    """Flatten every "command" string in every inner "hooks" array under
+    hooks.SessionStart. Returns a list (order preserved) of command
+    strings; ignores entries whose shape is malformed.
+    """
+    if not isinstance(parsed_body, dict):
+        return []
+    hooks = parsed_body.get("hooks")
+    if not isinstance(hooks, dict):
+        return []
+    sessionstart = hooks.get("SessionStart")
+    if not isinstance(sessionstart, list):
+        return []
+    commands: list[str] = []
+    for elem in sessionstart:
+        if not isinstance(elem, dict):
+            continue
+        inner = elem.get("hooks")
+        if not isinstance(inner, list):
+            continue
+        for inner_elem in inner:
+            if not isinstance(inner_elem, dict):
+                continue
+            cmd = inner_elem.get("command")
+            if isinstance(cmd, str):
+                commands.append(cmd)
+    return commands
+
+
+def _collect_sessionstart_entries(parsed_body: dict) -> list[tuple[int, int, str]]:
+    """Like _collect_sessionstart_commands, but returns (outer_idx,
+    inner_idx, command) so callers can distinguish "the same entry"
+    from "two entries that happen to share a command string".
+    """
+    if not isinstance(parsed_body, dict):
+        return []
+    hooks = parsed_body.get("hooks")
+    if not isinstance(hooks, dict):
+        return []
+    sessionstart = hooks.get("SessionStart")
+    if not isinstance(sessionstart, list):
+        return []
+    entries: list[tuple[int, int, str]] = []
+    for i, elem in enumerate(sessionstart):
+        if not isinstance(elem, dict):
+            continue
+        inner = elem.get("hooks")
+        if not isinstance(inner, list):
+            continue
+        for j, inner_elem in enumerate(inner):
+            if not isinstance(inner_elem, dict):
+                continue
+            cmd = inner_elem.get("command")
+            if isinstance(cmd, str):
+                entries.append((i, j, cmd))
+    return entries
+
+
+# Scenario 9317b34e56712c7c — exactly one inner-hook entry under
+# hooks.SessionStart has command equal to a literal value.
+@then(
+    parsers.parse(
+        'exactly one inner-hook entry under "hooks.SessionStart" has a '
+        '"command" string equal to the literal value "{expected}"'
+    )
+)
+def then_exactly_one_inner_hook_command_equals(
+    expected: str, context: dict
+) -> None:
+    parsed = context.get("last_parsed_body")
+    assert parsed is not None, (
+        "no parsed body in context; an earlier 'the returned body is "
+        "parsed as JSON' step must run first"
+    )
+    commands = _collect_sessionstart_commands(parsed)
+    matches = [c for c in commands if c == expected]
+    assert len(matches) == 1, (
+        f"expected exactly one inner-hook command equal to "
+        f"{expected!r} under hooks.SessionStart; got {len(matches)} "
+        f"matching entries. All commands: {commands!r}"
+    )
+
+
+# Scenario 9317b34e56712c7c — no inner-hook entry has a command string
+# starting with a given prefix followed by additional characters.
+@then(
+    parsers.parse(
+        'no inner-hook entry under "hooks.SessionStart" has a "command" '
+        'string that starts with "{prefix}" followed by additional '
+        'characters'
+    )
+)
+def then_no_inner_hook_command_starts_with_prefix(
+    prefix: str, context: dict
+) -> None:
+    parsed = context.get("last_parsed_body")
+    assert parsed is not None, (
+        "no parsed body in context; an earlier 'the returned body is "
+        "parsed as JSON' step must run first"
+    )
+    commands = _collect_sessionstart_commands(parsed)
+    for cmd in commands:
+        if cmd.startswith(prefix) and len(cmd) > len(prefix):
+            assert False, (
+                f"inner-hook command {cmd!r} starts with forbidden "
+                f"prefix {prefix!r} followed by additional characters"
+            )
+
+
+# Scenario 9317b34e56712c7c — no inner-hook command string contains a
+# given substring (used for "--bc", "--lead", etc.).
+@then(
+    parsers.parse(
+        'no inner-hook entry under "hooks.SessionStart" has a "command" '
+        'string containing the substring "{needle}"'
+    )
+)
+def then_no_inner_hook_command_contains_substring(
+    needle: str, context: dict
+) -> None:
+    parsed = context.get("last_parsed_body")
+    assert parsed is not None, (
+        "no parsed body in context; an earlier 'the returned body is "
+        "parsed as JSON' step must run first"
+    )
+    commands = _collect_sessionstart_commands(parsed)
+    for cmd in commands:
+        assert needle not in cmd, (
+            f"inner-hook command {cmd!r} contains forbidden substring "
+            f"{needle!r}"
+        )
+
+
+# Scenario d3cc63377ac86cce — two inner-hook entries are distinct entries
+# (not packed into a single "command" via shell composition).
+@then(
+    'those two inner-hook entries are distinct entries'
+)
+def then_two_inner_hook_entries_are_distinct(context: dict) -> None:
+    parsed = context.get("last_parsed_body")
+    assert parsed is not None, (
+        "no parsed body in context; an earlier 'the returned body is "
+        "parsed as JSON' step must run first"
+    )
+    entries = _collect_sessionstart_entries(parsed)
+    bd_entries = [e for e in entries if e[2] == "bd prime"]
+    sm_entries = [e for e in entries if e[2] == "shop-msg prime"]
+    assert len(bd_entries) == 1, (
+        f"expected exactly one inner-hook entry equal to 'bd prime'; "
+        f"got {len(bd_entries)}"
+    )
+    assert len(sm_entries) == 1, (
+        f"expected exactly one inner-hook entry equal to 'shop-msg "
+        f"prime'; got {len(sm_entries)}"
+    )
+    # "distinct entries" means a different (outer_idx, inner_idx) pair.
+    # Each entry in our collection corresponds to a single inner-hook
+    # object; two different (outer, inner) pairs means two different
+    # JSON objects in the underlying settings.json.
+    bd_pos = (bd_entries[0][0], bd_entries[0][1])
+    sm_pos = (sm_entries[0][0], sm_entries[0][1])
+    assert bd_pos != sm_pos, (
+        "'bd prime' and 'shop-msg prime' resolve to the same inner-hook "
+        f"entry at outer={bd_pos[0]} inner={bd_pos[1]} — this is the "
+        "shell-composition failure mode the scenario forbids"
+    )
+    # Also explicitly guard against shell composition: no single command
+    # string under SessionStart may contain both "bd prime" and
+    # "shop-msg prime" (which would be the "bd prime && shop-msg prime"
+    # failure mode named in the scenario).
+    commands = _collect_sessionstart_commands(parsed)
+    for cmd in commands:
+        assert not ("bd prime" in cmd and "shop-msg prime" in cmd), (
+            f"inner-hook command {cmd!r} packs both 'bd prime' and "
+            f"'shop-msg prime' into a single command string — the "
+            f"scenario forbids this composition"
+        )
+
+
+# -----------------------------------------------------------------------
+# Scenario e74510bc2af8f058 — bootstrap-or-update entry-point dispatch.
+#
+# The Gherkin parameterizes <entry_point> as either "init" or "update"
+# and uses a unified When step:
+#
+#   When I invoke the "shop-templates" "<entry_point>" against target
+#        "<target>" with shop type "<shop_type>" and shop name "<shop_name>"
+#
+# Mapping at the test-step layer (no new CLI subcommand introduced):
+#   - entry_point == "init"   -> shop-templates bootstrap --shop-type X
+#                                 --shop-name Y --target T
+#   - entry_point == "update" -> first bootstrap the target (so the
+#                                 update has a valid shop to operate
+#                                 against — update reads
+#                                 .claude/shop/type.md), then run
+#                                 shop-templates update --target T.
+# -----------------------------------------------------------------------
+
+
+@when(
+    parsers.parse(
+        'I invoke the "shop-templates" "{entry_point}" against target '
+        '"{alias}" with shop type "{shop_type}" and shop name '
+        '"{shop_name}"'
+    )
+)
+def when_invoke_entry_point_init_or_update(
+    entry_point: str,
+    alias: str,
+    shop_type: str,
+    shop_name: str,
+    context: dict,
+    tmp_path: Path,
+) -> None:
+    real = _real_target_for_alias(alias, context)
+    if entry_point == "init":
+        result = _run_shop_templates_with_bd_shim(
+            [
+                "bootstrap",
+                "--shop-type",
+                shop_type,
+                "--shop-name",
+                shop_name,
+                "--target",
+                str(real),
+            ],
+            context,
+            tmp_path,
+        )
+    elif entry_point == "update":
+        # Update requires a previously-bootstrapped shop (it reads
+        # .claude/shop/type.md to determine which canonical to pour).
+        # Run bootstrap first to establish that state, then run update.
+        boot = _run_shop_templates_with_bd_shim(
+            [
+                "bootstrap",
+                "--shop-type",
+                shop_type,
+                "--shop-name",
+                shop_name,
+                "--target",
+                str(real),
+            ],
+            context,
+            tmp_path,
+        )
+        assert boot.returncode == 0, (
+            f"step adapter: pre-update bootstrap failed for target "
+            f"{real!s} (rc={boot.returncode}); stderr:\n{boot.stderr}"
+        )
+        result = _run_shop_templates_with_bd_shim(
+            [
+                "update",
+                "--target",
+                str(real),
+            ],
+            context,
+            tmp_path,
+        )
+    else:
+        raise AssertionError(
+            f"unknown entry_point value {entry_point!r}; expected "
+            "'init' or 'update'"
+        )
+    context["cli_returncode"] = result.returncode
+    context["cli_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+    context["last_invocation_target"] = real
+    context["last_invocation_shop_type"] = shop_type
+    context["last_invocation_shop_name"] = shop_name
+
+
+# Scenario e74510bc2af8f058 — file existence + substring exclusion on a
+# poured ".claude/settings.json" under the target. The path in the
+# Gherkin is "<target>/.claude/settings.json" — we resolve <target> as
+# an alias to the per-test real path.
+@then(
+    parsers.parse(
+        'the file at "{alias}/.claude/settings.json" exists'
+    )
+)
+def then_target_settings_json_exists(alias: str, context: dict) -> None:
+    real = _real_target_for_alias(alias, context)
+    settings_file = real / ".claude" / "settings.json"
+    assert settings_file.exists(), (
+        f"expected {settings_file!s} to exist after the invocation"
+    )
+
+
+@then(
+    parsers.parse(
+        'the contents of "{alias}/.claude/settings.json" contain no '
+        'occurrence of the substring "{needle}"'
+    )
+)
+def then_target_settings_json_does_not_contain_substring(
+    alias: str, needle: str, context: dict
+) -> None:
+    real = _real_target_for_alias(alias, context)
+    settings_file = real / ".claude" / "settings.json"
+    body = settings_file.read_text()
+    assert needle not in body, (
+        f"poured {settings_file!s} unexpectedly contains forbidden "
+        f"substring {needle!r}"
+    )
+
+
+# -----------------------------------------------------------------------
+# Scenario ef68be19d7b3a3bb — stale placeholder-bearing hook command
+# replaced on update.
+# -----------------------------------------------------------------------
+
+
+@given(
+    parsers.parse(
+        'the file at "{alias}/.claude/settings.json" contains an '
+        'inner-hook entry under "hooks.SessionStart" whose "command" '
+        'string is the stale literal "{stale_command}"'
+    )
+)
+def given_settings_json_has_stale_command(
+    alias: str, stale_command: str, context: dict
+) -> None:
+    import json
+
+    real = _real_target_for_alias(alias, context)
+    settings_file = real / ".claude" / "settings.json"
+    # The target was previously bootstrapped, so settings.json exists
+    # with the current canonical content. Mutate it to insert the
+    # stale literal as an inner-hook entry — preserving valid JSON
+    # structure so update can still parse-and-replace cleanly.
+    assert settings_file.exists(), (
+        f"premise violated: {settings_file!s} does not exist after the "
+        "previously-bootstrapped Given"
+    )
+    body = json.loads(settings_file.read_text())
+    stale_entry = {"type": "command", "command": stale_command}
+    # Find or create the SessionStart array, then replace its first
+    # element's inner hooks with a single stale entry — this is the
+    # "shop bootstrapped with an OLD canonical" state.
+    hooks = body.setdefault("hooks", {})
+    sessionstart = hooks.setdefault("SessionStart", [])
+    if not sessionstart:
+        sessionstart.append({"matcher": "", "hooks": []})
+    # Replace inner hooks of the first SessionStart element with the
+    # single stale entry. This matches the "shop was bootstrapped with
+    # the OLD canonical that carried a placeholder hook" state the
+    # scenario describes.
+    sessionstart[0] = {"matcher": "", "hooks": [stale_entry]}
+    settings_file.write_text(json.dumps(body, indent=2) + "\n")
+    # Sanity: confirm the stale literal is in fact present on disk.
+    on_disk = settings_file.read_text()
+    assert stale_command in on_disk, (
+        f"premise violated: stale literal {stale_command!r} not "
+        f"present in {settings_file!s} after seeding"
+    )
+
+
+@when(
+    parsers.parse(
+        'I invoke the "shop-templates" update entry point against '
+        'target "{alias}"'
+    )
+)
+def when_invoke_update_against_target_alias(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    real = _real_target_for_alias(alias, context)
+    shop_type = context.get("bootstrap_shop_type")
+    args = ["update", "--target", str(real)]
+    if shop_type is not None:
+        args.extend(["--shop-type", shop_type])
+    result = _run_shop_templates_with_bd_shim(args, context, tmp_path)
+    context["cli_returncode"] = result.returncode
+    context["cli_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+    context["last_invocation_target"] = real
+
+
+@then(
+    parsers.parse(
+        'after the invocation no inner-hook entry under '
+        '"hooks.SessionStart" in "{alias}/.claude/settings.json" has a '
+        '"command" string containing the substring "{needle}"'
+    )
+)
+def then_no_inner_hook_command_contains_substring_in_file(
+    alias: str, needle: str, context: dict
+) -> None:
+    import json
+
+    real = _real_target_for_alias(alias, context)
+    settings_file = real / ".claude" / "settings.json"
+    parsed = json.loads(settings_file.read_text())
+    commands = _collect_sessionstart_commands(parsed)
+    for cmd in commands:
+        assert needle not in cmd, (
+            f"after update, inner-hook command {cmd!r} in "
+            f"{settings_file!s} still contains forbidden substring "
+            f"{needle!r}"
+        )
+
+
+@then(
+    parsers.parse(
+        'after the invocation exactly one inner-hook entry under '
+        '"hooks.SessionStart" in "{alias}/.claude/settings.json" has a '
+        '"command" string equal to the literal value "{expected}"'
+    )
+)
+def then_exactly_one_inner_hook_command_equals_in_file(
+    alias: str, expected: str, context: dict
+) -> None:
+    import json
+
+    real = _real_target_for_alias(alias, context)
+    settings_file = real / ".claude" / "settings.json"
+    parsed = json.loads(settings_file.read_text())
+    commands = _collect_sessionstart_commands(parsed)
+    matches = [c for c in commands if c == expected]
+    assert len(matches) == 1, (
+        f"after update, expected exactly one inner-hook command equal "
+        f"to {expected!r} in {settings_file!s}; got {len(matches)} "
+        f"matches. All commands: {commands!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the invocation "{alias}/.claude/settings.json" equals '
+        'the current canonical ".claude/settings.json" template for '
+        'shop type "{shop_type}" byte-for-byte'
+    )
+)
+def then_target_settings_json_equals_canonical_byte_for_byte(
+    alias: str, shop_type: str, context: dict
+) -> None:
+    from shop_templates.cli import read_claude_settings_template
+
+    real = _real_target_for_alias(alias, context)
+    settings_file = real / ".claude" / "settings.json"
+    actual = settings_file.read_text()
+    expected = read_claude_settings_template(shop_type)
+    assert actual == expected, (
+        f"after update, {settings_file!s} does not equal the canonical "
+        f"settings template for shop_type={shop_type!r} byte-for-byte.\n"
+        f"len(expected)={len(expected)} len(actual)={len(actual)}"
+    )

@@ -8165,3 +8165,696 @@ def then_content_directs_git_fetch_origin_first(context: dict) -> None:
         "bc-reviewer template must frame the stale-view risk as a "
         "'false positive' (lead-cw7 / 721dcf075edcd9c7)"
     )
+
+
+# -----------------------------------------------------------------------
+# Then steps — bc-implementer pre-emit clean-tree and origin/main checks
+# (lead-8lm scenarios fe496a8073f27678, e5669ee6062b95fd,
+# 86d576b269ff89d6, e01ace6acd655909)
+# -----------------------------------------------------------------------
+#
+# These steps mirror the lead-cw7 bc-reviewer steps above, but scoped
+# to the Implementer-emitter side: the bc-implementer template must
+# name the same "git status --porcelain" and "git log" /
+# "git rev-parse" against "origin/main" pre-emit checks, but ONLY for
+# dispatches where the Implementer is the work_done emitter — i.e.,
+# request_maintenance, or request_bugfix whose scenarios[] is empty.
+# For assign_scenarios / scenario-carrying request_bugfix the Reviewer
+# holds the gate (per the existing "Hand-off to the Reviewer" section
+# in bc-implementer.md and per lead-cw7 scenarios on bc-reviewer), so
+# the new section must explicitly carve that path out, not silently
+# include it. The assertion strategy mirrors lead-cw7: literal-substring
+# checks against the rendered template content, augmented with
+# co-occurrence requirements so a stray mention elsewhere in the
+# template would not silently satisfy a structural intent.
+
+
+# --- Scenario fe496a8073f27678 ---
+
+@then(
+    'the content names "git status --porcelain" as a pre-emit verification '
+    'step the implementer must run before composing a work_done with status '
+    'complete on a dispatch where the Implementer is the work_done emitter '
+    '(request_maintenance, or request_bugfix whose scenarios[] is empty)'
+)
+def then_impl_content_names_git_status_porcelain_pre_emit(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git status --porcelain" in content, (
+        "bc-implementer template must name 'git status --porcelain' as "
+        "a pre-emit verification step (lead-8lm / fe496a8073f27678)"
+    )
+    # Co-occurrence: the pre-emit framing must reference work_done /
+    # status complete so the step is unambiguously tied to the pre-emit
+    # gate, not an unrelated mention.
+    assert "work_done" in lower and "complete" in lower, (
+        "bc-implementer template must frame 'git status --porcelain' as "
+        "a step prior to composing work_done with status complete "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+    # Scope qualifier: the pre-emit check must be tied to the
+    # Implementer-emitter dispatches — request_maintenance and
+    # request_bugfix-with-empty-scenarios. Both message_type names
+    # must appear in the section.
+    assert "request_maintenance" in content, (
+        "bc-implementer template must name 'request_maintenance' as "
+        "an Implementer-emitter dispatch in the pre-emit framing "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+    assert "request_bugfix" in content, (
+        "bc-implementer template must name 'request_bugfix' as an "
+        "Implementer-emitter dispatch (the scenarios[] is empty case) "
+        "in the pre-emit framing (lead-8lm / fe496a8073f27678)"
+    )
+
+
+@then(
+    'the content names "git log" or "git rev-parse" (against the BC\'s '
+    '"origin/main" ref) as a pre-emit verification step that confirms the '
+    'work_id\'s change is present on the BC\'s main branch'
+)
+def then_impl_content_names_git_log_or_rev_parse_origin_main(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    assert ("git log" in content) or ("git rev-parse" in content), (
+        "bc-implementer template must name either 'git log' or "
+        "'git rev-parse' as a pre-emit verification step "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+    assert "origin/main" in content, (
+        "bc-implementer template must name 'origin/main' as the ref "
+        "against which the work_id's commit is verified "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+    assert "work_id" in content.lower(), (
+        "bc-implementer template must frame the origin/main "
+        "verification in terms of the dispatched work_id "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+
+
+@then(
+    'the content directs the implementer that when "git status --porcelain" '
+    'produces any non-empty output the implementer must NOT emit work_done '
+    'with status complete, and instead must surface the uncommitted state '
+    'as a blocker (e.g., emit work_done with status blocked, or stop and '
+    'report) with the offending paths named in the response summary'
+)
+def then_impl_content_dirty_tree_blocks_complete(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git status --porcelain" in content, (
+        "bc-implementer template must name 'git status --porcelain' in "
+        "the dirty-tree-blocks-complete direction "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+    assert "blocked" in lower, (
+        "bc-implementer template must direct emitting work_done with "
+        "status blocked on dirty-tree precondition failure "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+    assert ("paths" in lower) and ("summary" in lower), (
+        "bc-implementer template must direct the implementer to name "
+        "the offending paths in the response summary "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+
+
+@then(
+    'the content directs the implementer that when the BC\'s "origin/main" '
+    'HEAD does NOT carry a commit for the dispatched work_id the '
+    'implementer must NOT emit work_done with status complete, and instead '
+    'must surface the missing-commit state as a blocker with the work_id '
+    'named in the response summary'
+)
+def then_impl_content_missing_origin_main_commit_blocks_complete(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "origin/main" in content, (
+        "bc-implementer template must name 'origin/main' as the ref "
+        "whose HEAD must carry the work_id's commit "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+    assert "blocked" in lower, (
+        "bc-implementer template must direct emitting work_done with "
+        "status blocked on missing-origin/main-commit precondition "
+        "failure (lead-8lm / fe496a8073f27678)"
+    )
+    assert "work_id" in lower and "summary" in lower, (
+        "bc-implementer template must direct the implementer to name "
+        "the work_id in the response summary on missing-commit failure "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+
+
+@then(
+    'the content marks both checks as discrete pre-emit steps that fire '
+    'for every Implementer-emitted work_done (complete) regardless of '
+    'message_type, not as optional guidance the implementer may skip'
+)
+def then_impl_content_marks_checks_as_discrete_pre_emit_steps(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # Both new checks (porcelain + origin/main) must be present, framed
+    # as a pair.
+    assert "git status --porcelain" in content, (
+        "bc-implementer template missing 'git status --porcelain' "
+        "check in discrete-pre-emit framing "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+    assert "origin/main" in content, (
+        "bc-implementer template missing 'origin/main' check in "
+        "discrete-pre-emit framing (lead-8lm / fe496a8073f27678)"
+    )
+    # "regardless of message_type" — the section must frame the check
+    # as firing for every Implementer-emitted work_done, not gated on
+    # message_type.
+    regardless_cues = (
+        "regardless of message_type",
+        "regardless of the message_type",
+        "every implementer-emitted",
+        "for every implementer-emitted",
+        "any implementer-emitted",
+    )
+    assert any(c in lower for c in regardless_cues), (
+        "bc-implementer template must frame the pre-emit checks as "
+        "firing for every Implementer-emitted work_done regardless of "
+        "message_type (lead-8lm / fe496a8073f27678)"
+    )
+    # Imperative ("must") language must appear; the existing template
+    # already has several, and the new section adds more.
+    assert lower.count("must") >= 3, (
+        "bc-implementer template's pre-emit framing must use "
+        "imperative language ('must' should appear multiple times), "
+        "not optional guidance (lead-8lm / fe496a8073f27678)"
+    )
+
+
+@then(
+    'the content makes clear these pre-emit checks do NOT apply to the '
+    'assign_scenarios / scenario-carrying request_bugfix path, where the '
+    'Reviewer holds the gate per the existing "Hand-off to the Reviewer" '
+    'section and per scenarios 105–108 against bc-reviewer'
+)
+def then_impl_content_carves_out_reviewer_gated_paths(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The carve-out must explicitly name assign_scenarios as a
+    # NOT-included path for these pre-emit checks.
+    assert "assign_scenarios" in content, (
+        "bc-implementer template must explicitly name "
+        "'assign_scenarios' in the carve-out as a path where these "
+        "pre-emit checks do NOT apply (lead-8lm / fe496a8073f27678)"
+    )
+    # The Reviewer-holds-gate framing must appear so the carve-out is
+    # tied to the existing role-discipline boundary.
+    assert "reviewer" in lower, (
+        "bc-implementer template's carve-out must reference the "
+        "Reviewer as the gate-holder for assign_scenarios / "
+        "scenario-carrying request_bugfix (lead-8lm / fe496a8073f27678)"
+    )
+    # The existing "Hand-off to the Reviewer" section must be
+    # referenced by name so the carve-out is anchored to the existing
+    # template structure, not a free-floating mention.
+    assert "hand-off to the reviewer" in lower, (
+        "bc-implementer template's carve-out must reference the "
+        "existing 'Hand-off to the Reviewer' section by name "
+        "(lead-8lm / fe496a8073f27678)"
+    )
+    # A negation cue ("do not apply", "does not apply", "not for") must
+    # appear so the carve-out reads as exclusion, not allowance.
+    negation_cues = (
+        "do not apply", "does not apply", "do NOT apply",
+        "not apply", "not for assign_scenarios",
+    )
+    assert any(c.lower() in lower for c in negation_cues), (
+        "bc-implementer template's carve-out must use an explicit "
+        "negation ('do not apply' / 'does not apply') so the carve-out "
+        "reads as exclusion (lead-8lm / fe496a8073f27678)"
+    )
+
+
+# --- Scenario e5669ee6062b95fd ---
+
+@then(
+    'the content directs the implementer that, prior to emitting work_done '
+    'with status complete on a dispatch where the Implementer is the '
+    'work_done emitter (request_maintenance, or request_bugfix whose '
+    'scenarios[] is empty), the implementer must invoke "git status '
+    '--porcelain" in the BC root and inspect its output'
+)
+def then_impl_content_directs_invoke_porcelain_in_bc_root(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git status --porcelain" in content, (
+        "bc-implementer template must direct 'git status --porcelain' "
+        "invocation (lead-8lm / e5669ee6062b95fd)"
+    )
+    assert "bc root" in lower, (
+        "bc-implementer template must name 'BC root' as the scope of "
+        "the porcelain invocation (lead-8lm / e5669ee6062b95fd)"
+    )
+    assert "work_done" in lower and "complete" in lower, (
+        "bc-implementer template must frame the porcelain invocation "
+        "as prior to emitting work_done --status complete "
+        "(lead-8lm / e5669ee6062b95fd)"
+    )
+    # The Implementer-emitter scope qualifier must appear so this
+    # check is unambiguously tied to the Implementer-emitter path.
+    assert "request_maintenance" in content, (
+        "bc-implementer template must scope the porcelain invocation "
+        "to request_maintenance (Implementer-emitter dispatch) "
+        "(lead-8lm / e5669ee6062b95fd)"
+    )
+    assert "request_bugfix" in content, (
+        "bc-implementer template must scope the porcelain invocation "
+        "to request_bugfix (the empty-scenarios case) "
+        "(lead-8lm / e5669ee6062b95fd)"
+    )
+
+
+@then(
+    'the content directs the implementer that any line in "git status '
+    '--porcelain" output with a tracked-file modification marker (lines '
+    'beginning with " M", "M ", "MM", " D", "D ", "A ", "AM", " R", "R ", '
+    '" C", "C ", or "UU") is a precondition failure'
+)
+def then_impl_content_enumerates_porcelain_tracked_markers(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    required_markers = (
+        '" M"', '"M "', '"MM"', '" D"', '"D "', '"A "', '"AM"',
+        '" R"', '"R "', '" C"', '"C "', '"UU"',
+    )
+    missing = [m for m in required_markers if m not in content]
+    assert not missing, (
+        "bc-implementer template must enumerate every tracked-file "
+        "porcelain marker called out by the scenario; missing: "
+        f"{missing!r} (lead-8lm / e5669ee6062b95fd)"
+    )
+    assert "precondition" in content.lower(), (
+        "bc-implementer template must name these as a 'precondition "
+        "failure' (lead-8lm / e5669ee6062b95fd)"
+    )
+
+
+@then(
+    'the content directs the implementer that on such a precondition '
+    'failure the implementer does NOT compose "shop-msg respond work_done '
+    '--status complete" and instead emits "shop-msg respond work_done '
+    '--status blocked" with a summary that names the tracked paths '
+    'reported by "git status --porcelain"'
+)
+def then_impl_content_directs_blocked_on_porcelain_tracked(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    assert "shop-msg respond work_done --status blocked" in content, (
+        "bc-implementer template must literally name the "
+        "blocked-status shop-msg invocation "
+        "(lead-8lm / e5669ee6062b95fd)"
+    )
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-implementer template must literally name the "
+        "complete-status shop-msg invocation that is being negated "
+        "(lead-8lm / e5669ee6062b95fd)"
+    )
+    lower = content.lower()
+    assert "tracked" in lower and "paths" in lower, (
+        "bc-implementer template must direct naming the tracked paths "
+        "in the summary (lead-8lm / e5669ee6062b95fd)"
+    )
+
+
+@then(
+    'the content frames the dirty-tracked-files check as a step the '
+    'implementer runs even when acceptance criteria are satisfied and any '
+    'local verification (unit tests, build, lint) passes, so a green local '
+    'result does not bypass the check'
+)
+def then_impl_content_frames_dirty_check_not_bypassed_by_green_local(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The "even when local verification passes" framing must appear.
+    bypass_cues = ("even when", "even if", "regardless", "not bypass",
+                   "does not bypass", "still", "always", "green")
+    has_bypass_framing = any(c in lower for c in bypass_cues)
+    assert has_bypass_framing, (
+        "bc-implementer template must frame the dirty-tracked-files "
+        "check as running even when local verification passes "
+        "(lead-8lm / e5669ee6062b95fd)"
+    )
+    # The "local verification" / "acceptance criteria" framing must
+    # appear — the scenario specifically calls out that satisfying
+    # acceptance criteria + green unit tests / build / lint does NOT
+    # bypass the check.
+    local_cues = (
+        "acceptance criteria",
+        "unit test", "unit tests",
+        "build", "lint",
+        "local verification",
+    )
+    assert any(c in lower for c in local_cues), (
+        "bc-implementer template must reference local-verification "
+        "cues (acceptance criteria / unit tests / build / lint / "
+        "local verification) when framing the green-result-does-not-"
+        "bypass discipline (lead-8lm / e5669ee6062b95fd)"
+    )
+
+
+# --- Scenario 86d576b269ff89d6 ---
+
+@then(
+    'the content directs the implementer that the same "git status '
+    '--porcelain" inspection that catches modified-tracked-files (per '
+    'scenario 110) also catches untracked files (lines beginning with '
+    '"??") and treats them as a precondition failure on any '
+    'Implementer-emitted work_done (request_maintenance, or request_bugfix '
+    'whose scenarios[] is empty)'
+)
+def then_impl_content_porcelain_catches_untracked(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git status --porcelain" in content, (
+        "bc-implementer template must name 'git status --porcelain' "
+        "as the untracked-files inspection too "
+        "(lead-8lm / 86d576b269ff89d6)"
+    )
+    assert '"??"' in content, (
+        "bc-implementer template must enumerate the '??' porcelain "
+        "marker for untracked files (lead-8lm / 86d576b269ff89d6)"
+    )
+    assert "untracked" in lower, (
+        "bc-implementer template must name 'untracked' files as the "
+        "case this marker catches (lead-8lm / 86d576b269ff89d6)"
+    )
+    assert "precondition" in lower, (
+        "bc-implementer template must frame untracked-files as a "
+        "'precondition failure' (lead-8lm / 86d576b269ff89d6)"
+    )
+    # The Implementer-emitter scope qualifier must appear so the
+    # untracked check is unambiguously tied to the Implementer-emitter
+    # path, not the Reviewer-gated assign_scenarios path.
+    assert "request_maintenance" in content, (
+        "bc-implementer template must scope the untracked-files check "
+        "to request_maintenance (Implementer-emitter dispatch) "
+        "(lead-8lm / 86d576b269ff89d6)"
+    )
+    assert "request_bugfix" in content, (
+        "bc-implementer template must scope the untracked-files check "
+        "to request_bugfix (Implementer-emitter, empty-scenarios case) "
+        "(lead-8lm / 86d576b269ff89d6)"
+    )
+
+
+@then(
+    'the content directs the implementer that on untracked-files failure '
+    'the implementer does NOT compose "shop-msg respond work_done --status '
+    'complete" and instead emits "shop-msg respond work_done --status '
+    'blocked" with a summary that names the untracked paths reported by '
+    '"git status --porcelain"'
+)
+def then_impl_content_directs_blocked_on_untracked(context: dict) -> None:
+    content = context["template_content"]
+    assert "shop-msg respond work_done --status blocked" in content, (
+        "bc-implementer template must literally name the "
+        "blocked-status shop-msg invocation for untracked-files "
+        "failure (lead-8lm / 86d576b269ff89d6)"
+    )
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-implementer template must literally name the "
+        "complete-status shop-msg invocation that is being negated "
+        "(lead-8lm / 86d576b269ff89d6)"
+    )
+    lower = content.lower()
+    assert "untracked" in lower and "paths" in lower, (
+        "bc-implementer template must direct naming the untracked "
+        "paths in the summary (lead-8lm / 86d576b269ff89d6)"
+    )
+
+
+@then(
+    'the content explicitly directs the implementer that the '
+    'untracked-files check is NOT satisfied by adding the paths to '
+    '.gitignore unless the paths are genuinely outside the BC\'s scope of '
+    'work; the implementer must confirm by inspection of the dispatch\'s '
+    'acceptance criteria (or by clarify back to the lead) whether the '
+    'untracked paths are work product that should be committed before '
+    're-attempting the emit'
+)
+def then_impl_content_directs_gitignore_is_not_the_fix(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert ".gitignore" in lower, (
+        "bc-implementer template must explicitly name '.gitignore' as "
+        "the non-fix the implementer must NOT default to "
+        "(lead-8lm / 86d576b269ff89d6)"
+    )
+    assert "scope" in lower, (
+        "bc-implementer template must frame the .gitignore carve-out "
+        "in terms of 'scope' (lead-8lm / 86d576b269ff89d6)"
+    )
+    assert "commit" in lower, (
+        "bc-implementer template must direct the implementer to "
+        "consider committing untracked work product instead of "
+        ".gitignoring it (lead-8lm / 86d576b269ff89d6)"
+    )
+    # The "inspection of the dispatch's acceptance criteria (or by
+    # clarify back to the lead)" framing must appear — the scenario
+    # specifically tells the implementer how to resolve the
+    # uncertainty (acceptance-criteria inspection or clarify).
+    assert "acceptance criteria" in lower, (
+        "bc-implementer template must direct the implementer to "
+        "inspect the dispatch's acceptance criteria when resolving "
+        "the untracked-paths question (lead-8lm / 86d576b269ff89d6)"
+    )
+    assert "clarify" in lower, (
+        "bc-implementer template must offer 'clarify back to the "
+        "lead' as the escalation path when the implementer cannot "
+        "resolve the untracked-paths question by inspection alone "
+        "(lead-8lm / 86d576b269ff89d6)"
+    )
+
+
+# --- Scenario e01ace6acd655909 ---
+
+@then(
+    'the content directs the implementer that, prior to emitting work_done '
+    'with status complete on a dispatch where the Implementer is the '
+    'work_done emitter (request_maintenance, or request_bugfix whose '
+    'scenarios[] is empty), the implementer must verify by "git log '
+    'origin/main" (or equivalent "git log" against the BC\'s main branch) '
+    'that at least one commit attributable to the dispatched work_id is '
+    'reachable from "origin/main" HEAD'
+)
+def then_impl_content_directs_git_log_origin_main_reachable(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git log origin/main" in content, (
+        "bc-implementer template must name the literal 'git log "
+        "origin/main' verification (lead-8lm / e01ace6acd655909)"
+    )
+    assert "reachable" in lower, (
+        "bc-implementer template must frame the verification as the "
+        "work_id's commit being 'reachable' from origin/main HEAD "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+    assert "work_id" in lower, (
+        "bc-implementer template must tie the reachability check to "
+        "the dispatched work_id (lead-8lm / e01ace6acd655909)"
+    )
+    assert "work_done" in lower and "complete" in lower, (
+        "bc-implementer template must frame the verification as "
+        "prior to emitting work_done --status complete "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+    # Implementer-emitter scope qualifier.
+    assert "request_maintenance" in content, (
+        "bc-implementer template must scope the origin/main "
+        "reachability check to request_maintenance "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+    assert "request_bugfix" in content, (
+        "bc-implementer template must scope the origin/main "
+        "reachability check to request_bugfix (empty-scenarios case) "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+
+
+@then(
+    'the content names a concrete attribution mechanism the implementer '
+    'may use to recognize the work_id\'s commit (for example, the work_id '
+    'substring appearing in the commit message subject or body, or a '
+    'tag/note pointing at the work_id), so the implementer does not have '
+    'to invent a convention'
+)
+def then_impl_content_names_concrete_attribution_mechanism(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    has_subject_body = (
+        "subject" in lower or "body" in lower or "message" in lower
+    ) and "work_id" in lower
+    has_tag_note = "tag" in lower or "note" in lower
+    assert has_subject_body or has_tag_note, (
+        "bc-implementer template must name at least one concrete "
+        "attribution mechanism (work_id in commit subject/body, or "
+        "tag/note pointing at work_id) "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+
+
+@then(
+    'the content directs the implementer that when no commit attributable '
+    'to the work_id is reachable from "origin/main" HEAD the implementer '
+    'does NOT compose "shop-msg respond work_done --status complete" and '
+    'instead emits "shop-msg respond work_done --status blocked" with a '
+    'summary that names the dispatched work_id and the current '
+    '"origin/main" HEAD short SHA'
+)
+def then_impl_content_directs_blocked_on_missing_origin_main_commit(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "shop-msg respond work_done --status blocked" in content, (
+        "bc-implementer template must literally name the "
+        "blocked-status shop-msg invocation for missing-origin/main-"
+        "commit failure (lead-8lm / e01ace6acd655909)"
+    )
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-implementer template must literally name the "
+        "complete-status shop-msg invocation that is being negated "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+    assert "work_id" in lower and "summary" in lower, (
+        "bc-implementer template must direct naming the work_id in "
+        "the response summary (lead-8lm / e01ace6acd655909)"
+    )
+    assert ("short sha" in lower) or ("short-sha" in lower) or (
+        "head" in lower and "sha" in lower
+    ), (
+        "bc-implementer template must direct naming the current "
+        "origin/main HEAD short SHA in the response summary "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+
+
+@then(
+    'the content directs the implementer that committing the work_id\'s '
+    'change to any branch OTHER than the BC\'s main branch (e.g., a local '
+    'feature branch that has not been merged or pushed to origin/main) '
+    'does NOT satisfy this precondition; the only outcome that satisfies '
+    'the precondition is the work_id\'s commit being reachable from '
+    '"origin/main" HEAD'
+)
+def then_impl_content_directs_local_branch_does_not_satisfy(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "local" in lower and "branch" in lower, (
+        "bc-implementer template must explicitly name the "
+        "local-branch case as not satisfying the precondition "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+    assert "origin/main" in content, (
+        "bc-implementer template must name 'origin/main' as the only "
+        "ref whose reachability satisfies the precondition "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+    disqualifying_cues = (
+        "does not satisfy", "do not satisfy", "not satisfy",
+        "only outcome", "only satisfies",
+    )
+    assert any(c in lower for c in disqualifying_cues), (
+        "bc-implementer template must disqualify local-branch commits "
+        "with an explicit 'does not satisfy' / 'only outcome' framing "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+
+
+@then(
+    'the content directs the implementer that "git fetch origin" should '
+    'be run as part of the verification so a stale local view of '
+    '"origin/main" does not produce a false positive'
+)
+def then_impl_content_directs_git_fetch_origin_first(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git fetch origin" in content, (
+        "bc-implementer template must name the literal 'git fetch "
+        "origin' step (lead-8lm / e01ace6acd655909)"
+    )
+    assert "stale" in lower, (
+        "bc-implementer template must frame 'git fetch origin' as "
+        "guarding against a stale local view "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+    assert "false positive" in lower or "false-positive" in lower, (
+        "bc-implementer template must frame the stale-view risk as a "
+        "'false positive' (lead-8lm / e01ace6acd655909)"
+    )
+
+
+@then(
+    'the content explicitly disclaims the BC role-discipline interpretation '
+    '"BC role discipline does not push" as a reason to skip this check; for '
+    'Implementer-emitted work_done, pushing the work_id commit to '
+    'origin/main is part of the work, not optional polish'
+)
+def then_impl_content_disclaims_role_discipline_no_push(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The literal phrase "BC role discipline does not push" must appear
+    # so the template explicitly identifies the misinterpretation it
+    # is disclaiming, rather than disclaiming it implicitly.
+    assert "bc role discipline does not push" in lower, (
+        "bc-implementer template must literally quote the "
+        "misinterpretation it is disclaiming ('BC role discipline "
+        "does not push') (lead-8lm / e01ace6acd655909)"
+    )
+    # The disclaim framing must be present: "not a reason to skip",
+    # "does not excuse", "is not optional", etc.
+    disclaim_cues = (
+        "not a reason to skip",
+        "does not excuse",
+        "is not optional",
+        "not optional",
+        "part of the work",
+    )
+    assert any(c in lower for c in disclaim_cues), (
+        "bc-implementer template must frame the role-discipline "
+        "phrase as explicitly NOT a valid reason to skip the "
+        "origin/main reachability check "
+        "(lead-8lm / e01ace6acd655909)"
+    )
+    # The "pushing is part of the work" framing must be explicit so
+    # the implementer cannot read the carve-out as optional polish.
+    assert "push" in lower and "origin/main" in content, (
+        "bc-implementer template must explicitly tie pushing the "
+        "work_id commit to origin/main as part of the "
+        "Implementer-emitted work_done work "
+        "(lead-8lm / e01ace6acd655909)"
+    )

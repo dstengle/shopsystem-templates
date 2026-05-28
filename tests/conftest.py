@@ -7623,3 +7623,545 @@ def then_target_settings_json_equals_canonical_byte_for_byte(
         f"settings template for shop_type={shop_type!r} byte-for-byte.\n"
         f"len(expected)={len(expected)} len(actual)={len(actual)}"
     )
+
+
+# -----------------------------------------------------------------------
+# Then steps — bc-reviewer pre-emit clean-tree and origin/main checks
+# (lead-cw7 scenarios 9457dfff7e3f9e90, 2b5d558d548b0606,
+# 6d0a7a957b340274, 721dcf075edcd9c7)
+# -----------------------------------------------------------------------
+#
+# These steps pin that the bc-reviewer template names "git status
+# --porcelain" and a "git log" / "git rev-parse" check against
+# "origin/main" as discrete pre-emit verification steps the reviewer
+# must run before composing work_done --status complete, and that
+# precondition failures (dirty tracked files, untracked files,
+# missing-on-origin/main commit) must convert the response into
+# work_done --status blocked with the offending paths / work_id /
+# HEAD SHA named in the summary. The assertion strategy mirrors the
+# existing "names X as a Y discipline" steps higher up in this
+# file: each scenario's Then steps reduce to literal-substring
+# checks against the rendered template content, augmented with
+# co-occurrence requirements so a stray mention elsewhere in the
+# template would not silently satisfy a structural intent.
+
+
+# --- Scenario 9457dfff7e3f9e90 ---
+
+@then(
+    'the content names "git status --porcelain" as a pre-emit verification '
+    'step the reviewer must run before composing a work_done with status '
+    'complete'
+)
+def then_content_names_git_status_porcelain_pre_emit(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The literal command must appear.
+    assert "git status --porcelain" in content, (
+        "bc-reviewer template must name 'git status --porcelain' as a "
+        "pre-emit verification step (lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    # Co-occurrence: the command's framing must reference work_done /
+    # status complete so the step is unambiguously tied to the pre-emit
+    # gate, not an unrelated mention.
+    assert "work_done" in lower and "complete" in lower, (
+        "bc-reviewer template must frame 'git status --porcelain' as a "
+        "step prior to composing work_done with status complete "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+
+
+@then(
+    'the content names "git log" or "git rev-parse" (against the BC\'s '
+    '"origin/main" ref) as a pre-emit verification step that confirms the '
+    'work_id\'s change is present on the BC\'s main branch'
+)
+def then_content_names_git_log_or_rev_parse_origin_main(context: dict) -> None:
+    content = context["template_content"]
+    # Either "git log" or "git rev-parse" must appear (the scenario
+    # admits either as the verification verb).
+    assert ("git log" in content) or ("git rev-parse" in content), (
+        "bc-reviewer template must name either 'git log' or "
+        "'git rev-parse' as a pre-emit verification step "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    # The BC's "origin/main" ref must appear, since the check is
+    # explicitly against the main branch on origin.
+    assert "origin/main" in content, (
+        "bc-reviewer template must name 'origin/main' as the ref against "
+        "which the work_id's commit is verified "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    # work_id must appear in the surrounding text so the step is tied
+    # to the dispatched work_id, not a stray ref mention.
+    assert "work_id" in content.lower(), (
+        "bc-reviewer template must frame the origin/main verification "
+        "in terms of the dispatched work_id "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+
+
+@then(
+    'the content directs the reviewer that when "git status --porcelain" '
+    'produces any non-empty output the reviewer must NOT emit work_done '
+    'with status complete, and instead must surface the uncommitted state '
+    'as a blocker (e.g., emit work_done with status blocked, or stop and '
+    'report) with the offending paths named in the response summary'
+)
+def then_content_dirty_tree_blocks_complete(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The literal porcelain command must appear (already covered, but
+    # we re-assert here so this Then is self-contained).
+    assert "git status --porcelain" in content, (
+        "bc-reviewer template must name 'git status --porcelain' in the "
+        "dirty-tree-blocks-complete direction (lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    # The blocked-status outcome must be named.
+    assert "blocked" in lower, (
+        "bc-reviewer template must direct emitting work_done with "
+        "status blocked on dirty-tree precondition failure "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    # The summary-naming-paths requirement must appear: paths reported
+    # by the porcelain output must be named in the summary.
+    assert ("paths" in lower) and ("summary" in lower), (
+        "bc-reviewer template must direct the reviewer to name the "
+        "offending paths in the response summary "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+
+
+@then(
+    'the content directs the reviewer that when the BC\'s "origin/main" '
+    'HEAD does NOT carry a commit for the dispatched work_id the reviewer '
+    'must NOT emit work_done with status complete, and instead must '
+    'surface the missing-commit state as a blocker with the work_id named '
+    'in the response summary'
+)
+def then_content_missing_origin_main_commit_blocks_complete(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "origin/main" in content, (
+        "bc-reviewer template must name 'origin/main' as the ref whose "
+        "HEAD must carry the work_id's commit "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    assert "blocked" in lower, (
+        "bc-reviewer template must direct emitting work_done with "
+        "status blocked on missing-origin/main-commit precondition "
+        "failure (lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    assert "work_id" in lower and "summary" in lower, (
+        "bc-reviewer template must direct the reviewer to name the "
+        "work_id in the response summary on missing-commit failure "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+
+
+@then(
+    'the content marks both checks as discrete pre-emit steps (alongside '
+    'the existing BDD-rerun and scenario-hash-presence steps), not as '
+    'optional guidance the reviewer may skip'
+)
+def then_content_marks_checks_as_discrete_pre_emit_steps(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The two new checks (porcelain + origin/main) must both be present
+    # — co-occurrence guarantees they are framed as a pair.
+    assert "git status --porcelain" in content, (
+        "bc-reviewer template missing 'git status --porcelain' check "
+        "in discrete-pre-emit framing (lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    assert "origin/main" in content, (
+        "bc-reviewer template missing 'origin/main' check in "
+        "discrete-pre-emit framing (lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    # The BDD re-run must be named (it already exists in the template;
+    # this is the "alongside the existing BDD-rerun" check).
+    assert ("bdd" in lower) and ("pytest" in lower or "re-run" in lower
+                                  or "rerun" in lower), (
+        "bc-reviewer template must reference the existing BDD-rerun step "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    # The scenario-hash step must be referenced as a sibling pre-emit step.
+    assert "scenario_hash" in lower or "scenario-hash" in lower, (
+        "bc-reviewer template must reference the existing scenario-hash "
+        "check as a sibling pre-emit step "
+        "(lead-cw7 / 9457dfff7e3f9e90)"
+    )
+    # The "mandatory / not optional / must" framing — at least one
+    # imperative cue must appear in the pre-emit section. We check for
+    # "must" near "pre-emit" / "before" framing. The simplest robust
+    # check: the word "must" appears at least three times in the
+    # template (the existing template already has several; the new
+    # section adds more).
+    assert lower.count("must") >= 3, (
+        "bc-reviewer template's pre-emit framing must use imperative "
+        "language ('must' should appear multiple times), not optional "
+        "guidance (lead-cw7 / 9457dfff7e3f9e90)"
+    )
+
+
+# --- Scenario 2b5d558d548b0606 ---
+
+@then(
+    'the content directs the reviewer that, prior to emitting work_done '
+    'with status complete, the reviewer must invoke "git status '
+    '--porcelain" in the BC root and inspect its output'
+)
+def then_content_directs_invoke_porcelain_in_bc_root(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git status --porcelain" in content, (
+        "bc-reviewer template must direct 'git status --porcelain' "
+        "invocation (lead-cw7 / 2b5d558d548b0606)"
+    )
+    # "BC root" must be named so the scope of the invocation is fixed.
+    assert "bc root" in lower, (
+        "bc-reviewer template must name 'BC root' as the scope of the "
+        "porcelain invocation (lead-cw7 / 2b5d558d548b0606)"
+    )
+    assert "work_done" in lower and "complete" in lower, (
+        "bc-reviewer template must frame the porcelain invocation as "
+        "prior to emitting work_done --status complete "
+        "(lead-cw7 / 2b5d558d548b0606)"
+    )
+
+
+@then(
+    'the content directs the reviewer that any line in "git status '
+    '--porcelain" output with a tracked-file modification marker (lines '
+    'beginning with " M", "M ", "MM", " D", "D ", "A ", "AM", " R", "R ", '
+    '" C", "C ", or "UU") is a precondition failure'
+)
+def then_content_enumerates_porcelain_tracked_markers(context: dict) -> None:
+    content = context["template_content"]
+    # The scenario explicitly enumerates these markers; the template
+    # must enumerate them too so the reviewer is not left to guess.
+    required_markers = (
+        '" M"', '"M "', '"MM"', '" D"', '"D "', '"A "', '"AM"',
+        '" R"', '"R "', '" C"', '"C "', '"UU"',
+    )
+    missing = [m for m in required_markers if m not in content]
+    assert not missing, (
+        "bc-reviewer template must enumerate every tracked-file "
+        "porcelain marker called out by the scenario; missing: "
+        f"{missing!r} (lead-cw7 / 2b5d558d548b0606)"
+    )
+    assert "precondition" in content.lower(), (
+        "bc-reviewer template must name these as a 'precondition "
+        "failure' (lead-cw7 / 2b5d558d548b0606)"
+    )
+
+
+@then(
+    'the content directs the reviewer that on such a precondition failure '
+    'the reviewer does NOT compose "shop-msg respond work_done --status '
+    'complete" and instead emits "shop-msg respond work_done --status '
+    'blocked" with a summary that names the tracked paths reported by '
+    '"git status --porcelain"'
+)
+def then_content_directs_blocked_on_porcelain_tracked(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    assert "shop-msg respond work_done --status blocked" in content, (
+        "bc-reviewer template must literally name the blocked-status "
+        "shop-msg invocation (lead-cw7 / 2b5d558d548b0606)"
+    )
+    # The complete-status form must also be named (the negation form).
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-reviewer template must literally name the complete-status "
+        "shop-msg invocation that is being negated "
+        "(lead-cw7 / 2b5d558d548b0606)"
+    )
+    lower = content.lower()
+    assert "tracked" in lower and "paths" in lower, (
+        "bc-reviewer template must direct naming the tracked paths in "
+        "the summary (lead-cw7 / 2b5d558d548b0606)"
+    )
+
+
+@then(
+    'the content frames the dirty-tracked-files check as a step the '
+    'reviewer runs even when the BDD suite passes, so a green BDD result '
+    'does not bypass the check'
+)
+def then_content_frames_dirty_check_not_bypassed_by_green_bdd(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The "even when BDD passes" / "BDD does not bypass" framing must
+    # appear. Look for the conjunction of "bdd" and one of
+    # "even", "regardless", "not bypass", "still", "always", "green".
+    bypass_cues = ("even when", "even if", "regardless", "not bypass",
+                   "does not bypass", "still", "always", "green")
+    has_bypass_framing = "bdd" in lower and any(c in lower for c in bypass_cues)
+    assert has_bypass_framing, (
+        "bc-reviewer template must frame the dirty-tracked-files check "
+        "as running even when BDD passes, so a green BDD result does "
+        "not bypass it (lead-cw7 / 2b5d558d548b0606)"
+    )
+
+
+# --- Scenario 6d0a7a957b340274 ---
+
+@then(
+    'the content directs the reviewer that the same "git status '
+    '--porcelain" inspection that catches modified-tracked-files (per '
+    'scenario 106) also catches untracked files (lines beginning with '
+    '"??") and treats them as a precondition failure'
+)
+def then_content_porcelain_catches_untracked(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git status --porcelain" in content, (
+        "bc-reviewer template must name 'git status --porcelain' as the "
+        "untracked-files inspection too (lead-cw7 / 6d0a7a957b340274)"
+    )
+    # The "??" marker must appear so the reviewer knows what line shape
+    # to look for.
+    assert '"??"' in content, (
+        "bc-reviewer template must enumerate the '??' porcelain marker "
+        "for untracked files (lead-cw7 / 6d0a7a957b340274)"
+    )
+    assert "untracked" in lower, (
+        "bc-reviewer template must name 'untracked' files as the case "
+        "this marker catches (lead-cw7 / 6d0a7a957b340274)"
+    )
+    assert "precondition" in lower, (
+        "bc-reviewer template must frame untracked-files as a "
+        "'precondition failure' (lead-cw7 / 6d0a7a957b340274)"
+    )
+
+
+@then(
+    'the content directs the reviewer that on untracked-files failure the '
+    'reviewer does NOT compose "shop-msg respond work_done --status '
+    'complete" and instead emits "shop-msg respond work_done --status '
+    'blocked" with a summary that names the untracked paths reported by '
+    '"git status --porcelain"'
+)
+def then_content_directs_blocked_on_untracked(context: dict) -> None:
+    content = context["template_content"]
+    assert "shop-msg respond work_done --status blocked" in content, (
+        "bc-reviewer template must literally name the blocked-status "
+        "shop-msg invocation for untracked-files failure "
+        "(lead-cw7 / 6d0a7a957b340274)"
+    )
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-reviewer template must literally name the complete-status "
+        "shop-msg invocation that is being negated "
+        "(lead-cw7 / 6d0a7a957b340274)"
+    )
+    lower = content.lower()
+    assert "untracked" in lower and "paths" in lower, (
+        "bc-reviewer template must direct naming the untracked paths "
+        "in the summary (lead-cw7 / 6d0a7a957b340274)"
+    )
+
+
+@then(
+    'the content explicitly directs the reviewer that the untracked-files '
+    'check is NOT satisfied by adding the paths to .gitignore unless the '
+    'paths are genuinely outside the BC\'s scope of work; the reviewer '
+    'must confirm with the implementer (or by inspection of the dispatch) '
+    'whether the untracked paths are work product that should be '
+    'committed before re-attempting the emit'
+)
+def then_content_directs_gitignore_is_not_the_fix(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert ".gitignore" in lower, (
+        "bc-reviewer template must explicitly name '.gitignore' as the "
+        "non-fix the reviewer must NOT default to "
+        "(lead-cw7 / 6d0a7a957b340274)"
+    )
+    # The "scope of work" / "out of scope" framing must appear so the
+    # carve-out is clear.
+    assert "scope" in lower, (
+        "bc-reviewer template must frame the .gitignore carve-out in "
+        "terms of 'scope' (lead-cw7 / 6d0a7a957b340274)"
+    )
+    # The "work product" / "commit" framing must appear.
+    assert "commit" in lower, (
+        "bc-reviewer template must direct the reviewer to consider "
+        "committing untracked work product instead of .gitignoring it "
+        "(lead-cw7 / 6d0a7a957b340274)"
+    )
+    # The "confirm with the implementer (or by inspection of the
+    # dispatch)" framing must appear.
+    assert "implementer" in lower or "dispatch" in lower, (
+        "bc-reviewer template must direct the reviewer to confirm with "
+        "the implementer or by inspection of the dispatch "
+        "(lead-cw7 / 6d0a7a957b340274)"
+    )
+
+
+# --- Scenario 721dcf075edcd9c7 ---
+
+@then(
+    'the content directs the reviewer that, prior to emitting work_done '
+    'with status complete, the reviewer must verify by "git log '
+    'origin/main" (or equivalent "git log" against the BC\'s main branch) '
+    'that at least one commit attributable to the dispatched work_id is '
+    'reachable from "origin/main" HEAD'
+)
+def then_content_directs_git_log_origin_main_reachable(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git log origin/main" in content, (
+        "bc-reviewer template must name the literal 'git log "
+        "origin/main' verification (lead-cw7 / 721dcf075edcd9c7)"
+    )
+    assert "reachable" in lower, (
+        "bc-reviewer template must frame the verification as the "
+        "work_id's commit being 'reachable' from origin/main HEAD "
+        "(lead-cw7 / 721dcf075edcd9c7)"
+    )
+    assert "work_id" in lower, (
+        "bc-reviewer template must tie the reachability check to the "
+        "dispatched work_id (lead-cw7 / 721dcf075edcd9c7)"
+    )
+    assert "work_done" in lower and "complete" in lower, (
+        "bc-reviewer template must frame the verification as prior to "
+        "emitting work_done --status complete "
+        "(lead-cw7 / 721dcf075edcd9c7)"
+    )
+
+
+@then(
+    'the content names a concrete attribution mechanism the reviewer may '
+    'use to recognize the work_id\'s commit (for example, the work_id '
+    'substring appearing in the commit message subject or body, or a '
+    'tag/note pointing at the work_id), so the reviewer does not have to '
+    'invent a convention'
+)
+def then_content_names_concrete_attribution_mechanism(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # At least one of the two attribution mechanisms must be concretely
+    # named: (a) work_id substring in commit subject/body, or (b)
+    # tag/note pointing at work_id. We require the language be specific
+    # enough that the reviewer is not left to invent a convention.
+    has_subject_body = (
+        "subject" in lower or "body" in lower or "message" in lower
+    ) and "work_id" in lower
+    has_tag_note = "tag" in lower or "note" in lower
+    assert has_subject_body or has_tag_note, (
+        "bc-reviewer template must name at least one concrete "
+        "attribution mechanism (work_id in commit subject/body, or "
+        "tag/note pointing at work_id) "
+        "(lead-cw7 / 721dcf075edcd9c7)"
+    )
+
+
+@then(
+    'the content directs the reviewer that when no commit attributable to '
+    'the work_id is reachable from "origin/main" HEAD the reviewer does '
+    'NOT compose "shop-msg respond work_done --status complete" and '
+    'instead emits "shop-msg respond work_done --status blocked" with a '
+    'summary that names the dispatched work_id and the current '
+    '"origin/main" HEAD short SHA'
+)
+def then_content_directs_blocked_on_missing_origin_main_commit(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "shop-msg respond work_done --status blocked" in content, (
+        "bc-reviewer template must literally name the blocked-status "
+        "shop-msg invocation for missing-origin/main-commit failure "
+        "(lead-cw7 / 721dcf075edcd9c7)"
+    )
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-reviewer template must literally name the complete-status "
+        "shop-msg invocation that is being negated "
+        "(lead-cw7 / 721dcf075edcd9c7)"
+    )
+    # The summary must name (a) the dispatched work_id and (b) the
+    # current origin/main HEAD short SHA. Pin both as required tokens.
+    assert "work_id" in lower and "summary" in lower, (
+        "bc-reviewer template must direct naming the work_id in the "
+        "response summary (lead-cw7 / 721dcf075edcd9c7)"
+    )
+    assert ("short sha" in lower) or ("short-sha" in lower) or (
+        "head" in lower and "sha" in lower
+    ), (
+        "bc-reviewer template must direct naming the current "
+        "origin/main HEAD short SHA in the response summary "
+        "(lead-cw7 / 721dcf075edcd9c7)"
+    )
+
+
+@then(
+    'the content directs the reviewer that committing the work_id\'s '
+    'change to any branch OTHER than the BC\'s main branch (e.g., a local '
+    'feature branch that has not been merged or pushed to origin/main) '
+    'does NOT satisfy this precondition; the only outcome that satisfies '
+    'the precondition is the work_id\'s commit being reachable from '
+    '"origin/main" HEAD'
+)
+def then_content_directs_local_branch_does_not_satisfy(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The carve-out must explicitly name the local-feature-branch case
+    # and explicitly disqualify it.
+    assert "local" in lower and "branch" in lower, (
+        "bc-reviewer template must explicitly name the local-branch "
+        "case as not satisfying the precondition "
+        "(lead-cw7 / 721dcf075edcd9c7)"
+    )
+    assert "origin/main" in content, (
+        "bc-reviewer template must name 'origin/main' as the only "
+        "ref whose reachability satisfies the precondition "
+        "(lead-cw7 / 721dcf075edcd9c7)"
+    )
+    # A disqualifying cue ("not satisfy", "does not satisfy", "only",
+    # "only outcome") must appear so the carve-out reads as exclusion,
+    # not allowance.
+    disqualifying_cues = (
+        "does not satisfy", "do not satisfy", "not satisfy",
+        "only outcome", "only satisfies",
+    )
+    assert any(c in lower for c in disqualifying_cues), (
+        "bc-reviewer template must disqualify local-branch commits "
+        "with an explicit 'does not satisfy' / 'only outcome' framing "
+        "(lead-cw7 / 721dcf075edcd9c7)"
+    )
+
+
+@then(
+    'the content directs the reviewer that "git fetch origin" should be '
+    'run as part of the verification so a stale local view of '
+    '"origin/main" does not produce a false positive'
+)
+def then_content_directs_git_fetch_origin_first(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "git fetch origin" in content, (
+        "bc-reviewer template must name the literal 'git fetch origin' "
+        "step (lead-cw7 / 721dcf075edcd9c7)"
+    )
+    # The justification — "stale" / "false positive" — must appear so
+    # the step is framed as a guard, not boilerplate.
+    assert "stale" in lower, (
+        "bc-reviewer template must frame 'git fetch origin' as guarding "
+        "against a stale local view (lead-cw7 / 721dcf075edcd9c7)"
+    )
+    assert "false positive" in lower or "false-positive" in lower, (
+        "bc-reviewer template must frame the stale-view risk as a "
+        "'false positive' (lead-cw7 / 721dcf075edcd9c7)"
+    )

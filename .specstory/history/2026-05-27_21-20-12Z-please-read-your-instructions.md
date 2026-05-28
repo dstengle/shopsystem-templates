@@ -135,3 +135,2846 @@ Check ignore/tracking status of lock file
 NOT IGNORED
 ```
 </details></tool-use>
+
+_**Agent (claude-opus-4-7 2026-05-27 21:21:00Z)**_
+
+_**Agent (claude-opus-4-7 2026-05-27 21:21:01Z)**_
+
+I'm in the BC shop `shopsystem-templates`, 3 commits ahead of origin and with two specstory transcripts to commit. The `.claude/scheduled_tasks.lock` is a runtime artifact (existed since May 14, not ignored, not tracked) — I'll skip committing it, matching the prior pattern.
+
+_**Agent (claude-opus-4-7 2026-05-27 21:21:03Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Stage specstory transcripts
+
+`git add .specstory/history/2026-05-27_19-06-27Z-run-the-monitor.md .specstory/history/2026-05-27_21-20-12Z-please-read-your-instructions.md && git status --short`
+
+```text
+M  .specstory/history/2026-05-27_19-06-27Z-run-the-monitor.md
+A  .specstory/history/2026-05-27_21-20-12Z-please-read-your-instructions.md
+?? .claude/scheduled_tasks.lock
+```
+</details></tool-use>
+
+_**Agent (claude-opus-4-7 2026-05-27 21:21:08Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Commit transcripts and push to origin
+
+```bash
+git commit -m "$(cat <<'EOF'
+chore: refresh specstory session transcripts
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)" && git push origin main && git status
+```
+
+```text
+[main 46f1c4e] chore: refresh specstory session transcripts
+ 2 files changed, 244 insertions(+)
+ create mode 100644 .specstory/history/2026-05-27_21-20-12Z-please-read-your-instructions.md
+To https://github.com/dstengle/shopsystem-templates.git
+   c4716c0..46f1c4e  main -> main
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   .specstory/history/2026-05-27_21-20-12Z-please-read-your-instructions.md
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.claude/scheduled_tasks.lock
+
+no changes added to commit (use "git add" and/or "git commit -a")
+```
+</details></tool-use>
+
+_**Agent (claude-opus-4-7 2026-05-27 21:21:12Z)**_
+
+Pushed `c4716c0..46f1c4e` (4 commits total) to `origin/main`. Branch is up to date.
+
+The remaining `Changes not staged` for the current session's transcript is the specstory hook re-writing the same file mid-session — it always lags one commit behind. The untracked `.claude/scheduled_tasks.lock` is a runtime lock file (not gitignored, not previously tracked); leaving it as-is matches the prior session's pattern.
+
+---
+
+_**User (2026-05-28 19:06:42Z)**_
+
+Start the Monitor
+
+---
+
+_**Agent (claude-opus-4-7 2026-05-28 19:06:45Z)**_
+
+_**Agent (claude-opus-4-7 2026-05-28 19:06:45Z)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ToolSearch"><details>
+<summary>Tool use: **ToolSearch**</summary>
+
+**Input:**
+
+- max_results: `1`
+- query: `select:Monitor`
+
+**Result:**
+
+```
+
+```
+</details></tool-use>
+
+_**Agent (claude-opus-4-7 2026-05-28 19:06:49Z)**_
+
+_**Agent (claude-opus-4-7 2026-05-28 19:06:50Z)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="Monitor"><details>
+<summary>Tool use: **Monitor**</summary>
+shopsystem-templates BC inbox watcher
+
+```text
+Monitor started (task brcdjpexk, persistent — runs until TaskStop or session end). You will be notified on each event. Keep working — do not poll or sleep. Events may arrive while you are waiting for the user — an event is not their reply.
+```
+</details></tool-use>
+
+_**Agent (claude-opus-4-7 2026-05-28 19:06:53Z)**_
+
+Monitor armed on `shop-msg watch --bc shopsystem-templates` (task `brcdjpexk`, persistent). New inbox messages will arrive as notifications.
+
+---
+
+_**User (2026-05-28 19:06:53Z)**_
+
+<task-notification>
+<task-id>brcdjpexk</task-id>
+<summary>Monitor event: "shopsystem-templates BC inbox watcher"</summary>
+<event>lead-yhr request_maintenance
+lead-cw7 assign_scenarios
+READY</event>
+</task-notification>
+
+---
+
+_**Agent (claude-opus-4-7 2026-05-28 19:07:01Z)**_
+
+_**Agent (claude-opus-4-7 2026-05-28 19:07:02Z)**_
+
+Two inbox messages arrived. I'll peek at both to give the implementer subagent proper context, then dispatch.
+
+_**Agent (claude-opus-4-7 2026-05-28 19:07:03Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+List pending inbox messages
+
+`shop-msg pending inbox --bc shopsystem-templates`
+
+```text
+lead-yhr request_maintenance
+lead-cw7 assign_scenarios
+```
+</details></tool-use>
+
+_**Agent (claude-opus-4-7 2026-05-28 19:07:06Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Read the request_maintenance message
+
+`shop-msg read inbox --bc shopsystem-templates --work-id lead-yhr`
+
+```text
+valid request_maintenance from lead-yhr.yaml:
+message_type: request_maintenance
+work_id: lead-yhr
+description: "Re-pour shopsystem-templates' OWN .claude/settings.json from its updated\
+  \ canonical bc.json template now that the lead-33r fix has landed in main (commit\
+  \ 7ec5e75 \u2014 'feat(lead-33r): pin PDR-009 canonical SessionStart hooks (bd prime\
+  \ + bare shop-msg prime)'). The canonical template at src/shop_templates/templates/claude_settings/bc.json\
+  \ now declares two SessionStart inner-hook entries: 'bd prime' and bare 'shop-msg\
+  \ prime' (no --bc flag, no {{SHOP_NAME}} placeholder \u2014 shop identity is resolved\
+  \ by shop-msg via CWD walk-up). Pre-state: this BC's own committed .claude/settings.json\
+  \ (verified by direct read) currently contains a SINGLE inner-hook entry 'shop-msg\
+  \ prime --bc shopsystem-templates' \u2014 the pre-fix single-hook template form,\
+  \ rendered with shopsystem-templates as the {{SHOP_NAME}} substitution. No 'bd prime'\
+  \ hook is present, and the --bc flag is still embedded. The working tree has no\
+  \ unstaged edit to settings.json; this is a real re-pour, not a commit-the-existing-edit\
+  \ case. Self-re-pour pattern per lead-m0a / shopsystem-templates-s05. Verification:\
+  \ after re-pour and commit, .claude/settings.json SessionStart hook must run 'bd\
+  \ prime' followed by bare 'shop-msg prime' (no shop identity embedded). Source-of-fix:\
+  \ lead-33r."
+acceptance_criteria:
+- .claude/settings.json SessionStart hook commands are exactly 'bd prime' and 'shop-msg
+  prime' (no --bc flag, no template placeholder, no rendered shop name)
+- re-poured content matches shopsystem-templates@HEAD src/shop_templates/templates/claude_settings/bc.json
+  byte-for-byte
+- change is committed to the BC's main branch
+file_hints:
+- .claude/settings.json
+- src/shop_templates/templates/claude_settings/bc.json
+from_shop: shopsystem product
+```
+</details></tool-use>
+
+_**Agent (claude-opus-4-7 2026-05-28 19:07:09Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Read the assign_scenarios message
+
+`shop-msg read inbox --bc shopsystem-templates --work-id lead-cw7`
+
+```text
+valid assign_scenarios from lead-cw7.yaml:
+message_type: assign_scenarios
+work_id: lead-cw7
+scenarios:
+- hash: 9457dfff7e3f9e90
+  tags:
+  - '@scenario_hash:9457dfff7e3f9e90'
+  - '@bc:shopsystem-templates'
+  gherkin: "Feature: bc-reviewer template enforces clean working tree and origin/main\
+    \ commit before work_done (complete) emit\n\n  @scenario_hash:9457dfff7e3f9e90\
+    \ @bc:shopsystem-templates\n  Scenario: bc-reviewer template directs the reviewer\
+    \ to verify the BC's working tree is clean AND the work_id's change is committed\
+    \ to origin/main before emitting work_done (complete)\n  When I read the bc-reviewer\
+    \ template via \"shop-templates show bc-reviewer\"\n  Then the content names \"\
+    git status --porcelain\" as a pre-emit verification step the reviewer must run\
+    \ before composing a work_done with status complete\n  And the content names \"\
+    git log\" or \"git rev-parse\" (against the BC's \"origin/main\" ref) as a pre-emit\
+    \ verification step that confirms the work_id's change is present on the BC's\
+    \ main branch\n  And the content directs the reviewer that when \"git status --porcelain\"\
+    \ produces any non-empty output the reviewer must NOT emit work_done with status\
+    \ complete, and instead must surface the uncommitted state as a blocker (e.g.,\
+    \ emit work_done with status blocked, or stop and report) with the offending paths\
+    \ named in the response summary\n  And the content directs the reviewer that when\
+    \ the BC's \"origin/main\" HEAD does NOT carry a commit for the dispatched work_id\
+    \ the reviewer must NOT emit work_done with status complete, and instead must\
+    \ surface the missing-commit state as a blocker with the work_id named in the\
+    \ response summary\n  And the content marks both checks as discrete pre-emit steps\
+    \ (alongside the existing BDD-rerun and scenario-hash-presence steps), not as\
+    \ optional guidance the reviewer may skip\n\n"
+- hash: 2b5d558d548b0606
+  tags:
+  - '@scenario_hash:2b5d558d548b0606'
+  - '@bc:shopsystem-templates'
+  gherkin: "Feature: bc-reviewer template enforces clean working tree and origin/main\
+    \ commit before work_done (complete) emit\n\n  @scenario_hash:2b5d558d548b0606\
+    \ @bc:shopsystem-templates\n  Scenario: bc-reviewer template directs the reviewer\
+    \ to block a work_done (complete) emit when tracked files in the BC root are modified\
+    \ but uncommitted, and to name the dirty paths in the response\n  When I read\
+    \ the bc-reviewer template via \"shop-templates show bc-reviewer\"\n  Then the\
+    \ content directs the reviewer that, prior to emitting work_done with status complete,\
+    \ the reviewer must invoke \"git status --porcelain\" in the BC root and inspect\
+    \ its output\n  And the content directs the reviewer that any line in \"git status\
+    \ --porcelain\" output with a tracked-file modification marker (lines beginning\
+    \ with \" M\", \"M \", \"MM\", \" D\", \"D \", \"A \", \"AM\", \" R\", \"R \"\
+    , \" C\", \"C \", or \"UU\") is a precondition failure\n  And the content directs\
+    \ the reviewer that on such a precondition failure the reviewer does NOT compose\
+    \ \"shop-msg respond work_done --status complete\" and instead emits \"shop-msg\
+    \ respond work_done --status blocked\" with a summary that names the tracked paths\
+    \ reported by \"git status --porcelain\"\n  And the content frames the dirty-tracked-files\
+    \ check as a step the reviewer runs even when the BDD suite passes, so a green\
+    \ BDD result does not bypass the check\n\n"
+- hash: 6d0a7a957b340274
+  tags:
+  - '@scenario_hash:6d0a7a957b340274'
+  - '@bc:shopsystem-templates'
+  gherkin: "Feature: bc-reviewer template enforces clean working tree and origin/main\
+    \ commit before work_done (complete) emit\n\n  @scenario_hash:6d0a7a957b340274\
+    \ @bc:shopsystem-templates\n  Scenario: bc-reviewer template directs the reviewer\
+    \ to block a work_done (complete) emit when untracked files are present in the\
+    \ BC root, and to name the untracked paths in the response\n  When I read the\
+    \ bc-reviewer template via \"shop-templates show bc-reviewer\"\n  Then the content\
+    \ directs the reviewer that the same \"git status --porcelain\" inspection that\
+    \ catches modified-tracked-files (per scenario 106) also catches untracked files\
+    \ (lines beginning with \"??\") and treats them as a precondition failure\n  And\
+    \ the content directs the reviewer that on untracked-files failure the reviewer\
+    \ does NOT compose \"shop-msg respond work_done --status complete\" and instead\
+    \ emits \"shop-msg respond work_done --status blocked\" with a summary that names\
+    \ the untracked paths reported by \"git status --porcelain\"\n  And the content\
+    \ explicitly directs the reviewer that the untracked-files check is NOT satisfied\
+    \ by adding the paths to .gitignore unless the paths are genuinely outside the\
+    \ BC's scope of work; the reviewer must confirm with the implementer (or by inspection\
+    \ of the dispatch) whether the untracked paths are work product that should be\
+    \ committed before re-attempting the emit\n\n"
+- hash: 721dcf075edcd9c7
+  tags:
+  - '@scenario_hash:721dcf075edcd9c7'
+  - '@bc:shopsystem-templates'
+  gherkin: "Feature: bc-reviewer template enforces clean working tree and origin/main\
+    \ commit before work_done (complete) emit\n\n  @scenario_hash:721dcf075edcd9c7\
+    \ @bc:shopsystem-templates\n  Scenario: bc-reviewer template directs the reviewer\
+    \ to block a work_done (complete) emit when the BC's origin/main branch does not\
+    \ carry a commit attributable to the dispatched work_id, and to name the missing\
+    \ work_id and current origin/main HEAD in the response\n  When I read the bc-reviewer\
+    \ template via \"shop-templates show bc-reviewer\"\n  Then the content directs\
+    \ the reviewer that, prior to emitting work_done with status complete, the reviewer\
+    \ must verify by \"git log origin/main\" (or equivalent \"git log\" against the\
+    \ BC's main branch) that at least one commit attributable to the dispatched work_id\
+    \ is reachable from \"origin/main\" HEAD\n  And the content names a concrete attribution\
+    \ mechanism the reviewer may use to recognize the work_id's commit (for example,\
+    \ the work_id substring appearing in the commit message subject or body, or a\
+    \ tag/note pointing at the work_id), so the reviewer does not have to invent a\
+    \ convention\n  And the content directs the reviewer that when no commit attributable\
+    \ to the work_id is reachable from \"origin/main\" HEAD the reviewer does NOT\
+    \ compose \"shop-msg respond work_done --status complete\" and instead emits \"\
+    shop-msg respond work_done --status blocked\" with a summary that names the dispatched\
+    \ work_id and the current \"origin/main\" HEAD short SHA\n  And the content directs\
+    \ the reviewer that committing the work_id's change to any branch OTHER than the\
+    \ BC's main branch (e.g., a local feature branch that has not been merged or pushed\
+    \ to origin/main) does NOT satisfy this precondition; the only outcome that satisfies\
+    \ the precondition is the work_id's commit being reachable from \"origin/main\"\
+    \ HEAD\n  And the content directs the reviewer that \"git fetch origin\" should\
+    \ be run as part of the verification so a stale local view of \"origin/main\"\
+    \ does not produce a false positive\n\n"
+from_shop: shopsystem product
+```
+</details></tool-use>
+
+_**Agent (claude-opus-4-7 2026-05-28 19:07:21Z)**_
+
+_**Agent (claude-opus-4-7 2026-05-28 19:07:23Z)**_
+
+Two messages to handle:
+- **lead-yhr** (request_maintenance) — re-pour `.claude/settings.json` from canonical `bc.json`. Implementer handles directly and emits `work_done`.
+- **lead-cw7** (assign_scenarios) — 4 scenarios for bc-reviewer template's pre-emit clean-tree + origin/main checks. Implementer does work, then reviewer emits.
+
+Dispatching sequentially — maintenance first so the working tree is clean before the scenario work begins.
+
+_**Agent (claude-opus-4-7 2026-05-28 19:08:27Z)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="Agent"><details>
+<summary>Tool use: **Agent**</summary>
+Handle lead-yhr request_maintenance
+
+```text
+work_done emitted successfully.
+
+## Report
+
+**Response emitted:** `work_done` (status: complete) for `lead-yhr`.
+
+**Sufficiency decision:** All four `request_maintenance` conditions met:
+- Acceptance criteria present (3 items).
+- Measurable — each criterion is testable: exact command strings, byte-for-byte diff, committed to main.
+- Defines outcome (new SessionStart hook shape), not just constraints.
+- Description specifies source file, target file, exact pre-state, and expected post-state.
+
+**Inbox fields used:** `description`, `acceptance_criteria`, `file_hints`.
+
+**Work performed:**
+1. Read canonical template `/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/claude_settings/bc.json` — confirmed it carries two hooks: `bd prime` and bare `shop-msg prime`.
+2. Confirmed pre-state of `/workspaces/shopsystem-product/repos/shopsystem-templates/.claude/settings.json` matched the old single-hook `shop-msg prime --bc shopsystem-templates` form described in the message.
+3. Overwrote `.claude/settings.json` with the canonical content.
+4. Verified byte-for-byte match via `diff` (acceptance criterion 2).
+5. Committed as `60cff9f` (acceptance criterion 3) and pushed to `origin/main`.
+6. `git status` reports "up to date with 'origin/main'".
+
+**Mechanism observation:** none. This is a routine self-re-pour following the documented lead-m0a / shopsystem-templates-s05 pattern; nothing about the schema, role template, or mechanism surfaced as load-bearing-but-not-scope.
+
+**Files touched:**
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/.claude/settings.json`
+agentId: ac7d17e326d24fa2f (use SendMessage with to: 'ac7d17e326d24fa2f' to continue this agent)
+<usage>total_tokens: 23670
+tool_uses: 10
+duration_ms: 57726</usage>
+```
+</details></tool-use>
+
+_**Agent - sidechain (2026-05-28 19:07:30Z)**_
+
+A `request_maintenance` message has landed in this BC's inbox. Work ID: `lead-yhr`. Read it with `shop-msg read inbox --bc shopsystem-templates --work-id lead-yhr` and process it per your role contract.
+
+Summary for context (read the message yourself for authoritative content): re-pour this BC's own `.claude/settings.json` from the updated canonical template at `src/shop_templates/templates/claude_settings/bc.json` (which now declares two SessionStart inner-hook entries: `bd prime` and bare `shop-msg prime` with no `--bc` flag and no `{{SHOP_NAME}}` placeholder). Pre-state: the BC's committed `.claude/settings.json` still has the old single-hook `shop-msg prime --bc shopsystem-templates` form. This is a self-re-pour per the lead-m0a / shopsystem-templates-s05 pattern.
+
+Per your contract for `request_maintenance`: apply the sufficiency check, do the work (or emit `clarify`), and emit `work_done` directly to outbox via `shop-msg respond work_done`. No reviewer handoff for maintenance.
+
+After your outbox emit, ensure the change is committed AND pushed to `origin/main`. Run `git status` and verify "up to date with origin" before returning.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:07:45Z)**_
+
+I'll start by reading the inbox message and inspecting the relevant files in parallel.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:07:46Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Read inbox message lead-yhr
+
+`shop-msg read inbox --bc shopsystem-templates --work-id lead-yhr`
+
+```text
+valid request_maintenance from lead-yhr.yaml:
+message_type: request_maintenance
+work_id: lead-yhr
+description: "Re-pour shopsystem-templates' OWN .claude/settings.json from its updated\
+  \ canonical bc.json template now that the lead-33r fix has landed in main (commit\
+  \ 7ec5e75 \u2014 'feat(lead-33r): pin PDR-009 canonical SessionStart hooks (bd prime\
+  \ + bare shop-msg prime)'). The canonical template at src/shop_templates/templates/claude_settings/bc.json\
+  \ now declares two SessionStart inner-hook entries: 'bd prime' and bare 'shop-msg\
+  \ prime' (no --bc flag, no {{SHOP_NAME}} placeholder \u2014 shop identity is resolved\
+  \ by shop-msg via CWD walk-up). Pre-state: this BC's own committed .claude/settings.json\
+  \ (verified by direct read) currently contains a SINGLE inner-hook entry 'shop-msg\
+  \ prime --bc shopsystem-templates' \u2014 the pre-fix single-hook template form,\
+  \ rendered with shopsystem-templates as the {{SHOP_NAME}} substitution. No 'bd prime'\
+  \ hook is present, and the --bc flag is still embedded. The working tree has no\
+  \ unstaged edit to settings.json; this is a real re-pour, not a commit-the-existing-edit\
+  \ case. Self-re-pour pattern per lead-m0a / shopsystem-templates-s05. Verification:\
+  \ after re-pour and commit, .claude/settings.json SessionStart hook must run 'bd\
+  \ prime' followed by bare 'shop-msg prime' (no shop identity embedded). Source-of-fix:\
+  \ lead-33r."
+acceptance_criteria:
+- .claude/settings.json SessionStart hook commands are exactly 'bd prime' and 'shop-msg
+  prime' (no --bc flag, no template placeholder, no rendered shop name)
+- re-poured content matches shopsystem-templates@HEAD src/shop_templates/templates/claude_settings/bc.json
+  byte-for-byte
+- change is committed to the BC's main branch
+file_hints:
+- .claude/settings.json
+- src/shop_templates/templates/claude_settings/bc.json
+from_shop: shopsystem product
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:07:46Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./src/shop_templates/templates/claude_settings/bc.json`
+
+```text
+1	{
+2	  "hooks": {
+3	    "SessionStart": [
+4	      {
+5	        "matcher": "",
+6	        "hooks": [
+7	          {
+8	            "type": "command",
+9	            "command": "bd prime"
+10	          },
+11	          {
+12	            "type": "command",
+13	            "command": "shop-msg prime"
+14	          }
+15	        ]
+16	      }
+17	    ]
+18	  }
+19	}
+20
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:07:47Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./.claude/settings.json`
+
+```text
+1	{
+2	  "hooks": {
+3	    "SessionStart": [
+4	      {
+5	        "matcher": "",
+6	        "hooks": [
+7	          {
+8	            "type": "command",
+9	            "command": "shop-msg prime --bc shopsystem-templates"
+10	          }
+11	        ]
+12	      }
+13	    ]
+14	  }
+15	}
+16
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:07:51Z)**_
+
+Sufficiency check on `request_maintenance`:
+
+1. Acceptance criteria present — yes, 3 items.
+2. Measurable — yes: (a) exact command strings specified, (b) byte-for-byte match against canonical, (c) committed to main.
+3. Defines outcome (not just constraints) — yes: states the new SessionStart hook shape.
+4. Description specifics — yes: names the source file, target file, exact pre-state, and expected post-state.
+
+Sufficient. Proceeding to the work: overwrite `.claude/settings.json` with the canonical template contents (byte-for-byte).
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:07:53Z)**_
+
+<tool-use data-tool-type="write" data-tool-name="Write"><details>
+<summary>Tool use: **Write**</summary>
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bd prime"
+          },
+          {
+            "type": "command",
+            "command": "shop-msg prime"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+```
+
+```text
+The file /workspaces/shopsystem-product/repos/shopsystem-templates/.claude/settings.json has been updated successfully. (file state is current in your context — no need to Read it back)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:07:59Z)**_
+
+Now verify byte-for-byte match and run a diff check.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:01Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Verify byte-for-byte match with canonical template
+
+`diff .claude/settings.json src/shop_templates/templates/claude_settings/bc.json && echo "BYTE_MATCH_OK"`
+
+```text
+BYTE_MATCH_OK
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:02Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Show git status and diff
+
+`git status && git diff .claude/settings.json`
+
+```text
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   .claude/settings.json
+	modified:   .specstory/history/2026-05-27_21-20-12Z-please-read-your-instructions.md
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.claude/scheduled_tasks.lock
+
+no changes added to commit (use "git add" and/or "git commit -a")
+diff --git a/.claude/settings.json b/.claude/settings.json
+index f541f40..61d6cdb 100644
+--- a/.claude/settings.json
++++ b/.claude/settings.json
+@@ -6,7 +6,11 @@
+         "hooks": [
+           {
+             "type": "command",
+-            "command": "shop-msg prime --bc shopsystem-templates"
++            "command": "bd prime"
++          },
++          {
++            "type": "command",
++            "command": "shop-msg prime"
+           }
+         ]
+       }
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:03Z)**_
+
+Byte-match confirmed. Now commit and push.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:08Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Commit re-poured settings.json
+
+```bash
+git add .claude/settings.json && git commit -m "$(cat <<'EOF'
+chore(lead-yhr): re-pour BC settings.json from canonical bc.json (PDR-009 hooks)
+
+Self-re-pour of .claude/settings.json from the updated canonical template
+at src/shop_templates/templates/claude_settings/bc.json. The SessionStart
+hook now runs 'bd prime' followed by bare 'shop-msg prime' (no --bc flag;
+shop identity resolves via CWD walk-up). Source-of-fix: lead-33r (commit
+7ec5e75).
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+```text
+[main 60cff9f] chore(lead-yhr): re-pour BC settings.json from canonical bc.json (PDR-009 hooks)
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:11Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Push to origin/main
+
+`git push origin main`
+
+```text
+To https://github.com/dstengle/shopsystem-templates.git
+   46f1c4e..60cff9f  main -> main
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:13Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Verify up to date with origin
+
+`git status`
+
+```text
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   .specstory/history/2026-05-27_21-20-12Z-please-read-your-instructions.md
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.claude/scheduled_tasks.lock
+
+no changes added to commit (use "git add" and/or "git commit -a")
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:16Z)**_
+
+Branch is up to date with origin. Remaining unstaged items are a specstory history transcript and the scheduled_tasks.lock — both unrelated to this work item. Now emit `work_done` to the outbox.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:18Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Emit work_done response
+
+`shop-msg respond work_done --bc shopsystem-templates --work-id lead-yhr --status complete --summary "Re-poured .claude/settings.json from canonical src/shop_templates/templates/claude_settings/bc.json. SessionStart hook now runs 'bd prime' then bare 'shop-msg prime' (no --bc flag, no rendered shop name). Verified byte-for-byte match with canonical template via diff. Committed as 60cff9f and pushed to origin/main."`
+
+```text
+(Bash completed with no output)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:27Z)**_
+
+work_done emitted successfully.
+
+## Report
+
+**Response emitted:** `work_done` (status: complete) for `lead-yhr`.
+
+**Sufficiency decision:** All four `request_maintenance` conditions met:
+- Acceptance criteria present (3 items).
+- Measurable — each criterion is testable: exact command strings, byte-for-byte diff, committed to main.
+- Defines outcome (new SessionStart hook shape), not just constraints.
+- Description specifies source file, target file, exact pre-state, and expected post-state.
+
+**Inbox fields used:** `description`, `acceptance_criteria`, `file_hints`.
+
+**Work performed:**
+1. Read canonical template `/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/claude_settings/bc.json` — confirmed it carries two hooks: `bd prime` and bare `shop-msg prime`.
+2. Confirmed pre-state of `/workspaces/shopsystem-product/repos/shopsystem-templates/.claude/settings.json` matched the old single-hook `shop-msg prime --bc shopsystem-templates` form described in the message.
+3. Overwrote `.claude/settings.json` with the canonical content.
+4. Verified byte-for-byte match via `diff` (acceptance criterion 2).
+5. Committed as `60cff9f` (acceptance criterion 3) and pushed to `origin/main`.
+6. `git status` reports "up to date with 'origin/main'".
+
+**Mechanism observation:** none. This is a routine self-re-pour following the documented lead-m0a / shopsystem-templates-s05 pattern; nothing about the schema, role template, or mechanism surfaced as load-bearing-but-not-scope.
+
+**Files touched:**
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/.claude/settings.json`
+
+_**Agent (claude-opus-4-7 2026-05-28 19:08:30Z)**_
+
+_**Agent (claude-opus-4-7 2026-05-28 19:08:31Z)**_
+
+lead-yhr complete: re-poured, committed (`60cff9f`), pushed. Now dispatching for the scenarios.
+
+_**Agent (claude-opus-4-7 2026-05-28 19:16:29Z)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="Agent"><details>
+<summary>Tool use: **Agent**</summary>
+Handle lead-cw7 assign_scenarios
+
+```text
+All 4 new scenarios still pass. The state is stable.
+
+Per my contract for `assign_scenarios`: I do NOT emit `work_done`. The bc-reviewer holds the gate. I am handing off in post-work state. No mechanism observation warranted — the dispatch was well-formed, the work fit the BC's capability shape cleanly, and the only "wrinkle" (the canonical path was `src/shop_templates/templates/bc-reviewer.md`, not the dispatch summary's `src/shop_templates/templates/agents/bc-reviewer.md`) was a typo in the dispatch summary, not a load-bearing mechanism issue — and the lead summary itself disclaimed authority ("read the message yourself for authoritative content"), so the inbox message did not name a path at all and there is nothing for the lead to fix.
+
+---
+
+## Report
+
+**Outcome:** Implementer turn complete, BC left in post-work state for bc-reviewer hand-off. I did NOT emit `work_done` per the `assign_scenarios` contract.
+
+**Inbox fields used:** `message_type`, `work_id`, `scenarios[]` (all 4 — gherkin bodies, hashes, tags). Read via `shop-msg read inbox --bc shopsystem-templates --work-id lead-cw7`.
+
+**Sufficiency check:** All 4 scenarios passed (1) well-formed Gherkin, (2) concrete steps (literal command strings, enumerated porcelain markers, named attribution mechanisms), (3) `@scenario_hash:<hash>` tag present, (4) fit-to-existing-capability — verified the pre-state template at `src/shop_templates/templates/bc-reviewer.md` has no `git status --porcelain`, `git log origin/main`, or `git fetch origin` content and no existing scenario in `features/` pins the pre-emit clean-tree-or-origin-main discipline. Net-new behavior, proceed.
+
+**Files touched:**
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/features/bc_reviewer_pre_emit_clean_tree_and_origin_main.feature` — 4 new scenarios (created)
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py` — appended 16 new Then step definitions
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-reviewer.md` — added new top-level section "Pre-emit verification — discrete, mandatory steps" between "What you do" and "Outcomes"
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/.claude/agents/bc-reviewer.md` — synced to canonical per primer
+
+**BDD result (`uv run python -m pytest tests/`):**
+- Baseline (before any work): 1 failed, 156 passed. The pre-existing failure (`test_leadshop_claudemd_describes_dispatch_and_bcmailbox_inspection_exclusively_through_shopmsg_cli_subcommands_never_through_direct_mailbox_paths_or_filename_conventions`) is unrelated to this dispatch.
+- After my work: 1 failed (same pre-existing one), 160 passed (= +4 new). All 4 new scenarios green:
+  - `9457dfff7e3f9e90` PASS
+  - `2b5d558d548b0606` PASS
+  - `6d0a7a957b340274` PASS
+  - `721dcf075edcd9c7` PASS
+- Unit tests (`tests/test_templates.py`): 37 passed.
+
+**Mechanism observation:** None warranted.
+agentId: a740a065b43832435 (use SendMessage with to: 'a740a065b43832435' to continue this agent)
+<usage>total_tokens: 74816
+tool_uses: 46
+duration_ms: 466092</usage>
+```
+</details></tool-use>
+
+_**Agent - sidechain (2026-05-28 19:08:43Z)**_
+
+An `assign_scenarios` message has landed in this BC's inbox. Work ID: `lead-cw7`. Read it with `shop-msg read inbox --bc shopsystem-templates --work-id lead-cw7` and process it per your role contract.
+
+Summary for context (read the message yourself for authoritative content): 4 scenarios pin new pre-emit verification steps the **bc-reviewer template** must direct the reviewer to perform before composing `work_done --status complete`:
+
+- hash `9457dfff7e3f9e90` — name `git status --porcelain` and `git log`/`git rev-parse` (against `origin/main`) as pre-emit verification steps; both are mandatory discrete steps alongside BDD-rerun and scenario-hash-presence.
+- hash `2b5d558d548b0606` — dirty tracked files (specific porcelain markers) → block with `--status blocked` and name the offending paths in the summary; BDD green does not bypass.
+- hash `6d0a7a957b340274` — untracked files (`??` lines) → same block-and-name behavior; explicit guidance that .gitignore is NOT the fix unless paths are genuinely out of scope.
+- hash `721dcf075edcd9c7` — origin/main must carry a commit attributable to the work_id (substring match in subject/body, or tag/note); `git fetch origin` first to avoid stale-view false positives; commits on local-only branches do not satisfy.
+
+The target file is the canonical bc-reviewer template at `src/shop_templates/templates/agents/bc-reviewer.md` (the shipped template, not the local `.claude/agents/bc-reviewer.md` copy — though per primer the local copy mirrors canonical).
+
+Per your contract for `assign_scenarios`: apply the sufficiency check, then write `features/`, step defs in `tests/conftest.py`, and src/implementation so BDD passes for all 4 scenarios. DO NOT write to outbox — your contract is handoff to bc-reviewer when BDD is green. Report back when done.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:50Z)**_
+
+I'll process this `assign_scenarios` dispatch per my contract. Starting by reading the inbox message.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:52Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Read inbox message lead-cw7
+
+`shop-msg read inbox --bc shopsystem-templates --work-id lead-cw7`
+
+```text
+valid assign_scenarios from lead-cw7.yaml:
+message_type: assign_scenarios
+work_id: lead-cw7
+scenarios:
+- hash: 9457dfff7e3f9e90
+  tags:
+  - '@scenario_hash:9457dfff7e3f9e90'
+  - '@bc:shopsystem-templates'
+  gherkin: "Feature: bc-reviewer template enforces clean working tree and origin/main\
+    \ commit before work_done (complete) emit\n\n  @scenario_hash:9457dfff7e3f9e90\
+    \ @bc:shopsystem-templates\n  Scenario: bc-reviewer template directs the reviewer\
+    \ to verify the BC's working tree is clean AND the work_id's change is committed\
+    \ to origin/main before emitting work_done (complete)\n  When I read the bc-reviewer\
+    \ template via \"shop-templates show bc-reviewer\"\n  Then the content names \"\
+    git status --porcelain\" as a pre-emit verification step the reviewer must run\
+    \ before composing a work_done with status complete\n  And the content names \"\
+    git log\" or \"git rev-parse\" (against the BC's \"origin/main\" ref) as a pre-emit\
+    \ verification step that confirms the work_id's change is present on the BC's\
+    \ main branch\n  And the content directs the reviewer that when \"git status --porcelain\"\
+    \ produces any non-empty output the reviewer must NOT emit work_done with status\
+    \ complete, and instead must surface the uncommitted state as a blocker (e.g.,\
+    \ emit work_done with status blocked, or stop and report) with the offending paths\
+    \ named in the response summary\n  And the content directs the reviewer that when\
+    \ the BC's \"origin/main\" HEAD does NOT carry a commit for the dispatched work_id\
+    \ the reviewer must NOT emit work_done with status complete, and instead must\
+    \ surface the missing-commit state as a blocker with the work_id named in the\
+    \ response summary\n  And the content marks both checks as discrete pre-emit steps\
+    \ (alongside the existing BDD-rerun and scenario-hash-presence steps), not as\
+    \ optional guidance the reviewer may skip\n\n"
+- hash: 2b5d558d548b0606
+  tags:
+  - '@scenario_hash:2b5d558d548b0606'
+  - '@bc:shopsystem-templates'
+  gherkin: "Feature: bc-reviewer template enforces clean working tree and origin/main\
+    \ commit before work_done (complete) emit\n\n  @scenario_hash:2b5d558d548b0606\
+    \ @bc:shopsystem-templates\n  Scenario: bc-reviewer template directs the reviewer\
+    \ to block a work_done (complete) emit when tracked files in the BC root are modified\
+    \ but uncommitted, and to name the dirty paths in the response\n  When I read\
+    \ the bc-reviewer template via \"shop-templates show bc-reviewer\"\n  Then the\
+    \ content directs the reviewer that, prior to emitting work_done with status complete,\
+    \ the reviewer must invoke \"git status --porcelain\" in the BC root and inspect\
+    \ its output\n  And the content directs the reviewer that any line in \"git status\
+    \ --porcelain\" output with a tracked-file modification marker (lines beginning\
+    \ with \" M\", \"M \", \"MM\", \" D\", \"D \", \"A \", \"AM\", \" R\", \"R \"\
+    , \" C\", \"C \", or \"UU\") is a precondition failure\n  And the content directs\
+    \ the reviewer that on such a precondition failure the reviewer does NOT compose\
+    \ \"shop-msg respond work_done --status complete\" and instead emits \"shop-msg\
+    \ respond work_done --status blocked\" with a summary that names the tracked paths\
+    \ reported by \"git status --porcelain\"\n  And the content frames the dirty-tracked-files\
+    \ check as a step the reviewer runs even when the BDD suite passes, so a green\
+    \ BDD result does not bypass the check\n\n"
+- hash: 6d0a7a957b340274
+  tags:
+  - '@scenario_hash:6d0a7a957b340274'
+  - '@bc:shopsystem-templates'
+  gherkin: "Feature: bc-reviewer template enforces clean working tree and origin/main\
+    \ commit before work_done (complete) emit\n\n  @scenario_hash:6d0a7a957b340274\
+    \ @bc:shopsystem-templates\n  Scenario: bc-reviewer template directs the reviewer\
+    \ to block a work_done (complete) emit when untracked files are present in the\
+    \ BC root, and to name the untracked paths in the response\n  When I read the\
+    \ bc-reviewer template via \"shop-templates show bc-reviewer\"\n  Then the content\
+    \ directs the reviewer that the same \"git status --porcelain\" inspection that\
+    \ catches modified-tracked-files (per scenario 106) also catches untracked files\
+    \ (lines beginning with \"??\") and treats them as a precondition failure\n  And\
+    \ the content directs the reviewer that on untracked-files failure the reviewer\
+    \ does NOT compose \"shop-msg respond work_done --status complete\" and instead\
+    \ emits \"shop-msg respond work_done --status blocked\" with a summary that names\
+    \ the untracked paths reported by \"git status --porcelain\"\n  And the content\
+    \ explicitly directs the reviewer that the untracked-files check is NOT satisfied\
+    \ by adding the paths to .gitignore unless the paths are genuinely outside the\
+    \ BC's scope of work; the reviewer must confirm with the implementer (or by inspection\
+    \ of the dispatch) whether the untracked paths are work product that should be\
+    \ committed before re-attempting the emit\n\n"
+- hash: 721dcf075edcd9c7
+  tags:
+  - '@scenario_hash:721dcf075edcd9c7'
+  - '@bc:shopsystem-templates'
+  gherkin: "Feature: bc-reviewer template enforces clean working tree and origin/main\
+    \ commit before work_done (complete) emit\n\n  @scenario_hash:721dcf075edcd9c7\
+    \ @bc:shopsystem-templates\n  Scenario: bc-reviewer template directs the reviewer\
+    \ to block a work_done (complete) emit when the BC's origin/main branch does not\
+    \ carry a commit attributable to the dispatched work_id, and to name the missing\
+    \ work_id and current origin/main HEAD in the response\n  When I read the bc-reviewer\
+    \ template via \"shop-templates show bc-reviewer\"\n  Then the content directs\
+    \ the reviewer that, prior to emitting work_done with status complete, the reviewer\
+    \ must verify by \"git log origin/main\" (or equivalent \"git log\" against the\
+    \ BC's main branch) that at least one commit attributable to the dispatched work_id\
+    \ is reachable from \"origin/main\" HEAD\n  And the content names a concrete attribution\
+    \ mechanism the reviewer may use to recognize the work_id's commit (for example,\
+    \ the work_id substring appearing in the commit message subject or body, or a\
+    \ tag/note pointing at the work_id), so the reviewer does not have to invent a\
+    \ convention\n  And the content directs the reviewer that when no commit attributable\
+    \ to the work_id is reachable from \"origin/main\" HEAD the reviewer does NOT\
+    \ compose \"shop-msg respond work_done --status complete\" and instead emits \"\
+    shop-msg respond work_done --status blocked\" with a summary that names the dispatched\
+    \ work_id and the current \"origin/main\" HEAD short SHA\n  And the content directs\
+    \ the reviewer that committing the work_id's change to any branch OTHER than the\
+    \ BC's main branch (e.g., a local feature branch that has not been merged or pushed\
+    \ to origin/main) does NOT satisfy this precondition; the only outcome that satisfies\
+    \ the precondition is the work_id's commit being reachable from \"origin/main\"\
+    \ HEAD\n  And the content directs the reviewer that \"git fetch origin\" should\
+    \ be run as part of the verification so a stale local view of \"origin/main\"\
+    \ does not produce a false positive\n\n"
+from_shop: shopsystem product
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:54Z)**_
+
+Now let me apply the sufficiency check on each scenario and orient myself in the BC's existing capability.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:55Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+List BC root
+
+`ls /workspaces/shopsystem-product/repos/shopsystem-templates/`
+
+```text
+AGENTS.md
+CLAUDE.md
+LICENSE
+README.md
+features
+inbox
+outbox
+pyproject.toml
+src
+tests
+uv.lock
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:56Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+List features, tests, src
+
+`ls /workspaces/shopsystem-product/repos/shopsystem-templates/features/ /workspaces/shopsystem-product/repos/shopsystem-templates/tests/ /workspaces/shopsystem-product/repos/shopsystem-templates/src/`
+
+```text
+/workspaces/shopsystem-product/repos/shopsystem-templates/features/:
+bc_implementer_sections.feature
+bc_implementer_your_job_cli_naming.feature
+bc_reviewer_sections.feature
+bc_reviewer_what_you_read_cli_naming.feature
+bootstrap_bd_init_side_effects.feature
+bootstrap_cli_surface.feature
+bootstrap_missing_shop_name.feature
+bootstrap_no_top_level_agents_md.feature
+brief_003_event_driven_activation_and_settings_json_bootstrap.feature
+canonical_claude_settings_hook_schema_wrapper.feature
+canonical_settings_hooks_no_shop_identity_pdr009.feature
+cli_missing_target.feature
+cli_surface.feature
+import_graph_claude_md_bootstrap_update.feature
+inter_shop_messaging_encapsulation.feature
+lead_architect_responding_to_clarify_cli_naming.feature
+lead_architect_scenario_hash_enumeration.feature
+lead_architect_sections.feature
+lead_po_responding_to_clarify_cli_naming.feature
+lead_po_sections.feature
+lead_role_complete_restructure.feature
+
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/:
+shop_templates
+shop_templates.egg-info
+
+/workspaces/shopsystem-product/repos/shopsystem-templates/tests/:
+__pycache__
+conftest.py
+test_features.py
+test_templates.py
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:08:59Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+List agent templates
+
+`ls /workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/agents/`
+
+```text
+Exit code 2
+ls: cannot access '/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/agents/': No such file or directory
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:00Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./src/shop_templates/templates/agents/bc-reviewer.md`
+
+```text
+File does not exist. Note: your current working directory is /workspaces/shopsystem-product/repos/shopsystem-templates.
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:02Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Find all files under src
+
+`find /workspaces/shopsystem-product/repos/shopsystem-templates/src -type f | head -40`
+
+```text
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates.egg-info/entry_points.txt
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates.egg-info/SOURCES.txt
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates.egg-info/PKG-INFO
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates.egg-info/top_level.txt
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates.egg-info/requires.txt
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates.egg-info/dependency_links.txt
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/cli.py
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/__main__.py
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/__init__.py
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/__pycache__/__main__.cpython-314.pyc
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/__pycache__/cli.cpython-314.pyc
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/__pycache__/__init__.cpython-314.pyc
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/gitignore.template
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/lead-po.md
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-implementer.md
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/lead-architect.md
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-reviewer.md
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/claude_body/lead.md
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/claude_body/bc.md
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/claude_settings/lead.json
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/claude_settings/bc.json
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/claude/bc.md
+/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/claude/lead.md
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:05Z)**_
+
+The actual canonical template path is `src/shop_templates/templates/bc-reviewer.md`, not `src/shop_templates/templates/agents/bc-reviewer.md` as the dispatch summary said. Let me check it.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:06Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./src/shop_templates/templates/bc-reviewer.md`
+
+```text
+1	---
+2	name: bc-reviewer
+3	description: BC reviewer role for a BC shop in the shopsystem framework. Invoke AFTER bc-implementer has finished work on an assign_scenarios (or request_bugfix carrying scenarios) message — the BC is in its post-work state but no outbox file exists yet. The reviewer's stance is adversarial: re-runs the BDD suite, probes whether the implementation faithfully realizes scenario intent or cleverly shortcuts the literal text, probes step definitions for hidden failure modes, and is the SOLE role authorized to emit work_done (status=complete) for scenario-based work via shop-msg. Emits work_done (complete) on sign-off, clarify (scenario gap) on escalation, or work_done (status=blocked) on implementation gap. Operates inside this BC root only.
+4	tools: Read, Edit, Write, Bash, Grep, Glob
+5	---
+6	
+7	# BC Reviewer — role prompt
+8	
+9	You are the **Reviewer** for a Bounded Context shop located at the path
+10	provided in the dispatch instructions (the "BC root"). Your stance is
+11	adversarial by design: where the Implementer's job is to make things work,
+12	your job is to find where they break.
+13	
+14	You are dispatched after the Implementer has finished work on an
+15	`assign_scenarios` message. The BC is in its post-work state: the assigned
+16	scenarios are in `features/`, any new step definitions are in
+17	`tests/conftest.py`, and the capability the scenarios test is implemented
+18	in `src/`. The Implementer has not written to the outbox. **You are the
+19	gate.** No `work_done` reaches the lead shop without your sign-off.
+20	
+21	## What you read
+22	
+23	1. The assigned scenarios — read them via `shop-msg read inbox --bc
+24	   <name> --work-id <work_id>`. If you do not yet know which work_id
+25	   to read, list pending inbox messages with `shop-msg pending inbox
+26	   --bc <name>`. You do not inspect mailbox storage directly;
+27	   the `shop-msg` CLI is the boundary the messaging BC exposes for that.
+28	2. The BC's current state — `src/`, `tests/`, `features/`.
+29	3. Whatever the Implementer left as a summary in their final message
+30	   (provided to you via dispatch context if available; otherwise infer
+31	   from the file diff against a clean BC).
+32	
+33	## What you do
+34	
+35	1. **Re-run the BDD suite** with `python3 -m pytest tests/`. Confirm the
+36	   assigned scenarios actually pass and existing tests have not regressed.
+37	   If they do not pass, the Implementer's claim is false — emit `work_done`
+38	   with `status: blocked` via `shop-msg` (see Outcomes below) and a summary
+39	   explaining what is broken.
+40	2. **Adversarially probe the implementation against the assigned scenarios.**
+41	   Two questions guide you:
+42	   - **Is the implementation a faithful realization of the scenario's
+43	     intent**, or is it a clever shortcut that passes the literal text but
+44	     misses the spirit? (E.g., a hard-coded return that satisfies the one
+45	     pinned case.)
+46	   - **What adjacent cases would a reasonable user expect to behave a
+47	     certain way that the scenario does NOT pin?** Equality boundaries.
+48	     Reverse cases. Type-coercion cases. Negative inputs. The implementation
+49	     might do *something* in these cases, but the scenario does not say
+50	     what — meaning the lead has not committed to a behavior, and a future
+51	     change might break a user who depends on the current accidental
+52	     behavior.
+53	3. **Probe the step definitions.** Are they reasonable, or do they hide
+54	   failure modes (e.g., overly broad regexes that would match wrong steps,
+55	   silent exception-swallowing, fixtures that mask state leakage)?
+56	
+57	## Outcomes
+58	
+59	You emit exactly one outbox response via the `shop-msg` CLI. The CLI
+60	handles filename conventions, schema validation, and collision-refuse for
+61	you — do NOT write outbox files by hand. Run `shop-msg respond work_done --help`
+62	or `shop-msg respond clarify --help` if you need the exact flag shape.
+63	
+64	- **Sign-off.** If you are satisfied that the implementation faithfully
+65	  realizes the scenarios and there are no scenario gaps that would let
+66	  obviously-wrong behavior pass review, run:
+67	
+68	  ```
+69	  shop-msg respond work_done --bc <name> --work-id <work_id> \
+70	    --status complete \
+71	    --scenario-hash <hash1> [--scenario-hash <hash2> ...] \
+72	    --summary "<brief: probes considered + dismissed>"
+73	  ```
+74	
+75	  Echo back **every** scenario hash that currently passes (both newly
+76	  assigned and any pre-existing scenarios the work was additive to), so
+77	  the lead has cryptographic evidence of what's pinned by the BC's current
+78	  state.
+79	
+80	- **Scenario gap → `clarify` to lead.** If the assigned scenarios do not
+81	  cover a behaviorally important case (one whose answer would change a
+82	  reasonable implementation), run:
+83	
+84	  ```
+85	  shop-msg respond clarify --bc <name> --work-id <work_id> \
+86	    --question "<one specific scenario tightening>"
+87	  ```
+88	
+89	  Your question must propose one specific scenario tightening — describe
+90	  the case the lead has not pinned and what a Then step covering it might
+91	  look like. This is the canonical Reviewer → lead loop in §4.4 of the
+92	  shop-system spec: "Reviewer finds gap → `clarify` → PO decides →
+93	  `request_bugfix` with tightened scenario."
+94	
+95	- **Implementation gap.** If the implementation is wrong but the scenarios
+96	  themselves are fine — i.e., the scenarios *do* pin a case the
+97	  implementation gets wrong — for this prototype slice, run:
+98	
+99	  ```
+100	  shop-msg respond work_done --bc <name> --work-id <work_id> \
+101	    --status blocked --summary "<what's broken>"
+102	  ```
+103	
+104	  (In a real flow, this would be internal feedback to the Implementer for
+105	  another pass; we are not modeling that loop yet.)
+106	
+107	## Surfacing mechanism observations
+108	
+109	If your adversarial probing surfaces something load-bearing about
+110	the **mechanism** itself — your own template's ambiguities, the
+111	schema's gaps, role-discipline failure modes you noticed in the
+112	Implementer's behavior, package-boundary violations — surface it as
+113	a `mechanism_observation` alongside your work_done/clarify message
+114	(see the Implementer template's "Surfacing mechanism observations"
+115	section for the bd + shop-msg sequence).
+116	
+117	### Reviewer-specific carve-outs
+118	
+119	- A scenario gap (the assigned scenarios don't pin a behaviorally
+120	  important case) → `clarify`, the canonical §4.4 path. Not a
+121	  mechanism observation.
+122	- An implementation gap (the scenarios are fine, the code is wrong)
+123	  → `work_done(status=blocked)`. Not a mechanism observation.
+124	- A pattern in HOW the Implementer reasoned that suggests the
+125	  template's anti-rationalization language fails in some new way
+126	  → `mechanism_observation`. Pin specifically what the template
+127	  language let through.
+128	- Your own probing process surfaced a weakness in the Reviewer
+129	  template (e.g., "I almost dismissed an adjacent case because the
+130	  template doesn't tell me to ask whether reverse cases were pinned")
+131	  → `mechanism_observation`.
+132	
+133	### When to NOT emit
+134	
+135	Same negative carve-outs as the Implementer: nothing genuinely
+136	load-bearing surfaced; the observation is about THIS scenario
+137	only; or the temptation is "want to be thorough" rather than
+138	"would be load-bearing for the next BC."
+139	
+140	## Anti-rationalization
+141	
+142	Same temptations as the Implementer's, with one Reviewer-specific addition:
+143	
+144	- *"This is good enough; the lead can fix it later."* — STOP. Later costs
+145	  more than now. If you found a gap, surface it.
+146	- *"The Implementer obviously meant well."* — Irrelevant. The question is
+147	  whether the scenarios pin the behavior tightly enough that future changes
+148	  cannot break what users depend on.
+149	- *"Asking would seem pedantic."* — A Reviewer who does not ask is not a
+150	  gate.
+151	
+152	## Reporting back
+153	
+154	After your `shop-msg respond ...` invocation succeeds, return a short
+155	report (under 250 words):
+156	
+157	- Outcome (sign-off / scenario-gap clarify / implementation-gap blocked).
+158	- Result of the BDD re-run (pass count, fail count if any).
+159	- For each adversarial probe you considered: what case it targeted, and
+160	  whether it surfaced a real gap or you dismissed it as out-of-scope.
+161	- If you emitted `clarify`: the specific scenario tightening you proposed.
+162
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:08Z)**_
+
+Now let me check the existing tests and conftest to understand the test patterns.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:10Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./tests/conftest.py`
+
+```text
+File content (289.4KB) exceeds maximum allowed size (256KB). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:10Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./tests/test_features.py`
+
+```text
+1	"""Discovers Gherkin features under shopsystem-templates/features/ and
+2	registers them as pytest-bdd scenarios. No-op when no .feature files are
+3	present, so the suite stays green during a future drop-everything reset.
+4	"""
+5	from pathlib import Path
+6	
+7	from pytest_bdd import scenarios
+8	
+9	_features_dir = Path(__file__).resolve().parent.parent / "features"
+10	if any(_features_dir.glob("*.feature")):
+11	    scenarios(str(_features_dir))
+12
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:13Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Count conftest lines
+
+`wc -l /workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py`
+
+```text
+7625 /workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:15Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./tests/conftest.py`
+
+```text
+1	"""Shared fixtures and pytest-bdd step definitions for shopsystem-templates.
+2	
+3	The scenarios under features/ pin the BC's outward contract — the
+4	`shop-templates` CLI surface and the structural section headers each
+5	role-template markdown file carries. The CLI is invoked via subprocess
+6	(the same boundary downstream callers use); content checks read the
+7	template via the same CLI subcommand so any drift between the CLI's
+8	view of the package data and the file system surfaces here.
+9	
+10	Style mirrors shopsystem-messaging/tests/conftest.py and
+11	shopsystem-scenarios/tests/conftest.py — subprocess + a `context` dict
+12	fixture carrying cross-step state.
+13	"""
+14	from __future__ import annotations
+15	
+16	import re
+17	import subprocess
+18	import sys
+19	from pathlib import Path
+20	
+21	import pytest
+22	from pytest_bdd import given, parsers, then, when
+23	
+24	
+25	# -----------------------------------------------------------------------
+26	# Shared cross-step state
+27	# -----------------------------------------------------------------------
+28	
+29	
+30	@pytest.fixture
+31	def context() -> dict:
+32	    return {}
+33	
+34	
+35	def _run_shop_templates(*args: str) -> subprocess.CompletedProcess:
+36	    return subprocess.run(
+37	        ["shop-templates", *args],
+38	        capture_output=True,
+39	        text=True,
+40	    )
+41	
+42	
+43	# -----------------------------------------------------------------------
+44	# Given steps
+45	# -----------------------------------------------------------------------
+46	
+47	
+48	@given(
+49	    parsers.parse(
+50	        'a template name "{name}" that is in the list output by '
+51	        '"shop-templates list"'
+52	    )
+53	)
+54	def given_template_name_in_list(name: str, context: dict) -> None:
+55	    # Verify empirically that the name appears in `shop-templates list`
+56	    # output — the Given's contract is part of the scenario's premise and
+57	    # a future drop of a template would silently undermine the When/Then
+58	    # steps if we didn't check it here.
+59	    result = _run_shop_templates("list")
+60	    assert result.returncode == 0, (
+61	        f"shop-templates list failed; stderr:\n{result.stderr}"
+62	    )
+63	    listed = result.stdout.strip().splitlines()
+64	    assert name in listed, (
+65	        f"premise of Given violated: {name!r} is not in shop-templates list "
+66	        f"output {listed!r}"
+67	    )
+68	    context["available_templates"] = listed
+69	
+70	
+71	@given(
+72	    parsers.parse(
+73	        'a template name "{name}" that is not in the list output by '
+74	        '"shop-templates list"'
+75	    )
+76	)
+77	def given_template_name_not_in_list(name: str, context: dict) -> None:
+78	    result = _run_shop_templates("list")
+79	    assert result.returncode == 0, (
+80	        f"shop-templates list failed; stderr:\n{result.stderr}"
+81	    )
+82	    listed = result.stdout.strip().splitlines()
+83	    assert name not in listed, (
+84	        f"premise of Given violated: {name!r} unexpectedly appears in "
+85	        f"shop-templates list output {listed!r}"
+86	    )
+87	    context["available_templates"] = listed
+88	
+89	
+90	# -----------------------------------------------------------------------
+91	# When steps
+92	# -----------------------------------------------------------------------
+93	
+94	
+95	@when(parsers.parse('I run "shop-templates list"'))
+96	def when_run_list(context: dict) -> None:
+97	    result = _run_shop_templates("list")
+98	    context["cli_returncode"] = result.returncode
+99	    context["cli_stdout"] = result.stdout
+100	    context["cli_stderr"] = result.stderr
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:17Z)**_
+
+Let me check the existing `bc_reviewer_sections.feature` and `bc_reviewer_what_you_read_cli_naming.feature` files plus relevant step definitions in conftest.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:19Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./features/bc_reviewer_sections.feature`
+
+```text
+1	Feature: shopsystem-templates — CLI surface and role-discipline structure
+2	
+3	  @scenario_hash:b1c242b19672c7d3 @bc:shopsystem-templates
+4	  Scenario: bc-reviewer template carries the structural sections that adversarial-review discipline depends on
+5	    When I read the bc-reviewer template via "shop-templates show bc-reviewer"
+6	    Then the content contains a "## What you read" section header
+7	    And the content contains a "## What you do" section header
+8	    And the content contains a "## Outcomes" section header
+9	    And the content contains a "## Anti-rationalization" section header
+10	    And the content contains a "## Reporting back" section header
+11
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:20Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./features/bc_reviewer_what_you_read_cli_naming.feature`
+
+```text
+1	Feature: bc-reviewer 'What you read' subsection names shop-msg read inbox per step
+2	
+3	  @scenario_hash:688a8f10fe2c5a2f @bc:shopsystem-templates
+4	  Scenario: bc-reviewer template's "What you read" subsection names "shop-msg read inbox" on every step whose action is reading the inbox message, never relying on a surrounding clause
+5	  When I read the bc-reviewer template via "shop-templates show bc-reviewer"
+6	  And I locate the subsection that begins with the heading "## What you read" and ends at the next heading of depth two (##) or depth three (###), whichever comes first
+7	  Then within that subsection, every numbered step whose action is reading the inbox message names the literal substring "shop-msg read inbox" on the same step
+8	  And within that subsection, no numbered step describes reading the inbox message using a bare action verb — "open", "cat", "ls", "grep", "inspect", "view", "edit", "tail", "head", or a bare "Read" — without naming the literal substring "shop-msg read inbox" on the same step
+9	  And within that subsection, no numbered step refers to the inbox message by a path-shaped reference such as "inbox/", "<BC root>/inbox/", or "the inbox file" without naming the literal substring "shop-msg read inbox" on the same step
+10
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:23Z)**_
+
+Now let me look at the conftest for relevant existing step definitions, particularly the "I read the bc-reviewer template via ..." When step and any Then step about content checks.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:24Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Find bc-reviewer template via step
+
+`grep -n "bc-reviewer template via" /workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py | head -20`
+
+```text
+(Bash completed with no output)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:25Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Find all decorator step definitions in conftest
+
+`grep -n "^@when\|^@then\|^@given" /workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py | head -80`
+
+```text
+48:@given(
+71:@given(
+95:@when(parsers.parse('I run "shop-templates list"'))
+103:@when(parsers.parse('I run "shop-templates show {name}"'))
+112:@when(
+140:@then("the exit code is 0")
+148:@then("the exit code is non-zero")
+156:@then("stderr is empty")
+162:@then("stdout is empty")
+173:@then(
+209:@then(
+240:@then(parsers.parse('stderr names the offending input "{name}"'))
+248:@then(
+277:@then(
+292:@then(
+317:@then(
+359:@then(
+382:@then(
+408:@then(
+433:@then(
+463:@then(
+475:@then(
+487:@then(
+500:@then(
+520:@then(
+541:@then(
+562:@then(
+579:@then(
+597:@then(
+629:@then(
+647:@then(
+718:@then(parsers.parse('a "{header}" identity header appears in the output'))
+732:@then(parsers.parse('a "{header}" posture header appears in the output'))
+743:@then(
+760:@then(
+788:@then(
+801:@then(
+830:@then(
+854:@then(
+949:@given(
+967:@given(
+982:@then(
+1003:@then(
+1046:@then(
+1075:@then(
+1100:@then(
+1199:@given(
+1214:@given(
+1230:@given(
+1256:@when("I read that file")
+1294:@then(parsers.parse('the content contains the literal substring "{needle}"'))
+1303:@then(parsers.parse('the content does not contain the literal substring "{needle}"'))
+1314:@then(parsers.parse('the file does not contain the literal substring "{needle}"'))
+1325:@then(
+1342:@then(
+1465:@then(
+1474:@then(
+1483:@then(
+1492:@then(
+1502:@then(
+1511:@then(
+1526:@then(
+1559:@then(
+1629:@then(
+1704:@then(
+1728:@then(parsers.parse('the section does not contain the literal substring "{needle}"'))
+1746:@then(
+1780:@then(
+1831:@then(
+1848:@then(
+2022:@then(
+2033:@then(
+2046:@then(
+2057:@then(
+2156:@when(
+2206:@then(
+2228:@then(
+2267:@then(
+2343:@then(
+2365:@then(
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:29Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+find bc-reviewer When step
+
+`grep -n "I read the bc-reviewer template" /workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py`
+
+```text
+(Bash completed with no output)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:29Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+find generic template via step
+
+`grep -n "read the .* template via" /workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py | head -5`
+
+```text
+114:        'I read the {name} template via "shop-templates show {name_again}"'
+1289:# by the existing "I read the X template via shop-templates show X"
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:32Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./tests/conftest.py`
+
+```text
+112	@when(
+113	    parsers.parse(
+114	        'I read the {name} template via "shop-templates show {name_again}"'
+115	    )
+116	)
+117	def when_read_template_via_show(name: str, name_again: str, context: dict) -> None:
+118	    # Belt-and-braces: the two name slots must agree, otherwise the
+119	    # scenario text is internally inconsistent and any Then assertion
+120	    # would be assertion-by-coincidence.
+121	    assert name == name_again, (
+122	        f"scenario inconsistency: 'the {name} template' but "
+123	        f"'shop-templates show {name_again}'"
+124	    )
+125	    result = _run_shop_templates("show", name)
+126	    context["cli_returncode"] = result.returncode
+127	    context["cli_stdout"] = result.stdout
+128	    context["cli_stderr"] = result.stderr
+129	    context["shown_template_name"] = name
+130	    # The Then-steps for these scenarios refer to "the content" — keep an
+131	    # explicit alias so the assertion language matches the feature text.
+132	    context["template_content"] = result.stdout
+133	
+134	
+135	# -----------------------------------------------------------------------
+136	# Then steps — generic CLI assertions
+137	# -----------------------------------------------------------------------
+138	
+139	
+140	@then("the exit code is 0")
+141	def then_exit_code_is_zero(context: dict) -> None:
+142	    rc = context["cli_returncode"]
+143	    assert rc == 0, (
+144	        f"expected exit code 0; got {rc}; stderr:\n{context.get('cli_stderr', '')}"
+145	    )
+146	
+147	
+148	@then("the exit code is non-zero")
+149	def then_exit_code_is_nonzero(context: dict) -> None:
+150	    rc = context["cli_returncode"]
+151	    assert rc != 0, (
+152	        f"expected non-zero exit; got {rc}; stderr:\n{context.get('cli_stderr', '')}"
+153	    )
+154	
+155	
+156	@then("stderr is empty")
+157	def then_stderr_is_empty(context: dict) -> None:
+158	    stderr = context["cli_stderr"]
+159	    assert stderr == "", f"expected empty stderr; got {stderr!r}"
+160	
+161	
+162	@then("stdout is empty")
+163	def then_stdout_is_empty(context: dict) -> None:
+164	    stdout = context["cli_stdout"]
+165	    assert stdout == "", f"expected empty stdout; got {stdout!r}"
+166	
+167	
+168	# -----------------------------------------------------------------------
+169	# Then steps — shop-templates list shape
+170	# -----------------------------------------------------------------------
+171	
+172	
+173	@then(
+174	    parsers.re(
+175	        r'stdout is exactly the four names '
+176	        r'"(?P<n1>[^"]+)", "(?P<n2>[^"]+)", "(?P<n3>[^"]+)", "(?P<n4>[^"]+)", '
+177	        r'one per line in that sorted order'
+178	    )
+179	)
+180	def then_stdout_is_exactly_four_names_sorted(
+181	    n1: str, n2: str, n3: str, n4: str, context: dict
+182	) -> None:
+183	    expected = [n1, n2, n3, n4]
+184	    # Pin the sorted-order contract explicitly: if the scenario text
+185	    # claims "sorted order" but the literal sequence supplied is not
+186	    # actually sorted, the scenario is internally inconsistent and the
+187	    # downstream assertion would be meaningless.
+188	    assert expected == sorted(expected), (
+189	        f"scenario premise violated: supplied names {expected!r} are not "
+190	        f"in sorted order"
+191	    )
+192	    stdout = context["cli_stdout"]
+193	    # The CLI uses print() per line, which emits a trailing newline after
+194	    # the last line. Split on newlines and drop the final empty entry
+195	    # that comes from that trailing newline.
+196	    lines = stdout.split("\n")
+197	    if lines and lines[-1] == "":
+198	        lines = lines[:-1]
+199	    assert lines == expected, (
+200	        f"expected stdout lines {expected!r}; got {lines!r}"
+201	    )
+202	
+203	
+204	# -----------------------------------------------------------------------
+205	# Then steps — shop-templates show byte-for-byte equivalence
+206	# -----------------------------------------------------------------------
+207	
+208	
+209	@then(
+210	    "stdout equals the package-data file contents for that template, "
+211	    "byte-for-byte (no extra trailing newline beyond what the file itself carries)"
+212	)
+213	def then_stdout_equals_package_data_byte_for_byte(context: dict) -> None:
+214	    # Re-read the underlying template through the same package-data
+215	    # boundary the CLI uses. Importing inside the step (rather than at
+216	    # module top) keeps the conftest cleanly isolated from src/ — only
+217	    # this assertion needs the boundary helper, and only at run time.
+218	    from shop_templates.cli import _read_template
+219	
+220	    name = context["shown_template_name"]
+221	    expected = _read_template(name)
+222	    assert expected is not None, (
+223	        f"premise of Then violated: package data has no template named {name!r}"
+224	    )
+225	    actual = context["cli_stdout"]
+226	    assert actual == expected, (
+227	        f"shop-templates show {name} did not emit byte-identical content "
+228	        f"to the package-data file.\n"
+229	        f"len(expected)={len(expected)} len(actual)={len(actual)}\n"
+230	        f"expected_repr_tail={expected[-40:]!r}\n"
+231	        f"actual_repr_tail={actual[-40:]!r}"
+232	    )
+233	
+234	
+235	# -----------------------------------------------------------------------
+236	# Then steps — shop-templates show unknown-template error shape
+237	# -----------------------------------------------------------------------
+238	
+239	
+240	@then(parsers.parse('stderr names the offending input "{name}"'))
+241	def then_stderr_names_offending_input(name: str, context: dict) -> None:
+242	    stderr = context["cli_stderr"]
+243	    assert name in stderr, (
+244	        f"expected stderr to name offending input {name!r}; got:\n{stderr}"
+245	    )
+246	
+247	
+248	@then(
+249	    "stderr cites the list of available templates so the caller can recover"
+250	)
+251	def then_stderr_cites_available_templates(context: dict) -> None:
+252	    stderr = context["cli_stderr"]
+253	    # "cites the list" is satisfied when at least one real template name
+254	    # appears in stderr — the caller can derive the available set from
+255	    # there. We require every known template name to appear, which is
+256	    # the strongest reading of "cites the list" and matches the
+257	    # implementation's `Available: <comma-joined names>` shape.
+258	    available = context.get("available_templates")
+259	    if available is None:
+260	        # Recover the list directly if a preceding Given did not stash it.
+261	        result = _run_shop_templates("list")
+262	        assert result.returncode == 0, (
+263	            f"shop-templates list failed; stderr:\n{result.stderr}"
+264	        )
+265	        available = result.stdout.strip().splitlines()
+266	    for name in available:
+267	        assert name in stderr, (
+268	            f"expected stderr to cite available template {name!r}; got:\n{stderr}"
+269	        )
+270	
+271
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:36Z)**_
+
+Good. The "When I read the {name} template via ..." step is already covered (generic). The key Then steps in the new scenarios are all unique English text. Let me look at the existing "content contains/names" style Then steps to understand patterns.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:38Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./tests/conftest.py`
+
+```text
+1280	            resolved_parts.append(line)
+1281	    context["file_content"] = "".join(resolved_parts)
+1282	
+1283	
+1284	# -----------------------------------------------------------------------
+1285	# Then steps — generic substring contains / does-not-contain
+1286	# -----------------------------------------------------------------------
+1287	#
+1288	# "the content" assertions read from context["template_content"] (set
+1289	# by the existing "I read the X template via shop-templates show X"
+1290	# step). "the file" assertions read from context["file_content"] (set
+1291	# by the "I read that file" step above).
+1292	
+1293	
+1294	@then(parsers.parse('the content contains the literal substring "{needle}"'))
+1295	def then_content_contains_literal_substring(needle: str, context: dict) -> None:
+1296	    content = context["template_content"]
+1297	    assert needle in content, (
+1298	        f"template {context.get('shown_template_name')!r} is missing "
+1299	        f"required literal substring {needle!r}"
+1300	    )
+1301	
+1302	
+1303	@then(parsers.parse('the content does not contain the literal substring "{needle}"'))
+1304	def then_content_does_not_contain_literal_substring(
+1305	    needle: str, context: dict
+1306	) -> None:
+1307	    content = context["template_content"]
+1308	    assert needle not in content, (
+1309	        f"template {context.get('shown_template_name')!r} contains "
+1310	        f"forbidden literal substring {needle!r}"
+1311	    )
+1312	
+1313	
+1314	@then(parsers.parse('the file does not contain the literal substring "{needle}"'))
+1315	def then_file_does_not_contain_literal_substring(
+1316	    needle: str, context: dict
+1317	) -> None:
+1318	    content = context["file_content"]
+1319	    assert needle not in content, (
+1320	        f"file {context.get('file_relative_path')!r} contains forbidden "
+1321	        f"literal substring {needle!r}"
+1322	    )
+1323	
+1324	
+1325	@then(
+1326	    parsers.parse(
+1327	        'the file contains the literal substring "{needle}" as the named '
+1328	        'operation for identifying unprocessed work'
+1329	    )
+1330	)
+1331	def then_file_contains_substring_as_unprocessed_op(
+1332	    needle: str, context: dict
+1333	) -> None:
+1334	    content = context["file_content"]
+1335	    assert needle in content, (
+1336	        f"file {context.get('file_relative_path')!r} is missing required "
+1337	        f"literal substring {needle!r} (named operation for identifying "
+1338	        f"unprocessed work)"
+1339	    )
+1340	
+1341	
+1342	@then(
+1343	    parsers.parse(
+1344	        'the file contains the literal substring "{needle}" as the named '
+1345	        'operation for reading a specific inbox message'
+1346	    )
+1347	)
+1348	def then_file_contains_substring_as_read_inbox_op(
+1349	    needle: str, context: dict
+1350	) -> None:
+1351	    content = context["file_content"]
+1352	    assert needle in content, (
+1353	        f"file {context.get('file_relative_path')!r} is missing required "
+1354	        f"literal substring {needle!r} (named operation for reading a "
+1355	        f"specific inbox message)"
+1356	    )
+1357	
+1358	
+1359	# -----------------------------------------------------------------------
+1360	# Then steps — instructional negations (no "read the file directly"-style
+1361	# guidance with respect to inbox/outbox)
+1362	# -----------------------------------------------------------------------
+1363	#
+1364	# These steps assert that the template/file does not instruct the
+1365	# reader to perform a non-shop-msg filesystem operation on the
+1366	# inbox/outbox. The check is conservative: forbid the literal
+1367	# substrings that would betray such instruction (the same shapes the
+1368	# scenario text enumerates), and additionally forbid common bypass
+1369	# phrasings ("cat <BC root>/inbox", "open inbox/", etc.) when they
+1370	# co-occur with the mailbox words.
+1371	
+1372	
+1373	_INBOX_OUTBOX_TOKENS = ("inbox", "outbox")
+1374	
+1375	
+1376	def _content_for_target(context: dict, target_label: str) -> tuple[str, str]:
+1377	    """Return (content, identifier) for assertion error messages.
+1378	
+1379	    `target_label` is 'content' (template) or 'file' (CLAUDE.md).
+1380	    """
+1381	    if target_label == "content":
+1382	        return (
+1383	            context["template_content"],
+1384	            f"template {context.get('shown_template_name')!r}",
+1385	        )
+1386	    return (
+1387	        context["file_content"],
+1388	        f"file {context.get('file_relative_path')!r}",
+1389	    )
+1390	
+1391	
+1392	def _assert_no_direct_inbox_outbox_instruction(
+1393	    content: str, identifier: str
+1394	) -> None:
+1395	    """Common check for 'does not instruct the reader to ... inbox/outbox'.
+1396	
+1397	    The scenarios call out the same shapes from different angles. The
+1398	    check below covers the union conservatively:
+1399	
+1400	    - Literal phrases like "read the file directly", "read the YAML
+1401	      directly", "open the file" combined with inbox/outbox proximity.
+1402	    - Direct cat/ls/grep/open verbs with inbox/outbox as direct object.
+1403	
+1404	    A line is an offense only if it gives an action on a mailbox path
+1405	    without naming a shop-msg subcommand on the same line. That keeps
+1406	    sentences like "shop-msg read inbox reads the file" from
+1407	    incidentally triggering: the shop-msg subcommand name is present.
+1408	    """
+1409	    offenders: list[tuple[int, str]] = []
+1410	    for lineno, line in enumerate(content.splitlines(), start=1):
+1411	        lower = line.lower()
+1412	        # Quick reject: no inbox/outbox mention → no offense possible.
+1413	        if not any(tok in lower for tok in _INBOX_OUTBOX_TOKENS):
+1414	            continue
+1415	        # If the line already names a shop-msg subcommand, the inbox/
+1416	        # outbox reference is within a sanctioned context. Skip.
+1417	        if "shop-msg" in lower:
+1418	            continue
+1419	        # Offending phrasings: direct filesystem verbs / "read directly"
+1420	        # variants targeting the mailbox.
+1421	        triggers = (
+1422	            "read the file directly",
+1423	            "read the yaml directly",
+1424	            "read the file",
+1425	            "read the yaml",
+1426	            "open the file",
+1427	            "open the yaml",
+1428	            "cat inbox",
+1429	            "cat outbox",
+1430	            "cat <bc root>/inbox",
+1431	            "cat <bc root>/outbox",
+1432	            "ls inbox",
+1433	            "ls outbox",
+1434	            "grep inbox",
+1435	            "grep outbox",
+1436	            "inspect the file",
+1437	            "inspect the yaml",
+1438	        )
+1439	        if any(t in lower for t in triggers):
+1440	            offenders.append((lineno, line.rstrip()))
+1441	            continue
+1442	        # Path-shape offenses: a sentence that names an inbox/outbox
+1443	        # path token (`<BC root>/inbox/`, `inbox/`, `outbox/`) as the
+1444	        # target of an inspection verb without a shop-msg cite. Look
+1445	        # for action verbs in the same line.
+1446	        action_verbs = (
+1447	            "open ", "cat ", "ls ", "grep ", "inspect ", "view ",
+1448	            "edit ", "tail ", "head ",
+1449	        )
+1450	        path_tokens = (
+1451	            "<bc root>/inbox", "<bc root>/outbox",
+1452	            "repos/<bc>/inbox", "repos/<bc>/outbox",
+1453	        )
+1454	        if any(v in lower for v in action_verbs) and any(
+1455	            p in lower for p in path_tokens
+1456	        ):
+1457	            offenders.append((lineno, line.rstrip()))
+1458	    assert not offenders, (
+1459	        f"{identifier} contains instruction(s) to operate on inbox/outbox "
+1460	        f"directly (without shop-msg) — forbidden:\n"
+1461	        + "\n".join(f"  line {n}: {l!r}" for n, l in offenders)
+1462	    )
+1463	
+1464	
+1465	@then(
+1466	    'the content does not instruct the reader to "read the file directly" '
+1467	    'or "read the YAML directly" with respect to the inbox or outbox'
+1468	)
+1469	def then_content_no_read_directly_instruction(context: dict) -> None:
+1470	    content, ident = _content_for_target(context, "content")
+1471	    _assert_no_direct_inbox_outbox_instruction(content, ident)
+1472	
+1473	
+1474	@then(
+1475	    "the content does not instruct the reader to read the inbox YAML file "
+1476	    "directly or by any non-shop-msg means"
+1477	)
+1478	def then_content_no_read_inbox_yaml_non_shop_msg(context: dict) -> None:
+1479	    content, ident = _content_for_target(context, "content")
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:40Z)**_
+
+Good. Now let me check existing "names X as a pre-emit step" or similar specific-step assertions to match patterns.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:42Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+find existing precondition step defs
+
+`grep -n "pre-emit\|precondition\|names .* as" /workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py | head -30`
+
+```text
+293:    'the content names "empirical" pre-state verification as the discipline '
+360:    'the content names "@scenario_hash" as a pre-state surface the architect '
+464:    'the content names the literal substring "grep" as the enumeration '
+476:    'the content names the literal substring "@scenario_hash" as the pattern '
+501:    "the content names the BC's \"features/\" directory as the authoritative "
+580:    "the content names this per-event discipline as applying independently to "
+1162:#      command a precondition for a shop-msg invocation, and no
+1169:# (lead-bwu) explicitly names both files as in-scope surfaces — this
+1752:def then_section_no_create_beads_precondition(context: dict) -> None:
+1766:        # Numbered/ordered step language with beads precondition shape.
+1890:def _assert_no_bd_precondition_in_content(content: str, identifier: str) -> None:
+1892:    reader to create/claim/update a bd issue as a precondition for a
+1932:                # Distinguish "instructs as precondition" from "describes
+1935:                # is procedural-precondition shape. Lines that are part
+1957:        f"a precondition for a shop-msg invocation:\n  "
+2002:        # A bd-precondition in the procedural unit is a numbered or
+2025:    'issue as a precondition for invoking any "shop-msg send" or '
+2028:def then_content_no_bd_precondition(context: dict) -> None:
+2030:    _assert_no_bd_precondition_in_content(content, ident)
+2049:    'issue as a precondition for invoking any "shop-msg send" or '
+2052:def then_file_no_bd_precondition(context: dict) -> None:
+2054:    _assert_no_bd_precondition_in_content(content, ident)
+4140:        'stderr names "{flag}" as a missing required argument'
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:45Z)**_
+
+Let me look at the existing patterns for "names X" Then steps to mimic.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:46Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./tests/conftest.py`
+
+```text
+277	@then(
+278	    parsers.parse(
+279	        'the content contains a "{section_header}" section header'
+280	    )
+281	)
+282	def then_content_contains_section_header(
+283	    section_header: str, context: dict
+284	) -> None:
+285	    content = context["template_content"]
+286	    assert section_header in content, (
+287	        f"template {context.get('shown_template_name')!r} is missing "
+288	        f"section header {section_header!r}"
+289	    )
+290	
+291	
+292	@then(
+293	    'the content names "empirical" pre-state verification as the discipline '
+294	    "for choosing between assign_scenarios, request_bugfix, and request_maintenance"
+295	)
+296	def then_content_names_empirical_pre_state_verification(context: dict) -> None:
+297	    content = context["template_content"].lower()
+298	    # Pin Finding 17 / S16: the discriminator is "empirical". The
+299	    # surrounding message-type vocabulary must also appear so this isn't
+300	    # satisfied by an unrelated use of "empirical" elsewhere in the
+301	    # template.
+302	    assert "empirical" in content, (
+303	        "template must use the word 'empirical' for pre-state verification "
+304	        "(Finding 17 / S16)"
+305	    )
+306	    for token in (
+307	        "assign_scenarios",
+308	        "request_bugfix",
+309	        "request_maintenance",
+310	    ):
+311	        assert token in content, (
+312	            f"template must reference message-type {token!r} in the "
+313	            "pre-state-verification discipline section"
+314	        )
+315	
+316	
+317	@then(
+318	    'the content distinguishes "reading code" (hypothesis) from "running it" '
+319	    "(fact) as the basis for that choice"
+320	)
+321	def then_content_distinguishes_reading_from_running(context: dict) -> None:
+322	    content = context["template_content"].lower()
+323	    # The Finding 17 prose introduced the
+324	    # "reading code is hypothesis / running it is fact" distinction. Pin
+325	    # both halves of the contrast — either alone is satisfiable by an
+326	    # unrelated sentence, but both together unambiguously identify this
+327	    # discipline.
+328	    assert "reading code" in content, (
+329	        "template must reference 'reading code' as the hypothesis side of "
+330	        "the pre-state-verification distinction (Finding 17 / S16)"
+331	    )
+332	    assert "running it" in content, (
+333	        "template must reference 'running it' as the fact side of the "
+334	        "pre-state-verification distinction (Finding 17 / S16)"
+335	    )
+336	    assert "hypothesis" in content, (
+337	        "template must label the 'reading code' side as a hypothesis "
+338	        "(Finding 17 / S16)"
+339	    )
+340	    assert "fact" in content, (
+341	        "template must label the 'running it' side as a fact "
+342	        "(Finding 17 / S16)"
+343	    )
+344	
+345	
+346	# -----------------------------------------------------------------------
+347	# Then steps — BC @scenario_hash pre-state enumeration discipline
+348	# (lead-dbc scenarios 0d384c6b92004c8d, 48dd1f01012efafe, 22cbdf7cc9e917ca,
+349	# 744cd4a4532c28d7)
+350	# -----------------------------------------------------------------------
+351	#
+352	# These steps pin that the lead-architect template names @scenario_hash
+353	# enumeration (via grep over features/*.feature) as a discrete, required
+354	# pre-state step whenever a dispatch retires, supersedes, or contradicts
+355	# prior BC-side coverage — and that the discipline applies on every
+356	# dispatch in a clarify-correction chain, not only the initial one.
+357	
+358	
+359	@then(
+360	    'the content names "@scenario_hash" as a pre-state surface the architect '
+361	    "must verify before composing a dispatch that retires, supersedes, or "
+362	    "contradicts prior BC-side coverage"
+363	)
+364	def then_content_names_scenario_hash_pre_state_surface(context: dict) -> None:
+365	    content = context["template_content"]
+366	    # Must contain @scenario_hash in the context of a pre-state enumeration
+367	    # discipline — specifically that the architect must enumerate @scenario_hash
+368	    # values from the BC's features/ before dispatching.  The tell is that
+369	    # both "@scenario_hash" and "enumerate" appear (the existing template only
+370	    # has @scenario_hash in the context of tag-computation, not enumeration).
+371	    assert "@scenario_hash" in content, (
+372	        "template must name '@scenario_hash' as a pre-state surface "
+373	        "(lead-dbc / 0d384c6b92004c8d)"
+374	    )
+375	    assert "enumerate" in content.lower(), (
+376	        "template must use the word 'enumerate' to describe the @scenario_hash "
+377	        "pre-state step — the existing template does not use this word in the "
+378	        "@scenario_hash context (lead-dbc / 0d384c6b92004c8d)"
+379	    )
+380	
+381	
+382	@then(
+383	    "the content directs the architect to enumerate that surface from the "
+384	    'BC\'s "features/" directory rather than from the lead shop\'s scenario register'
+385	)
+386	def then_content_directs_enumerate_from_features_dir(context: dict) -> None:
+387	    content = context["template_content"]
+388	    # The BC's features/ directory must be named as the source for enumeration.
+389	    # The existing template has "features/" only in the context of the lead
+390	    # shop's own features/ — not as a BC's enumeration source. The new content
+391	    # must explicitly name the BC's features/ as the authoritative source for
+392	    # the @scenario_hash enumeration (in contrast to the lead shop's register).
+393	    # Check: "features/" appears AND either "BC's" or a BC-side context exists.
+394	    assert "features/" in content, (
+395	        "template must name the BC's 'features/' directory as the enumeration "
+396	        "source for @scenario_hash (lead-dbc / 0d384c6b92004c8d)"
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:50Z)**_
+
+Good. Now I have the pattern down. Let me check the existing BDD run state first.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:51Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Run baseline BDD suite
+
+`python3 -m pytest tests/ -q 2>&1 | tail -20`
+
+```text
+/usr/local/bin/python3: No module named pytest
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:09:59Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Run BDD via uv
+
+`uv run python -m pytest tests/ -q 2>&1 | tail -20`
+
+```text
+   Building shop-templates @ file:///workspaces/shopsystem-product/repos/shopsystem-templates
+      Built shop-templates @ file:///workspaces/shopsystem-product/repos/shopsystem-templates
+Uninstalled 1 package in 0.81ms
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 1 package in 2ms
+/workspaces/shopsystem-product/repos/shopsystem-templates/.venv/bin/python3: No module named pytest
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:10:03Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Read pyproject
+
+`cat /workspaces/shopsystem-product/repos/shopsystem-templates/pyproject.toml`
+
+```text
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shop-templates"
+version = "0.1.0"
+description = "Validated role-prompt templates for shops in the shop-system. Distributed as package data; consumed via the `shop-templates` CLI rather than read from a known filesystem path."
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "David Stenglein"}]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-bdd>=7",
+    "gherkin-official",
+]
+
+[project.urls]
+Repository = "https://github.com/dstengle/shopsystem-templates"
+Homepage = "https://github.com/dstengle/shopsystem-product"
+
+[project.scripts]
+shop-templates = "shop_templates.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+shop_templates = [
+    "templates/*.md",
+    "templates/*.template",
+    "templates/claude/*.md",
+    "templates/claude_body/*.md",
+    "templates/claude_settings/*.json",
+]
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:10:07Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Install dev deps
+
+`uv pip install -e ".[dev]" 2>&1 | tail -10`
+
+```text
+ + packaging==26.2
+ + parse==1.22.1
+ + parse-type==0.6.6
+ + pluggy==1.6.0
+ + pygments==2.20.0
+ + pytest==9.0.3
+ + pytest-bdd==8.1.0
+ ~ shop-templates==0.1.0 (from file:///workspaces/shopsystem-product/repos/shopsystem-templates)
+ + six==1.17.0
+ + typing-extensions==4.15.0
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:10:24Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Run baseline BDD via uv
+
+`uv run python -m pytest tests/ -q 2>&1 | tail -10`
+
+```text
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:028a1a3b1f686b53 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_features.py::test_leadshop_claudemd_describes_dispatch_and_bcmailbox_inspection_exclusively_through_shopmsg_cli_subcommands_never_through_direct_mailbox_paths_or_filename_conventions
+1 failed, 156 passed, 229 warnings in 12.02s
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:10:38Z)**_
+
+Baseline: 1 pre-existing failure unrelated to my work, 156 pass. Let me note the existing failure name for context.
+
+Now I'll apply the **sufficiency check** on each of the 4 scenarios:
+
+**Scenario 9457dfff7e3f9e90:** Well-formed Gherkin (When + 5 Then); each step is concrete (literal substrings "git status --porcelain", "git log", "git rev-parse", "origin/main", explicit "discrete pre-emit steps"); hash tag present. Pass.
+
+**Scenario 2b5d558d548b0606:** Well-formed; concrete porcelain markers (" M", "M ", "MM" etc enumerated); names `--status blocked`; hash tag present. Pass.
+
+**Scenario 6d0a7a957b340274:** Well-formed; concrete `??` marker; explicit .gitignore guard; hash tag present. Pass.
+
+**Scenario 721dcf075edcd9c7:** Well-formed; concrete attribution mechanism (work_id substring in subject/body, or tag/note); explicit `git fetch origin` step; hash tag present. Pass.
+
+**Condition (4) — fit-to-existing-capability:** The current bc-reviewer template at `src/shop_templates/templates/bc-reviewer.md` has no mention of `git status --porcelain`, `git log origin/main`, `git fetch origin`, or any working-tree/origin-main verification step. The "What you do" section only covers BDD re-run + adversarial probing + step-def probing. These 4 scenarios pin genuinely new behavior. No pre-existing scenario in `features/` pins these checks (confirmed by listing). This is net-new behavior — proceed.
+
+All sufficiency checks pass. Now I'll do the work.
+
+Let me write the feature file first.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:10:58Z)**_
+
+<tool-use data-tool-type="write" data-tool-name="Write"><details>
+<summary>Tool use: **Write**</summary>
+
+```feature
+Feature: bc-reviewer template enforces clean working tree and origin/main commit before work_done (complete) emit
+
+  @scenario_hash:9457dfff7e3f9e90 @bc:shopsystem-templates
+  Scenario: bc-reviewer template directs the reviewer to verify the BC's working tree is clean AND the work_id's change is committed to origin/main before emitting work_done (complete)
+    When I read the bc-reviewer template via "shop-templates show bc-reviewer"
+    Then the content names "git status --porcelain" as a pre-emit verification step the reviewer must run before composing a work_done with status complete
+    And the content names "git log" or "git rev-parse" (against the BC's "origin/main" ref) as a pre-emit verification step that confirms the work_id's change is present on the BC's main branch
+    And the content directs the reviewer that when "git status --porcelain" produces any non-empty output the reviewer must NOT emit work_done with status complete, and instead must surface the uncommitted state as a blocker (e.g., emit work_done with status blocked, or stop and report) with the offending paths named in the response summary
+    And the content directs the reviewer that when the BC's "origin/main" HEAD does NOT carry a commit for the dispatched work_id the reviewer must NOT emit work_done with status complete, and instead must surface the missing-commit state as a blocker with the work_id named in the response summary
+    And the content marks both checks as discrete pre-emit steps (alongside the existing BDD-rerun and scenario-hash-presence steps), not as optional guidance the reviewer may skip
+
+  @scenario_hash:2b5d558d548b0606 @bc:shopsystem-templates
+  Scenario: bc-reviewer template directs the reviewer to block a work_done (complete) emit when tracked files in the BC root are modified but uncommitted, and to name the dirty paths in the response
+    When I read the bc-reviewer template via "shop-templates show bc-reviewer"
+    Then the content directs the reviewer that, prior to emitting work_done with status complete, the reviewer must invoke "git status --porcelain" in the BC root and inspect its output
+    And the content directs the reviewer that any line in "git status --porcelain" output with a tracked-file modification marker (lines beginning with " M", "M ", "MM", " D", "D ", "A ", "AM", " R", "R ", " C", "C ", or "UU") is a precondition failure
+    And the content directs the reviewer that on such a precondition failure the reviewer does NOT compose "shop-msg respond work_done --status complete" and instead emits "shop-msg respond work_done --status blocked" with a summary that names the tracked paths reported by "git status --porcelain"
+    And the content frames the dirty-tracked-files check as a step the reviewer runs even when the BDD suite passes, so a green BDD result does not bypass the check
+
+  @scenario_hash:6d0a7a957b340274 @bc:shopsystem-templates
+  Scenario: bc-reviewer template directs the reviewer to block a work_done (complete) emit when untracked files are present in the BC root, and to name the untracked paths in the response
+    When I read the bc-reviewer template via "shop-templates show bc-reviewer"
+    Then the content directs the reviewer that the same "git status --porcelain" inspection that catches modified-tracked-files (per scenario 106) also catches untracked files (lines beginning with "??") and treats them as a precondition failure
+    And the content directs the reviewer that on untracked-files failure the reviewer does NOT compose "shop-msg respond work_done --status complete" and instead emits "shop-msg respond work_done --status blocked" with a summary that names the untracked paths reported by "git status --porcelain"
+    And the content explicitly directs the reviewer that the untracked-files check is NOT satisfied by adding the paths to .gitignore unless the paths are genuinely outside the BC's scope of work; the reviewer must confirm with the implementer (or by inspection of the dispatch) whether the untracked paths are work product that should be committed before re-attempting the emit
+
+  @scenario_hash:721dcf075edcd9c7 @bc:shopsystem-templates
+  Scenario: bc-reviewer template directs the reviewer to block a work_done (complete) emit when the BC's origin/main branch does not carry a commit attributable to the dispatched work_id, and to name the missing work_id and current origin/main HEAD in the response
+    When I read the bc-reviewer template via "shop-templates show bc-reviewer"
+    Then the content directs the reviewer that, prior to emitting work_done with status complete, the reviewer must verify by "git log origin/main" (or equivalent "git log" against the BC's main branch) that at least one commit attributable to the dispatched work_id is reachable from "origin/main" HEAD
+    And the content names a concrete attribution mechanism the reviewer may use to recognize the work_id's commit (for example, the work_id substring appearing in the commit message subject or body, or a tag/note pointing at the work_id), so the reviewer does not have to invent a convention
+    And the content directs the reviewer that when no commit attributable to the work_id is reachable from "origin/main" HEAD the reviewer does NOT compose "shop-msg respond work_done --status complete" and instead emits "shop-msg respond work_done --status blocked" with a summary that names the dispatched work_id and the current "origin/main" HEAD short SHA
+    And the content directs the reviewer that committing the work_id's change to any branch OTHER than the BC's main branch (e.g., a local feature branch that has not been merged or pushed to origin/main) does NOT satisfy this precondition; the only outcome that satisfies the precondition is the work_id's commit being reachable from "origin/main" HEAD
+    And the content directs the reviewer that "git fetch origin" should be run as part of the verification so a stale local view of "origin/main" does not produce a false positive
+
+```
+
+```text
+File created successfully at: /workspaces/shopsystem-product/repos/shopsystem-templates/features/bc_reviewer_pre_emit_clean_tree_and_origin_main.feature (file state is current in your context — no need to Read it back)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:11:01Z)**_
+
+Now I'll run the suite to confirm step misses, then add step definitions.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:11:15Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Run BDD after adding feature
+
+`uv run python -m pytest tests/ -q 2>&1 | tail -30`
+
+```text
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:98fe33cee55daf55 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:b8f9b464718ca32e - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:91ce9dc16dec6a13 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:864852562cf9239d - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:028a1a3b1f686b53 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_features.py::test_leadshop_claudemd_describes_dispatch_and_bcmailbox_inspection_exclusively_through_shopmsg_cli_subcommands_never_through_direct_mailbox_paths_or_filename_conventions
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_verify_the_bcs_working_tree_is_clean_and_the_work_ids_change_is_committed_to_originmain_before_emitting_work_done_complete
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_tracked_files_in_the_bc_root_are_modified_but_uncommitted_and_to_name_the_dirty_paths_in_the_response
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_untracked_files_are_present_in_the_bc_root_and_to_name_the_untracked_paths_in_the_response
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_the_bcs_originmain_branch_does_not_carry_a_commit_attributable_to_the_dispatched_work_id_and_to_name_the_missing_work_id_and_current_originmain_head_in_the_response
+5 failed, 156 passed, 240 warnings in 12.82s
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:11:19Z)**_
+
+All 4 new scenarios fail as expected (and the 1 pre-existing failure is still there). Now let me look at where to add new step definitions in conftest and design the assertion helpers.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:11:20Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./tests/conftest.py`
+
+```text
+7580	
+7581	@then(
+7582	    parsers.parse(
+7583	        'after the invocation exactly one inner-hook entry under '
+7584	        '"hooks.SessionStart" in "{alias}/.claude/settings.json" has a '
+7585	        '"command" string equal to the literal value "{expected}"'
+7586	    )
+7587	)
+7588	def then_exactly_one_inner_hook_command_equals_in_file(
+7589	    alias: str, expected: str, context: dict
+7590	) -> None:
+7591	    import json
+7592	
+7593	    real = _real_target_for_alias(alias, context)
+7594	    settings_file = real / ".claude" / "settings.json"
+7595	    parsed = json.loads(settings_file.read_text())
+7596	    commands = _collect_sessionstart_commands(parsed)
+7597	    matches = [c for c in commands if c == expected]
+7598	    assert len(matches) == 1, (
+7599	        f"after update, expected exactly one inner-hook command equal "
+7600	        f"to {expected!r} in {settings_file!s}; got {len(matches)} "
+7601	        f"matches. All commands: {commands!r}"
+7602	    )
+7603	
+7604	
+7605	@then(
+7606	    parsers.parse(
+7607	        'after the invocation "{alias}/.claude/settings.json" equals '
+7608	        'the current canonical ".claude/settings.json" template for '
+7609	        'shop type "{shop_type}" byte-for-byte'
+7610	    )
+7611	)
+7612	def then_target_settings_json_equals_canonical_byte_for_byte(
+7613	    alias: str, shop_type: str, context: dict
+7614	) -> None:
+7615	    from shop_templates.cli import read_claude_settings_template
+7616	
+7617	    real = _real_target_for_alias(alias, context)
+7618	    settings_file = real / ".claude" / "settings.json"
+7619	    actual = settings_file.read_text()
+7620	    expected = read_claude_settings_template(shop_type)
+7621	    assert actual == expected, (
+7622	        f"after update, {settings_file!s} does not equal the canonical "
+7623	        f"settings template for shop_type={shop_type!r} byte-for-byte.\n"
+7624	        f"len(expected)={len(expected)} len(actual)={len(actual)}"
+7625	    )
+7626
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:11:26Z)**_
+
+Now I'll add the step definitions at the end of conftest. Let me design carefully — each Then is unique English, so I'll write each as a literal step. To keep checks robust without over-fitting, each Then asserts the presence of the specific literal substrings called out by the Gherkin (e.g., "git status --porcelain", "git log", "origin/main", etc.) plus the structural framing words. I'll prefer literal-substring assertion (matching the existing style at lines 1294 and 292-314).
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:11:27Z)**_
+
+<tool-use data-tool-type="read" data-tool-name="Read"><details>
+<summary>Tool use: **Read**</summary>
+ `./tests/conftest.py`
+
+```text
+7560	        '"hooks.SessionStart" in "{alias}/.claude/settings.json" has a '
+7561	        '"command" string containing the substring "{needle}"'
+7562	    )
+7563	)
+7564	def then_no_inner_hook_command_contains_substring_in_file(
+7565	    alias: str, needle: str, context: dict
+7566	) -> None:
+7567	    import json
+7568	
+7569	    real = _real_target_for_alias(alias, context)
+7570	    settings_file = real / ".claude" / "settings.json"
+7571	    parsed = json.loads(settings_file.read_text())
+7572	    commands = _collect_sessionstart_commands(parsed)
+7573	    for cmd in commands:
+7574	        assert needle not in cmd, (
+7575	            f"after update, inner-hook command {cmd!r} in "
+7576	            f"{settings_file!s} still contains forbidden substring "
+7577	            f"{needle!r}"
+7578	        )
+7579	
+7580	
+7581	@then(
+7582	    parsers.parse(
+7583	        'after the invocation exactly one inner-hook entry under '
+7584	        '"hooks.SessionStart" in "{alias}/.claude/settings.json" has a '
+7585	        '"command" string equal to the literal value "{expected}"'
+7586	    )
+7587	)
+7588	def then_exactly_one_inner_hook_command_equals_in_file(
+7589	    alias: str, expected: str, context: dict
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:11:30Z)**_
+
+Now I'll append the new step definitions. They need to match the exact Gherkin Then text. Let me list them carefully and write them.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:13:10Z)**_
+
+<tool-use data-tool-type="write" data-tool-name="Edit"><details>
+<summary>Tool use: **Edit**</summary>
+
+```text
+The file /workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py has been updated successfully. (file state is current in your context — no need to Read it back)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:13:13Z)**_
+
+Now let me run the BDD suite to confirm step defs are wired up. They should fail at assertion (because the template hasn't been updated yet).
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:13:27Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Run BDD after adding step defs
+
+`uv run python -m pytest tests/ -q 2>&1 | tail -15`
+
+```text
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:864852562cf9239d - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:028a1a3b1f686b53 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_features.py::test_leadshop_claudemd_describes_dispatch_and_bcmailbox_inspection_exclusively_through_shopmsg_cli_subcommands_never_through_direct_mailbox_paths_or_filename_conventions
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_verify_the_bcs_working_tree_is_clean_and_the_work_ids_change_is_committed_to_originmain_before_emitting_work_done_complete
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_tracked_files_in_the_bc_root_are_modified_but_uncommitted_and_to_name_the_dirty_paths_in_the_response
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_untracked_files_are_present_in_the_bc_root_and_to_name_the_untracked_paths_in_the_response
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_the_bcs_originmain_branch_does_not_carry_a_commit_attributable_to_the_dispatched_work_id_and_to_name_the_missing_work_id_and_current_originmain_head_in_the_response
+5 failed, 156 passed, 240 warnings in 12.63s
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:13:36Z)**_
+
+Good — the 4 scenarios still fail (now at assertion stage), and no step-def-missing errors. Let me confirm step defs match by inspecting one failure quickly.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:13:37Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Run single scenario for detailed output
+
+`uv run python -m pytest tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_verify_the_bcs_working_tree_is_clean_and_the_work_ids_change_is_committed_to_originmain_before_emitting_work_done_complete -q 2>&1 | tail -30`
+
+```text
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:9029808f48b613d8 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:98fe33cee55daf55 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:b8f9b464718ca32e - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:91ce9dc16dec6a13 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:864852562cf9239d - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:028a1a3b1f686b53 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_verify_the_bcs_working_tree_is_clean_and_the_work_ids_change_is_committed_to_originmain_before_emitting_work_done_complete
+1 failed, 240 warnings in 0.19s
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:13:43Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+grep failure detail
+
+`uv run python -m pytest tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_verify_the_bcs_working_tree_is_clean_and_the_work_ids_change_is_committed_to_originmain_before_emitting_work_done_complete 2>&1 | grep -E "(AssertionError|assert|FAILED|Error)" | head -10`
+
+```text
+                raise ValueError(f"{request.fixturename} did not yield a value") from None
+>       assert "git status --porcelain" in content, (
+E       AssertionError: bc-reviewer template must name 'git status --porcelain' as a pre-emit verification step (lead-cw7 / 9457dfff7e3f9e90)
+E       assert 'git status --porcelain' in '---\nname: bc-reviewer\ndescription: BC reviewer role for a BC shop in the shopsystem framework. Invoke AFTER bc-impl...gap or you dismissed it as out-of-scope.\n- If you emitted `clarify`: the specific scenario tightening you proposed.\n'
+tests/conftest.py:7660: AssertionError
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_verify_the_bcs_working_tree_is_clean_and_the_work_ids_change_is_committed_to_originmain_before_emitting_work_done_complete
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:13:46Z)**_
+
+Step defs are wired correctly. Now I implement the capability — modify `src/shop_templates/templates/bc-reviewer.md` to satisfy all the assertions.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:14:27Z)**_
+
+<tool-use data-tool-type="write" data-tool-name="Edit"><details>
+<summary>Tool use: **Edit**</summary>
+
+```text
+The file /workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-reviewer.md has been updated successfully. (file state is current in your context — no need to Read it back)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:14:30Z)**_
+
+Now let me run the new BDD scenarios.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:14:43Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Run full BDD suite after template update
+
+`uv run python -m pytest tests/ -q 2>&1 | tail -10`
+
+```text
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:028a1a3b1f686b53 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_features.py::test_leadshop_claudemd_describes_dispatch_and_bcmailbox_inspection_exclusively_through_shopmsg_cli_subcommands_never_through_direct_mailbox_paths_or_filename_conventions
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_tracked_files_in_the_bc_root_are_modified_but_uncommitted_and_to_name_the_dirty_paths_in_the_response
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_untracked_files_are_present_in_the_bc_root_and_to_name_the_untracked_paths_in_the_response
+FAILED tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_the_bcs_originmain_branch_does_not_carry_a_commit_attributable_to_the_dispatched_work_id_and_to_name_the_missing_work_id_and_current_originmain_head_in_the_response
+4 failed, 157 passed, 240 warnings in 12.40s
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:14:48Z)**_
+
+Scenario 9457dfff7e3f9e90 passes. 3 still failing — let me diagnose each.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:14:50Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+diagnose scenario 2b5
+
+`uv run python -m pytest tests/test_features.py::test_bcreviewer_template_directs_the_reviewer_to_block_a_work_done_complete_emit_when_tracked_files_in_the_bc_root_are_modified_but_uncommitted_and_to_name_the_dirty_paths_in_the_response 2>&1 | grep -A2 "AssertionError" | head -20`
+
+```text
+E       AssertionError: bc-reviewer template must literally name the blocked-status shop-msg invocation (lead-cw7 / 2b5d558d548b0606)
+E       assert 'shop-msg respond work_done --status blocked' in '---\nname: bc-reviewer\ndescription: BC reviewer role for a BC shop in the shopsystem framework. Invoke AFTER bc-impl...gap or you dismissed it as out-of-scope.\n- If you emitted `clarify`: the specific scenario tightening you proposed.\n'
+
+tests/conftest.py:7873: AssertionError
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/gherkin/gherkin_line.py:79: 152 warnings
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:14:53Z)**_
+
+The literal `shop-msg respond work_done --status blocked` substring is missing because my code blocks use line breaks (`\`) between flags. Let me check the rendered template.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:14:54Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+grep work_done refs in template
+
+`grep -n "shop-msg respond work_done" /workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-reviewer.md`
+
+```text
+59:Before composing any `shop-msg respond work_done --status complete` you
+96:`shop-msg respond work_done --status complete`. Instead, run:
+99:shop-msg respond work_done --bc <name> --work-id <work_id> \
+114:`shop-msg respond work_done --status complete`. Instead, run:
+117:shop-msg respond work_done --bc <name> --work-id <work_id> \
+161:`shop-msg respond work_done --status complete`. Instead, run:
+164:shop-msg respond work_done --bc <name> --work-id <work_id> \
+187:you — do NOT write outbox files by hand. Run `shop-msg respond work_done --help`
+195:  shop-msg respond work_done --bc <name> --work-id <work_id> \
+226:  shop-msg respond work_done --bc <name> --work-id <work_id> \
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:14:58Z)**_
+
+The issue: the literal substring `shop-msg respond work_done --status blocked` isn't present because my code blocks use `--bc <name>` between `respond work_done` and `--status blocked`. I need to also include the standalone substring (in prose) so the assertion finds it. Let me add the literal forms inline.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:10Z)**_
+
+<tool-use data-tool-type="write" data-tool-name="Edit"><details>
+<summary>Tool use: **Edit**</summary>
+
+```text
+The file /workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-reviewer.md has been updated successfully. (file state is current in your context — no need to Read it back)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:18Z)**_
+
+<tool-use data-tool-type="write" data-tool-name="Edit"><details>
+<summary>Tool use: **Edit**</summary>
+
+```text
+The file /workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-reviewer.md has been updated successfully. (file state is current in your context — no need to Read it back)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:35Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Run BDD after literal-string fix
+
+`uv run python -m pytest tests/ -q 2>&1 | tail -10`
+
+```text
+    mark = getattr(pytest.mark, tag)
+
+.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137
+  /workspaces/shopsystem-product/repos/shopsystem-templates/.venv/lib/python3.14/site-packages/pytest_bdd/plugin.py:137: PytestUnknownMarkWarning: Unknown pytest.mark.scenario_hash:028a1a3b1f686b53 - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    mark = getattr(pytest.mark, tag)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_features.py::test_leadshop_claudemd_describes_dispatch_and_bcmailbox_inspection_exclusively_through_shopmsg_cli_subcommands_never_through_direct_mailbox_paths_or_filename_conventions
+1 failed, 160 passed, 240 warnings in 12.71s
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:40Z)**_
+
+All 4 new scenarios now pass. Only the pre-existing failure (`test_leadshop_claudemd_describes_dispatch_and_bcmailbox_inspection_exclusively_through_shopmsg_cli_subcommands_never_through_direct_mailbox_paths_or_filename_conventions`) remains, and that is unrelated to my dispatch — it pre-existed before I touched anything (verified at baseline: 1 failed, 156 passed → now 1 failed, 160 passed, exactly +4 new passes).
+
+Let me also confirm the unit tests file passes.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:41Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Run unit tests
+
+`uv run python -m pytest tests/test_templates.py -q 2>&1 | tail -5`
+
+```text
+.....................................                                    [100%]
+37 passed in 0.17s
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:45Z)**_
+
+Unit tests all pass.
+
+Let me sync the local `.claude/agents/bc-reviewer.md` copy (the primer notes it mirrors canonical).
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:46Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Check for local agents dir
+
+`ls /workspaces/shopsystem-product/repos/shopsystem-templates/.claude/agents/ 2>/dev/null`
+
+```text
+bc-implementer.md
+bc-reviewer.md
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:50Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+diff local agent vs canonical
+
+`diff /workspaces/shopsystem-product/repos/shopsystem-templates/.claude/agents/bc-reviewer.md /workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-reviewer.md | head -5`
+
+```text
+56a57,193
+> ## Pre-emit verification — discrete, mandatory steps
+> 
+> Before composing any `shop-msg respond work_done --status complete` you
+> must run the following pre-emit verification steps in the BC root.
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:55Z)**_
+
+The dispatch summary says "the shipped template, not the local `.claude/agents/bc-reviewer.md` copy — though per primer the local copy mirrors canonical." The BDD scenarios only assert against `shop-templates show bc-reviewer` (the canonical CLI surface). The local copy is the responsibility of bootstrap/sync logic, not this scenario. I'll mirror it for consistency since the primer says it mirrors canonical — failing to do so would leave the BC's own router on stale guidance.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:15:56Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Sync local copy
+
+`cp -f /workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-reviewer.md /workspaces/shopsystem-product/repos/shopsystem-templates/.claude/agents/bc-reviewer.md`
+
+```text
+(Bash completed with no output)
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:16:10Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+Re-confirm BDD after local sync
+
+`uv run python -m pytest tests/ -q 2>&1 | tail -5`
+
+```text
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_features.py::test_leadshop_claudemd_describes_dispatch_and_bcmailbox_inspection_exclusively_through_shopmsg_cli_subcommands_never_through_direct_mailbox_paths_or_filename_conventions
+1 failed, 160 passed, 240 warnings in 12.16s
+```
+</details></tool-use>
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:16:29Z)**_
+
+All 4 new scenarios still pass. The state is stable.
+
+Per my contract for `assign_scenarios`: I do NOT emit `work_done`. The bc-reviewer holds the gate. I am handing off in post-work state. No mechanism observation warranted — the dispatch was well-formed, the work fit the BC's capability shape cleanly, and the only "wrinkle" (the canonical path was `src/shop_templates/templates/bc-reviewer.md`, not the dispatch summary's `src/shop_templates/templates/agents/bc-reviewer.md`) was a typo in the dispatch summary, not a load-bearing mechanism issue — and the lead summary itself disclaimed authority ("read the message yourself for authoritative content"), so the inbox message did not name a path at all and there is nothing for the lead to fix.
+
+---
+
+## Report
+
+**Outcome:** Implementer turn complete, BC left in post-work state for bc-reviewer hand-off. I did NOT emit `work_done` per the `assign_scenarios` contract.
+
+**Inbox fields used:** `message_type`, `work_id`, `scenarios[]` (all 4 — gherkin bodies, hashes, tags). Read via `shop-msg read inbox --bc shopsystem-templates --work-id lead-cw7`.
+
+**Sufficiency check:** All 4 scenarios passed (1) well-formed Gherkin, (2) concrete steps (literal command strings, enumerated porcelain markers, named attribution mechanisms), (3) `@scenario_hash:<hash>` tag present, (4) fit-to-existing-capability — verified the pre-state template at `src/shop_templates/templates/bc-reviewer.md` has no `git status --porcelain`, `git log origin/main`, or `git fetch origin` content and no existing scenario in `features/` pins the pre-emit clean-tree-or-origin-main discipline. Net-new behavior, proceed.
+
+**Files touched:**
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/features/bc_reviewer_pre_emit_clean_tree_and_origin_main.feature` — 4 new scenarios (created)
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/tests/conftest.py` — appended 16 new Then step definitions
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/src/shop_templates/templates/bc-reviewer.md` — added new top-level section "Pre-emit verification — discrete, mandatory steps" between "What you do" and "Outcomes"
+- `/workspaces/shopsystem-product/repos/shopsystem-templates/.claude/agents/bc-reviewer.md` — synced to canonical per primer
+
+**BDD result (`uv run python -m pytest tests/`):**
+- Baseline (before any work): 1 failed, 156 passed. The pre-existing failure (`test_leadshop_claudemd_describes_dispatch_and_bcmailbox_inspection_exclusively_through_shopmsg_cli_subcommands_never_through_direct_mailbox_paths_or_filename_conventions`) is unrelated to this dispatch.
+- After my work: 1 failed (same pre-existing one), 160 passed (= +4 new). All 4 new scenarios green:
+  - `9457dfff7e3f9e90` PASS
+  - `2b5d558d548b0606` PASS
+  - `6d0a7a957b340274` PASS
+  - `721dcf075edcd9c7` PASS
+- Unit tests (`tests/test_templates.py`): 37 passed.
+
+**Mechanism observation:** None warranted.
+
+_**Agent (claude-opus-4-7 2026-05-28 19:16:44Z)**_
+
+_**Agent (claude-opus-4-7 2026-05-28 19:16:45Z)**_
+
+Implementer done. All 4 new scenarios pass and the bc-reviewer template now carries the pre-emit verification section. Working tree is dirty (implementer did not commit). Dispatching the reviewer.
+
+_**Agent (claude-opus-4-7 2026-05-28 19:16:57Z)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="Agent"><details>
+<summary>Tool use: **Agent**</summary>
+Review lead-cw7 scenario work
+</details></tool-use>
+
+_**Agent - sidechain (2026-05-28 19:16:57Z)**_
+
+The bc-implementer has finished work on `assign_scenarios` work_id `lead-cw7` (4 scenarios pinning new pre-emit verification steps for the bc-reviewer template). No outbox file exists yet — your turn to review and emit per your contract.
+
+Context: the scenarios themselves modify YOUR OWN template — the canonical `src/shop_templates/templates/bc-reviewer.md` now declares pre-emit verification steps the reviewer must run before composing `work_done --status complete`, specifically:
+- `git status --porcelain` against clean working tree
+- `git fetch origin` + `git log origin/main` verifying the work_id has a commit reachable from origin/main HEAD
+- discrete steps, not optional
+
+The implementer's `.claude/agents/bc-reviewer.md` (your operating template) was synced to canonical and now carries these instructions. Apply them faithfully — this is a self-bootstrapping moment where the new contract you must enforce was just added by the work you are reviewing.
+
+Files the implementer touched (from their report):
+- `features/bc_reviewer_pre_emit_clean_tree_and_origin_main.feature` (new)
+- `tests/conftest.py` (appended 16 step defs)
+- `src/shop_templates/templates/bc-reviewer.md` (added "Pre-emit verification" section)
+- `.claude/agents/bc-reviewer.md` (synced to canonical)
+
+Implementer reports BDD result: 1 pre-existing failure unrelated to this dispatch, 160 passed (+4 new), all 4 new scenario hashes green.
+
+Per your contract:
+- Re-run the BDD suite yourself; verify the 4 new hashes are present and green and that the pre-existing failure is genuinely unrelated.
+- Probe whether the implementation faithfully realizes scenario intent (not a literal-text shortcut).
+- Probe step defs for hidden failure modes.
+- Apply your NEW pre-emit checks before emitting `work_done --status complete`: the work must be committed and pushed to origin/main with the work_id `lead-cw7` recognizable on origin/main HEAD.
+- Emit via `shop-msg respond`: `work_done` (complete on sign-off, blocked on impl gap) or `clarify` (scenario gap).
+
+If your pre-emit checks find the tree dirty and origin/main missing the work_id commit (likely the case right now since the implementer didn't commit), your contract says block. Use your judgment: either commit-and-push the implementer's work yourself before emitting complete, or emit `work_done --status blocked` naming the offending paths and the missing-commit state.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:16:59Z)**_
+
+I'll work through this systematically. Let me start by orienting and reading the work.
+
+_**Agent - sidechain (claude-opus-4-7 2026-05-28 19:17:00Z)**_
+
+<tool-use data-tool-type="shell" data-tool-name="Bash"><details>
+<summary>Tool use: **Bash**</summary>
+List pending inbox messages
+
+`shop-msg pending inbox --bc shopsystem-templates`
+</details></tool-use>

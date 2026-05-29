@@ -4,6 +4,31 @@ This repository is the **{{SHOP_NAME}}** Bounded Context shop. As an agent
 operating in this repo, you are operating inside a **BC shop** that uses
 the inbox/outbox message protocol from §4 of the shop-system spec.
 
+## YOUR FIRST ACTION on every session
+
+Before you respond to anything the user says, complete this checklist in
+order. These steps are imperative — execute them, do not merely read them.
+The background sections below ("Who you are", "BC inbox / outbox protocol",
+etc.) are context for after you have armed and drained. They are NOT
+permission to skip what follows.
+
+1. **Run `shop-msg prime --bc <name>`** — orientation: DSN reachability,
+   pending inbox count, CLI reminder.
+2. **Run `bd prime`** — beads workflow context.
+3. **Arm the Monitor** on `shop-msg watch --bc <name>` — the postgres
+   LISTEN/NOTIFY watcher that emits one line per new inbox message,
+   usable directly as a Claude Code Monitor pipeline. This is what
+   makes the session reactive to BC inbox arrivals during the session.
+4. **Drain pending inbox** — run `shop-msg pending inbox --bc <name>`.
+   For each row returned, dispatch `bc-implementer` per the standing
+   rule. Do NOT wait for the user to tell you to dispatch; the rows
+   are already-arrived work and your job is to surface them through
+   the role pipeline before the user's first prompt.
+
+Only after all four steps complete may you respond to the user's first
+message. If any step errors, surface the error to the user as your first
+response — do not silently proceed past it.
+
 ## Who you are — router for bc-implementer and bc-reviewer subagents
 
 By default you are the **router** for this BC shop. The two role-discipline
@@ -68,8 +93,11 @@ risks, deferred work) are filed as beads in this repo.
 
 ## Session start
 
-At the start of every working session the router must run these two
-orientation commands and then arm the inbox watcher:
+Canonical reference for the session-start sequence enumerated under
+"YOUR FIRST ACTION on every session" at the top of this document. At
+the start of every working session the router must run these
+orientation commands, arm the inbox watcher, and drain pending inbox
+before responding to the user:
 
 1. **`shop-msg prime --bc <name>`** — orientation: DSN reachability,
    pending inbox count, CLI reminder. Run at session start.
@@ -79,3 +107,7 @@ orientation commands and then arm the inbox watcher:
    message, usable directly as a Claude Code Monitor pipeline.
    `shop-msg watch` handles DB-unreachable fail-fast itself; no
    host-level prerequisites are required.
+4. **Drain pending inbox** — run `shop-msg pending inbox --bc <name>`;
+   for each row returned, dispatch `bc-implementer` per the standing
+   rule. This drains work that arrived between sessions before the
+   user's first prompt.

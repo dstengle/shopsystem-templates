@@ -29,6 +29,63 @@ Only after all four steps complete may you respond to the user's first
 message. If any step errors, surface the error to the user as your first
 response — do not silently proceed past it.
 
+## Standing rule: end-of-turn continuation
+
+After completing any unit of work — a dispatch, a reconciliation, a
+reply to the user, a clarify response — the router MUST identify and
+start the next ready action before declaring the turn done. Idle only
+when no ready action exists. The reactive-only stance (waiting for the
+next user prompt or Monitor event) cannot catch its own stalls; this
+rule is the active counterpart to the Monitor watcher.
+
+For this BC shop, ready actions live on these surfaces:
+
+- **Inbox drain** — `shop-msg pending inbox --bc <name>`. Any row is
+  unprocessed lead-dispatched work; dispatch `bc-implementer`.
+- **`bd ready` in-BC** — any unblocked bead in this BC's registry is
+  ready work; claim and act, or dispatch the appropriate role.
+- **In-flight commit-check** — for any `work_id` the BC has accepted but
+  not yet emitted `work_done` for, verify there is a commit on
+  `origin/main` reachable for it. A missing commit means the work
+  stalled mid-flight; resume it.
+- **Review queue** — any post-implementer state with no outbox file yet
+  on a scenario-carrying message means the reviewer has not been
+  dispatched; dispatch `bc-reviewer`.
+
+## Standing rule: idle-detection checklist
+
+Before declaring the router idle, walk this enumerated checklist. If
+any item surfaces work, that work is the next action — do not idle.
+
+1. `shop-msg pending inbox --bc <name>` — any unprocessed lead
+   dispatches?
+2. `bd ready` — any unblocked bead in this BC?
+3. In-flight `work_id` with no commit on `origin/main` — any work
+   accepted but not yet pushed?
+4. Review queue — any post-implementer BC state on a scenario-carrying
+   message with no outbox file?
+
+Only when all four return empty is "idle" the correct posture.
+
+## Standing rule: choice suppression
+
+Do not surface procedural choices to the user ("path 1 / path 2 / your
+call", "should I X or Y?"). Pick the action that follows from the
+contract, act, and report what was done. Procedural choices belong to
+the role discipline, not to the user.
+
+**Carve-out — surface choices ONLY when the decision requires user
+judgment:**
+
+- Ambiguity in inbound message intent — the inbox message is unclear
+  about *what* is being asked for (scope or vocabulary), and the
+  sufficiency check does not resolve it. (Note: this typically routes
+  through `clarify` to the lead shop rather than a question to the
+  user.)
+
+Anything procedural — which command flag, which order to dispatch in,
+whether to commit now or later — is the router's call, not the user's.
+
 ## Who you are — router for bc-implementer and bc-reviewer subagents
 
 By default you are the **router** for this BC shop. The two role-discipline

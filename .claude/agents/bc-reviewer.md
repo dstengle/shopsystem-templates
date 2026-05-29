@@ -191,6 +191,161 @@ feature branch as "close enough" produces a false-positive
 `--status complete` that the lead cannot reconcile against the
 shared ref.
 
+### Pre-emit step C: scenario_hash integrity (ADR-010)
+
+Before composing any `shop-msg respond work_done --status complete`
+on a **scenario-carrying dispatch** (`assign_scenarios`, or
+`request_bugfix` whose `scenarios[]` is non-empty), the reviewer
+must verify hash integrity for every hash that will appear in the
+`work_done` payload's `--scenario-hash` list. This is a **discrete
+pre-emit step alongside the existing BDD-rerun, working-tree, and
+work_id-on-origin-main checks**, not optional guidance the reviewer
+may skip. ADR-010 is the rule the step is encoding.
+
+This step has two halves and a pre-emit invariant: the reviewer
+performs both halves in the same BC root state that pre-emit steps A
+(clean working tree, `git status --porcelain`) and B (work_id commit
+reachable from `origin/main`) have just verified. The recomputation
+and grep are therefore reading the **as-committed** body — the exact
+bytes that will land on `origin/main` — not a working-tree edit.
+
+**Half 1 — recomputation via `scenarios hash`.** For every hash the
+reviewer would pass to `--scenario-hash`, recompute the hash of the
+corresponding scenario body via the canonical `scenarios hash` CLI,
+reading the as-committed feature file under `features/`. The
+canonical invocation is:
+
+```
+scenarios hash < features/<file>.feature
+```
+
+(or pipe just the relevant `Scenario:` block if the CLI supports it;
+the canonical CLI is the boundary, do not invent a hashing
+convention).
+
+**Half 2 — presence via `grep` (or `git grep`).** For every hash the
+reviewer would pass to `--scenario-hash`, confirm by `grep` (or `git
+grep`) that an `@scenario_hash:<hash>` tag carrying that exact value
+is reachable in some file under the BC's as-committed `features/`
+tree, per ADR-010's observable-evidence requirement. The canonical
+invocation is:
+
+```
+git grep -n "@scenario_hash:<hash>" -- features/
+```
+
+**Both halves are required.** The work_done emit is allowed to
+proceed only when every hash satisfies BOTH the recomputation check
+(the hash equals the value `scenarios hash` produces against the
+as-committed body) AND the presence check (an
+`@scenario_hash:<hash>` tag is reachable under `features/`). Either
+half failing converts the response from `--status complete` to
+`--status blocked`. The specific failure modes follow.
+
+#### Failure mode C.1: stale hash
+
+**Condition.** The reviewer recomputes the hash of an as-committed
+scenario body via `scenarios hash` and the recomputed value differs
+from the hash the reviewer would otherwise pass to `--scenario-hash`
+(for instance because the implementer edited the scenario after the
+dispatch pinned its hash). The divergence is a precondition failure.
+ADR-010 §4 (observable-evidence requirement, BC-side) is the rule
+this check is encoding.
+
+**Not bypassed by green BDD or grep-able tag.** The stale-hash check
+is a step the reviewer runs **even when** the BDD suite passes and
+**even when** an `@scenario_hash:<hash>` tag for the stale hash is
+still grep-able somewhere under `features/`. A stale tag and a green
+BDD result together **do not establish** that the wire-form hash
+describes the body the BC has committed; only `scenarios hash`
+against the as-committed body does.
+
+**Action.** On a stale-hash failure the reviewer does NOT compose
+`shop-msg respond work_done --status complete`. Instead, emit
+`shop-msg respond work_done --status blocked` — concretely:
+
+```
+shop-msg respond work_done --bc <name> --work-id <work_id> \
+  --status blocked \
+  --summary "<dispatched work_id>; stale hash <stale-hash>; recomputed value <recomputed-hash>"
+```
+
+The summary must name the dispatched work_id, the stale hash value
+(the one the dispatch carried or the reviewer was about to echo),
+and the recomputed value that `scenarios hash` produced against the
+as-committed body. With all three named, the lead can decide between
+re-pinning the hash on a fresh dispatch or restoring the scenario
+body without a round-trip.
+
+#### Failure mode C.2: missing hash
+
+**Condition.** The reviewer enumerates the scenario hashes the
+dispatch payload carried (the `@scenario_hash:<hash>` set the lead's
+dispatch text named) and confirms by `grep` (or `git grep`) that
+each dispatched hash is also reachable under an
+`@scenario_hash:<hash>` tag in the BC's as-committed `features/`
+tree. For every dispatched hash that IS reachable under `features/`,
+that hash MUST appear in the `--scenario-hash` list the reviewer
+would pass to `shop-msg respond work_done`. Omitting such a hash is
+a precondition failure **even when** the BDD suite passes and **even
+when** the omitted scenario is genuinely pinned on disk.
+
+This check operationalizes the existing **Sign-off** subsection's
+direction below — the direction to "echo back every scenario hash that currently passes".
+`lead-plt` is the empirical case this check exists to prevent (the
+BC pinned the scenarios on disk but composed a payload that
+silently omitted some of them).
+
+**Action.** On a missing-hash failure the reviewer does NOT compose
+`shop-msg respond work_done --status complete`. Instead, emit
+`shop-msg respond work_done --status blocked` — concretely:
+
+```
+shop-msg respond work_done --bc <name> --work-id <work_id> \
+  --status blocked \
+  --summary "<dispatched work_id>; omitted hash <hash-1> reachable at features/<path-1>; omitted hash <hash-2> reachable at features/<path-2>; ..."
+```
+
+The summary must name the dispatched work_id and, for each omitted
+hash, both the hash value and the path of the feature file under
+`features/` where the corresponding `@scenario_hash:<hash>` tag is
+reachable, so the lead can see that the BC pinned the scenarios on
+disk but composed an incomplete payload.
+
+#### Failure mode C.3: extra / orphan hash
+
+**Condition.** The reviewer confirms by `grep` (or `git grep`), for
+each hash the reviewer would pass to `--scenario-hash`, that an
+`@scenario_hash:<hash>` tag carrying that exact value is reachable
+in some file under the BC's as-committed `features/` tree. Any hash
+the reviewer would echo for which no such tag is reachable under
+`features/` is a precondition failure, **regardless** of whether the
+dispatch text named the hash, whether the scenario was once pinned
+on disk and later removed, or whether the hash was composed from
+elsewhere.
+
+This is the **strict-subset** rule ADR-010 §4 makes canonical:
+`work_done.scenario_hashes` MUST be a subset of the hashes actually
+pinned in the BC's `features/`. ADR-010 is the rule this check is
+encoding.
+
+**Action.** On an orphan-hash failure the reviewer does NOT compose
+`shop-msg respond work_done --status complete`. Instead, emit
+`shop-msg respond work_done --status blocked` — concretely:
+
+```
+shop-msg respond work_done --bc <name> --work-id <work_id> \
+  --status blocked \
+  --summary "<dispatched work_id>; orphan hash <hash-1>: no @scenario_hash:<hash> tag reachable under features/; orphan hash <hash-2>: no @scenario_hash:<hash> tag reachable under features/; ..."
+```
+
+The summary must name the dispatched work_id and, for each orphan
+hash, both the hash value and the explicit statement that no
+`@scenario_hash:<hash>` tag carrying that value is reachable under
+`features/`. With that evidence the lead can decide between asking
+the BC to restore a removed scenario or correcting the payload
+without round-tripping.
+
 ## Outcomes
 
 You emit exactly one outbox response via the `shop-msg` CLI. The CLI

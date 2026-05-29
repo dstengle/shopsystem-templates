@@ -8858,3 +8858,774 @@ def then_impl_content_disclaims_role_discipline_no_push(
         "Implementer-emitted work_done work "
         "(lead-8lm / e01ace6acd655909)"
     )
+
+
+# -----------------------------------------------------------------------
+# Then steps — bc-reviewer pre-emit scenario_hash integrity checks
+# (lead-83l scenarios e0d4c445a0cd7500, 50174dbb885ff5a8,
+# 762e847fe873201e, 36d22e52adcea48e)
+# -----------------------------------------------------------------------
+#
+# These steps pin that the bc-reviewer template encodes ADR-010's
+# work_done.scenario_hashes pre-emit discipline: every hash the
+# reviewer would echo via "--scenario-hash" must (a) be recomputed by
+# the canonical "scenarios hash" CLI against the as-committed body and
+# match, AND (b) carry a grep-reachable "@scenario_hash:<hash>" tag
+# under "features/". The four scenarios pin the happy path plus three
+# failure modes (stale, missing, orphan); each failure converts the
+# response to "--status blocked" with a summary that names enough
+# evidence for the lead to reconcile without round-tripping. The
+# assertion strategy mirrors the lead-cw7 / lead-8lm pre-emit step
+# blocks above: literal-substring checks against the rendered template
+# content, augmented with co-occurrence requirements so a stray
+# mention elsewhere in the template would not silently satisfy a
+# structural intent.
+
+
+# --- Scenario e0d4c445a0cd7500 (happy path / recomputation) ---
+
+@then(
+    'the content directs the reviewer that, before composing '
+    '"shop-msg respond work_done --status complete" on a '
+    'scenario-carrying dispatch (assign_scenarios, or request_bugfix '
+    'whose scenarios[] is non-empty), the reviewer must recompute the '
+    'hash of every scenario the work_done payload will list in '
+    '"--scenario-hash" using the canonical "scenarios hash" CLI '
+    'against the BC\'s as-committed feature files under "features/"'
+)
+def then_content_directs_recompute_each_hash(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The canonical "scenarios hash" CLI must be named literally so the
+    # reviewer is not left to invent a hashing convention.
+    assert "scenarios hash" in content, (
+        "bc-reviewer template must literally name the 'scenarios hash' "
+        "CLI as the recomputation tool (lead-83l / e0d4c445a0cd7500)"
+    )
+    # The "--scenario-hash" flag must be named so the recomputation is
+    # explicitly tied to the wire-form hash list the reviewer would emit.
+    assert "--scenario-hash" in content, (
+        "bc-reviewer template must literally name the '--scenario-hash' "
+        "flag whose values the reviewer is recomputing "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    # The "features/" path must be named so the recomputation is scoped
+    # to the BC's as-committed feature files.
+    assert "features/" in content, (
+        "bc-reviewer template must name 'features/' as the directory "
+        "the recomputation reads from (lead-83l / e0d4c445a0cd7500)"
+    )
+    # Pre-emit framing must be present (work_done --status complete is
+    # the gate this check guards).
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-reviewer template must literally name the complete-status "
+        "shop-msg invocation the recomputation guards "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    # Scenario-carrying dispatch scope: both assign_scenarios and
+    # request_bugfix (with non-empty scenarios) must be named so the
+    # gate is not silently restricted to one vehicle.
+    assert "assign_scenarios" in content, (
+        "bc-reviewer template must name 'assign_scenarios' as a "
+        "scenario-carrying dispatch the recomputation applies to "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    assert "request_bugfix" in content, (
+        "bc-reviewer template must name 'request_bugfix' as a "
+        "scenario-carrying dispatch the recomputation applies to "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    # "every" / "each" framing must appear so the reviewer doesn't read
+    # the check as a sampling exercise.
+    assert ("every" in lower) or ("each" in lower), (
+        "bc-reviewer template must frame the recomputation as covering "
+        "every / each hash, not a sample "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+
+
+@then(
+    'the content directs the reviewer to perform the recomputation in '
+    'the same BC root state that the prior pre-emit steps (clean '
+    'working tree, work_id commit on origin/main per scenarios '
+    '105-108) have just verified, so the recomputed hashes are taken '
+    'from the exact bytes that will land on origin/main'
+)
+def then_content_directs_recompute_in_verified_state(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The recomputation must be tied to the same state the prior
+    # pre-emit steps just verified: clean tree + origin/main.
+    assert "git status --porcelain" in content, (
+        "bc-reviewer template must reference the clean-working-tree "
+        "pre-emit step as the state the recomputation reads against "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    assert "origin/main" in content, (
+        "bc-reviewer template must reference origin/main as the ref "
+        "whose bytes the recomputation reads against "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    # The "as-committed" / "committed" framing must appear so the
+    # reviewer reads the recomputation as operating on the committed
+    # body, not a working-tree edit.
+    assert ("as-committed" in lower) or ("as committed" in lower) or (
+        "committed" in lower
+    ), (
+        "bc-reviewer template must frame the recomputation as reading "
+        "the as-committed body (lead-83l / e0d4c445a0cd7500)"
+    )
+
+
+@then(
+    'the content directs the reviewer to also confirm by "grep" (or '
+    '"git grep") for each hash that an "@scenario_hash:<hash>" tag is '
+    'present in some file under "features/", per ADR-010\'s '
+    'observable-evidence requirement'
+)
+def then_content_directs_grep_presence_check(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # "grep" or "git grep" must be named as the presence-check tool.
+    assert ("grep" in lower) or ("git grep" in lower), (
+        "bc-reviewer template must name 'grep' (or 'git grep') as the "
+        "tag-presence check tool (lead-83l / e0d4c445a0cd7500)"
+    )
+    # The "@scenario_hash:" tag form must be named literally.
+    assert "@scenario_hash:" in content, (
+        "bc-reviewer template must literally name the "
+        "'@scenario_hash:<hash>' tag the presence check looks for "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    # The "features/" path must be named as the search scope.
+    assert "features/" in content, (
+        "bc-reviewer template must name 'features/' as the presence "
+        "check search scope (lead-83l / e0d4c445a0cd7500)"
+    )
+    # ADR-010 citation required.
+    assert "ADR-010" in content, (
+        "bc-reviewer template must cite ADR-010 as the rule the "
+        "presence check is encoding (lead-83l / e0d4c445a0cd7500)"
+    )
+
+
+@then(
+    'the content directs the reviewer that the work_done emit is '
+    'allowed to proceed only when every hash the reviewer would pass '
+    'to "--scenario-hash" satisfies BOTH the recomputation check (the '
+    'hash equals the value "scenarios hash" produces against the '
+    'as-committed body) AND the presence check (an '
+    '"@scenario_hash:<hash>" tag is reachable under "features/")'
+)
+def then_content_directs_both_checks_required(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # Both checks must be named: recomputation (scenarios hash) AND
+    # presence (grep / @scenario_hash tag).
+    assert "scenarios hash" in content, (
+        "bc-reviewer template must name 'scenarios hash' as the "
+        "recomputation half of the conjoined check "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    assert "@scenario_hash:" in content, (
+        "bc-reviewer template must name '@scenario_hash:<hash>' tag "
+        "as the presence half of the conjoined check "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    # Conjunction framing: "both" / "AND" / "and" must appear so the
+    # reviewer reads this as a logical conjunction, not a disjunction.
+    assert "both" in lower, (
+        "bc-reviewer template must use 'both' framing to mark the "
+        "recomputation + presence checks as a conjunction, not a "
+        "disjunction (lead-83l / e0d4c445a0cd7500)"
+    )
+    # The "only when" / "allowed to proceed" framing must appear so the
+    # reviewer reads the emit as gated.
+    assert ("only when" in lower) or ("only if" in lower) or (
+        "allowed to proceed" in lower
+    ), (
+        "bc-reviewer template must frame the emit as gated ('only "
+        "when' / 'allowed to proceed') on both checks passing "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+
+
+@then(
+    'the content marks the recomputation step as a discrete pre-emit '
+    'step alongside the existing BDD-rerun, working-tree, and '
+    'work_id-on-origin-main checks, not as optional guidance the '
+    'reviewer may skip'
+)
+def then_content_marks_recompute_as_discrete_pre_emit_step(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The recomputation step must be present (scenarios hash).
+    assert "scenarios hash" in content, (
+        "bc-reviewer template must name the recomputation step in "
+        "discrete-pre-emit framing (lead-83l / e0d4c445a0cd7500)"
+    )
+    # The existing sibling pre-emit steps must all be referenced so the
+    # recomputation is explicitly framed as alongside them.
+    assert "git status --porcelain" in content, (
+        "bc-reviewer template missing 'git status --porcelain' sibling "
+        "in discrete-pre-emit framing "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    assert "origin/main" in content, (
+        "bc-reviewer template missing 'origin/main' sibling in "
+        "discrete-pre-emit framing (lead-83l / e0d4c445a0cd7500)"
+    )
+    # BDD re-run reference must be present.
+    assert ("bdd" in lower) and ("pytest" in lower or "re-run" in lower
+                                  or "rerun" in lower), (
+        "bc-reviewer template must reference the existing BDD-rerun "
+        "step alongside the recomputation step "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+    # Imperative "must" cue must appear (not optional).
+    assert "must" in lower, (
+        "bc-reviewer template must use imperative 'must' framing for "
+        "the recomputation step, not optional guidance "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+
+
+@then(
+    'the content cites ADR-010 as the rule the recomputation step is '
+    'encoding'
+)
+def then_content_cites_adr_010_for_recomputation(context: dict) -> None:
+    content = context["template_content"]
+    assert "ADR-010" in content, (
+        "bc-reviewer template must cite ADR-010 as the rule the "
+        "recomputation step is encoding "
+        "(lead-83l / e0d4c445a0cd7500)"
+    )
+
+
+# --- Scenario 50174dbb885ff5a8 (stale hash) ---
+
+@then(
+    'the content directs the reviewer that, when the reviewer '
+    'recomputes the hash of an as-committed scenario body via '
+    '"scenarios hash" and the recomputed value differs from the hash '
+    'the reviewer would otherwise pass to "--scenario-hash" (for '
+    'instance because the implementer edited the scenario after the '
+    'dispatch pinned its hash), the divergence is a precondition '
+    'failure'
+)
+def then_content_stale_hash_is_precondition_failure(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "scenarios hash" in content, (
+        "bc-reviewer template must name 'scenarios hash' as the "
+        "recomputation tool whose divergence is the failure "
+        "(lead-83l / 50174dbb885ff5a8)"
+    )
+    assert "--scenario-hash" in content, (
+        "bc-reviewer template must name the '--scenario-hash' flag "
+        "whose value diverges from the recomputed value "
+        "(lead-83l / 50174dbb885ff5a8)"
+    )
+    # "stale" framing must appear so the case is named.
+    assert "stale" in lower, (
+        "bc-reviewer template must name the case as 'stale' so the "
+        "reviewer recognizes the failure mode "
+        "(lead-83l / 50174dbb885ff5a8)"
+    )
+    # "precondition failure" framing must appear.
+    assert "precondition" in lower, (
+        "bc-reviewer template must frame the stale-hash divergence as "
+        "a 'precondition failure' (lead-83l / 50174dbb885ff5a8)"
+    )
+
+
+@then(
+    'the content directs the reviewer that on such a stale-hash '
+    'failure the reviewer does NOT compose "shop-msg respond '
+    'work_done --status complete" and instead emits "shop-msg respond '
+    'work_done --status blocked"'
+)
+def then_content_directs_blocked_on_stale_hash(context: dict) -> None:
+    content = context["template_content"]
+    assert "shop-msg respond work_done --status blocked" in content, (
+        "bc-reviewer template must literally name the blocked-status "
+        "shop-msg invocation for stale-hash failure "
+        "(lead-83l / 50174dbb885ff5a8)"
+    )
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-reviewer template must literally name the complete-status "
+        "shop-msg invocation that is being negated on stale-hash "
+        "failure (lead-83l / 50174dbb885ff5a8)"
+    )
+
+
+@then(
+    'the content directs the reviewer that the response summary on '
+    'the blocked emit must name the dispatched work_id, the stale '
+    'hash value (the one the dispatch carried or the reviewer was '
+    'about to echo), and the recomputed value that "scenarios hash" '
+    'produced against the as-committed body, so the lead can decide '
+    'between re-pinning the hash on a fresh dispatch or restoring the '
+    'scenario body without a round-trip'
+)
+def then_content_stale_hash_summary_names_three_pieces(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # All three required pieces of evidence must be directed into the
+    # summary: work_id, stale hash, recomputed value.
+    assert "work_id" in lower and "summary" in lower, (
+        "bc-reviewer template must direct naming the work_id in the "
+        "stale-hash summary (lead-83l / 50174dbb885ff5a8)"
+    )
+    assert "stale" in lower, (
+        "bc-reviewer template must direct naming the stale hash value "
+        "in the summary (lead-83l / 50174dbb885ff5a8)"
+    )
+    assert "recomputed" in lower, (
+        "bc-reviewer template must direct naming the recomputed value "
+        "in the summary (lead-83l / 50174dbb885ff5a8)"
+    )
+
+
+@then(
+    'the content frames the stale-hash check as a step the reviewer '
+    'runs even when the BDD suite passes and even when an '
+    '"@scenario_hash:<hash>" tag for the stale hash is still '
+    'grep-able somewhere under "features/", because a stale tag and a '
+    'green BDD result together do not establish that the wire-form '
+    'hash describes the body the BC has committed'
+)
+def then_content_stale_check_not_bypassed_by_green_bdd_or_grepable_tag(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The "even when BDD passes" / "even if BDD passes" framing must
+    # appear so the stale check is not bypassed by a green BDD.
+    bypass_cues = ("even when", "even if", "regardless", "does not "
+                   "bypass", "not bypass", "still", "always", "green")
+    has_bdd_bypass = "bdd" in lower and any(
+        c in lower for c in bypass_cues
+    )
+    assert has_bdd_bypass, (
+        "bc-reviewer template must frame the stale-hash check as "
+        "running even when the BDD suite passes "
+        "(lead-83l / 50174dbb885ff5a8)"
+    )
+    # The "@scenario_hash:" tag must be named, and the carve-out must
+    # explicitly say a grep-able tag does not establish currency.
+    assert "@scenario_hash:" in content, (
+        "bc-reviewer template must literally name "
+        "'@scenario_hash:<hash>' as the tag whose mere presence is "
+        "not sufficient (lead-83l / 50174dbb885ff5a8)"
+    )
+    # The "stale tag" + "do not establish" framing must appear so the
+    # carve-out is explicit.
+    assert ("stale" in lower) and (
+        ("do not establish" in lower)
+        or ("does not establish" in lower)
+        or ("not sufficient" in lower)
+        or ("not enough" in lower)
+    ), (
+        "bc-reviewer template must explicitly frame stale-tag + green "
+        "BDD as not establishing hash currency "
+        "(lead-83l / 50174dbb885ff5a8)"
+    )
+
+
+@then(
+    'the content cites ADR-010 §4 (observable-evidence requirement, '
+    'BC-side) as the rule the stale-hash check is encoding'
+)
+def then_content_cites_adr_010_section_4_for_stale(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "ADR-010" in content, (
+        "bc-reviewer template must cite ADR-010 as the rule the "
+        "stale-hash check is encoding "
+        "(lead-83l / 50174dbb885ff5a8)"
+    )
+    # The section number must be named so the citation is specific.
+    assert ("§4" in content) or ("section 4" in lower), (
+        "bc-reviewer template must cite ADR-010 §4 specifically "
+        "(lead-83l / 50174dbb885ff5a8)"
+    )
+    # The "observable-evidence" framing must appear so the rule the
+    # check encodes is explicit.
+    assert ("observable-evidence" in lower) or (
+        "observable evidence" in lower
+    ), (
+        "bc-reviewer template must name the 'observable-evidence' "
+        "requirement as the ADR-010 §4 rule "
+        "(lead-83l / 50174dbb885ff5a8)"
+    )
+
+
+# --- Scenario 762e847fe873201e (missing hash) ---
+
+@then(
+    'the content directs the reviewer that, before composing '
+    '"shop-msg respond work_done --status complete", the reviewer '
+    'must enumerate the scenario hashes the dispatch payload carried '
+    '(the "@scenario_hash:<hash>" set the lead\'s dispatch text '
+    'named) and confirm by "grep" (or "git grep") that each '
+    'dispatched hash is also reachable under an '
+    '"@scenario_hash:<hash>" tag in the BC\'s as-committed '
+    '"features/" tree'
+)
+def then_content_directs_enumerate_dispatched_hashes(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # Pre-emit framing required.
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-reviewer template must literally name the complete-status "
+        "shop-msg invocation the enumeration guards "
+        "(lead-83l / 762e847fe873201e)"
+    )
+    # Enumeration + dispatched-hash framing required.
+    assert "dispatch" in lower, (
+        "bc-reviewer template must frame the enumeration as covering "
+        "the hashes the dispatch payload carried "
+        "(lead-83l / 762e847fe873201e)"
+    )
+    # The @scenario_hash tag form must be named.
+    assert "@scenario_hash:" in content, (
+        "bc-reviewer template must literally name "
+        "'@scenario_hash:<hash>' as the tag form whose reachability "
+        "is being confirmed (lead-83l / 762e847fe873201e)"
+    )
+    # grep / git grep must be named as the confirmation tool.
+    assert ("grep" in lower) or ("git grep" in lower), (
+        "bc-reviewer template must name 'grep' (or 'git grep') as the "
+        "confirmation tool (lead-83l / 762e847fe873201e)"
+    )
+    # features/ tree must be named as the scope.
+    assert "features/" in content, (
+        "bc-reviewer template must name 'features/' as the scope of "
+        "the reachability check (lead-83l / 762e847fe873201e)"
+    )
+
+
+@then(
+    'the content directs the reviewer that, for every dispatched hash '
+    'that IS reachable under "features/", that hash MUST appear in '
+    'the "--scenario-hash" list the reviewer would pass to "shop-msg '
+    'respond work_done"; omitting such a hash is a precondition '
+    'failure even when the BDD suite passes and even when the omitted '
+    'scenario is genuinely pinned on disk'
+)
+def then_content_missing_hash_is_precondition_failure(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The "must appear in --scenario-hash" obligation must be present.
+    assert "--scenario-hash" in content, (
+        "bc-reviewer template must name '--scenario-hash' as the list "
+        "the dispatched hashes must appear in "
+        "(lead-83l / 762e847fe873201e)"
+    )
+    # "omit" framing required.
+    assert ("omit" in lower) or ("omitted" in lower) or (
+        "omitting" in lower
+    ), (
+        "bc-reviewer template must name 'omit' / 'omitting' as the "
+        "failure mode (lead-83l / 762e847fe873201e)"
+    )
+    # precondition failure framing required.
+    assert "precondition" in lower, (
+        "bc-reviewer template must frame missing-hash omission as a "
+        "'precondition failure' (lead-83l / 762e847fe873201e)"
+    )
+    # "even when BDD passes" framing required.
+    bypass_cues = ("even when", "even if", "regardless")
+    assert "bdd" in lower and any(c in lower for c in bypass_cues), (
+        "bc-reviewer template must frame the missing-hash check as "
+        "running even when the BDD suite passes "
+        "(lead-83l / 762e847fe873201e)"
+    )
+
+
+@then(
+    'the content directs the reviewer that on such a missing-hash '
+    'failure the reviewer does NOT compose "shop-msg respond '
+    'work_done --status complete" and instead emits "shop-msg respond '
+    'work_done --status blocked"'
+)
+def then_content_directs_blocked_on_missing_hash(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    assert "shop-msg respond work_done --status blocked" in content, (
+        "bc-reviewer template must literally name the blocked-status "
+        "shop-msg invocation for missing-hash failure "
+        "(lead-83l / 762e847fe873201e)"
+    )
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-reviewer template must literally name the complete-status "
+        "shop-msg invocation that is being negated on missing-hash "
+        "failure (lead-83l / 762e847fe873201e)"
+    )
+
+
+@then(
+    'the content directs the reviewer that the response summary on '
+    'the blocked emit must name the dispatched work_id and, for each '
+    'omitted hash, both the hash value and the path of the feature '
+    'file under "features/" where the corresponding '
+    '"@scenario_hash:<hash>" tag is reachable, so the lead can see '
+    'that the BC pinned the scenarios on disk but composed an '
+    'incomplete payload'
+)
+def then_content_missing_hash_summary_names_work_id_hash_and_path(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # work_id required in summary.
+    assert "work_id" in lower and "summary" in lower, (
+        "bc-reviewer template must direct naming the work_id in the "
+        "missing-hash summary (lead-83l / 762e847fe873201e)"
+    )
+    # Each omitted hash value + feature file path required.
+    assert "omitted" in lower or "omit" in lower, (
+        "bc-reviewer template must direct naming each omitted hash "
+        "value in the summary (lead-83l / 762e847fe873201e)"
+    )
+    # The features/ path must be named as the path the summary cites.
+    assert "features/" in content, (
+        "bc-reviewer template must direct naming the path under "
+        "'features/' where each omitted hash's tag is reachable "
+        "(lead-83l / 762e847fe873201e)"
+    )
+
+
+@then(
+    'the content cites the "echo back every scenario hash that '
+    'currently passes" direction in the existing "Sign-off" '
+    'subsection as the rule this check operationalizes, and cites '
+    'lead-plt as the empirical case it exists to prevent'
+)
+def then_content_missing_hash_cites_signoff_and_lead_plt(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The exact phrase from the existing Sign-off section must be
+    # cited so the rule the check operationalizes is explicit.
+    assert "echo back every scenario hash that currently passes" in lower, (
+        "bc-reviewer template must cite the 'echo back every "
+        "scenario hash that currently passes' direction from the "
+        "existing Sign-off section (lead-83l / 762e847fe873201e)"
+    )
+    # Sign-off section reference required.
+    assert "sign-off" in lower, (
+        "bc-reviewer template must reference the 'Sign-off' "
+        "subsection as the location of the rule "
+        "(lead-83l / 762e847fe873201e)"
+    )
+    # lead-plt empirical case citation required.
+    assert "lead-plt" in lower, (
+        "bc-reviewer template must cite 'lead-plt' as the empirical "
+        "case the missing-hash check exists to prevent "
+        "(lead-83l / 762e847fe873201e)"
+    )
+
+
+# --- Scenario 36d22e52adcea48e (orphan hash) ---
+
+@then(
+    'the content directs the reviewer that, before composing '
+    '"shop-msg respond work_done --status complete", the reviewer '
+    'must confirm by "grep" (or "git grep") for each hash the '
+    'reviewer would pass to "--scenario-hash" that an '
+    '"@scenario_hash:<hash>" tag carrying that exact value is '
+    'reachable in some file under the BC\'s as-committed "features/" '
+    'tree'
+)
+def then_content_directs_grep_for_each_emitted_hash(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-reviewer template must literally name the complete-status "
+        "shop-msg invocation the orphan check guards "
+        "(lead-83l / 36d22e52adcea48e)"
+    )
+    # grep / git grep must be named as the tool.
+    assert ("grep" in lower) or ("git grep" in lower), (
+        "bc-reviewer template must name 'grep' (or 'git grep') as "
+        "the orphan-check tool (lead-83l / 36d22e52adcea48e)"
+    )
+    # --scenario-hash must be named as the source of the hashes
+    # whose reachability is being confirmed.
+    assert "--scenario-hash" in content, (
+        "bc-reviewer template must name '--scenario-hash' as the "
+        "source of the hashes whose tag-reachability is being "
+        "confirmed (lead-83l / 36d22e52adcea48e)"
+    )
+    # @scenario_hash tag form required.
+    assert "@scenario_hash:" in content, (
+        "bc-reviewer template must literally name the "
+        "'@scenario_hash:<hash>' tag whose presence is being "
+        "confirmed (lead-83l / 36d22e52adcea48e)"
+    )
+    # features/ scope required.
+    assert "features/" in content, (
+        "bc-reviewer template must name 'features/' as the scope of "
+        "the orphan check (lead-83l / 36d22e52adcea48e)"
+    )
+
+
+@then(
+    'the content directs the reviewer that any hash the reviewer '
+    'would echo for which no such tag is reachable under "features/" '
+    'is a precondition failure, regardless of whether the dispatch '
+    'text named the hash, whether the scenario was once pinned on '
+    'disk and later removed, or whether the hash was composed from '
+    'elsewhere'
+)
+def then_content_orphan_hash_is_precondition_failure(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # precondition failure framing required.
+    assert "precondition" in lower, (
+        "bc-reviewer template must frame an orphan hash (no tag "
+        "reachable) as a 'precondition failure' "
+        "(lead-83l / 36d22e52adcea48e)"
+    )
+    # "regardless" framing required so the carve-outs are exhaustive.
+    assert "regardless" in lower, (
+        "bc-reviewer template must use 'regardless' framing to make "
+        "the orphan-hash carve-outs exhaustive "
+        "(lead-83l / 36d22e52adcea48e)"
+    )
+    # The three carve-out reasons must be named so the reviewer
+    # cannot read any of them as legitimizing the orphan hash.
+    # (a) dispatch text named the hash; (b) scenario was once pinned
+    # and later removed; (c) hash composed from elsewhere.
+    assert "dispatch" in lower, (
+        "bc-reviewer template must name the 'dispatch text named the "
+        "hash' carve-out (lead-83l / 36d22e52adcea48e)"
+    )
+    assert ("removed" in lower) or ("later removed" in lower), (
+        "bc-reviewer template must name the 'scenario was once "
+        "pinned and later removed' carve-out "
+        "(lead-83l / 36d22e52adcea48e)"
+    )
+    assert ("composed" in lower) or ("elsewhere" in lower), (
+        "bc-reviewer template must name the 'hash composed from "
+        "elsewhere' carve-out (lead-83l / 36d22e52adcea48e)"
+    )
+
+
+@then(
+    'the content directs the reviewer that on such an orphan-hash '
+    'failure the reviewer does NOT compose "shop-msg respond '
+    'work_done --status complete" and instead emits "shop-msg '
+    'respond work_done --status blocked"'
+)
+def then_content_directs_blocked_on_orphan_hash(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    assert "shop-msg respond work_done --status blocked" in content, (
+        "bc-reviewer template must literally name the blocked-status "
+        "shop-msg invocation for orphan-hash failure "
+        "(lead-83l / 36d22e52adcea48e)"
+    )
+    assert "shop-msg respond work_done --status complete" in content, (
+        "bc-reviewer template must literally name the complete-status "
+        "shop-msg invocation that is being negated on orphan-hash "
+        "failure (lead-83l / 36d22e52adcea48e)"
+    )
+
+
+@then(
+    'the content directs the reviewer that the response summary on '
+    'the blocked emit must name the dispatched work_id and, for each '
+    'orphan hash, both the hash value and the explicit statement '
+    'that no "@scenario_hash:<hash>" tag carrying that value is '
+    'reachable under "features/", so the lead can decide between '
+    'asking the BC to restore a removed scenario or correcting the '
+    'payload without round-tripping'
+)
+def then_content_orphan_summary_names_work_id_and_no_tag_statement(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # work_id in summary required.
+    assert "work_id" in lower and "summary" in lower, (
+        "bc-reviewer template must direct naming the work_id in the "
+        "orphan-hash summary (lead-83l / 36d22e52adcea48e)"
+    )
+    # orphan hash value required in summary.
+    assert "orphan" in lower, (
+        "bc-reviewer template must name 'orphan' as the case being "
+        "summarized (lead-83l / 36d22e52adcea48e)"
+    )
+    # The "no tag reachable" statement framing must appear.
+    assert ("no" in lower) and ("@scenario_hash:" in content) and (
+        "reachable" in lower
+    ), (
+        "bc-reviewer template must direct an explicit 'no "
+        "@scenario_hash:<hash> tag reachable' statement in the "
+        "summary for each orphan hash "
+        "(lead-83l / 36d22e52adcea48e)"
+    )
+    # features/ path framing required.
+    assert "features/" in content, (
+        "bc-reviewer template must name 'features/' as the scope of "
+        "the no-tag-reachable statement "
+        "(lead-83l / 36d22e52adcea48e)"
+    )
+
+
+@then(
+    'the content frames the orphan-hash check as the strict-subset '
+    'rule ADR-010 §4 makes canonical (work_done.scenario_hashes MUST '
+    'be a subset of the hashes actually pinned in the BC\'s '
+    'features/) and cites ADR-010 as the rule this check is encoding'
+)
+def then_content_orphan_check_cites_adr_010_subset_rule(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # ADR-010 citation required.
+    assert "ADR-010" in content, (
+        "bc-reviewer template must cite ADR-010 as the rule the "
+        "orphan-hash check is encoding "
+        "(lead-83l / 36d22e52adcea48e)"
+    )
+    # Strict-subset rule framing required.
+    assert "subset" in lower, (
+        "bc-reviewer template must frame the orphan check as the "
+        "'strict-subset' rule (lead-83l / 36d22e52adcea48e)"
+    )
+    # work_done.scenario_hashes must be named so the subset is
+    # explicit about what's being constrained.
+    assert "work_done.scenario_hashes" in content or (
+        "scenario_hashes" in lower
+    ), (
+        "bc-reviewer template must name 'work_done.scenario_hashes' "
+        "as the field being constrained "
+        "(lead-83l / 36d22e52adcea48e)"
+    )

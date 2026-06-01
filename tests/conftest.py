@@ -314,119 +314,196 @@ def then_content_names_empirical_pre_state_verification(context: dict) -> None:
         )
 
 
+# -----------------------------------------------------------------------
+# Then steps — empirical pre-state verification grounded in the
+# contract/artifact surface (ADR-018 D1/D2 — lead-6gaj scenarios
+# 489fe7b30c010cab, 9de387f9fc77ca3a, 3f096e334ceb77f2, 7d7f4bd2c88e5f0a,
+# 96cf1667aec9a98f). These supersede the retired "reading code = hypothesis,
+# running code = fact" and "grep across repos/<bc>/features/" premises
+# (retired BC-side hashes 98fe33cee55daf55, 0d384c6b92004c8d, 48dd1f01012efafe,
+# 22cbdf7cc9e917ca, 744cd4a4532c28d7).
+# -----------------------------------------------------------------------
+
+
 @then(
-    'the content distinguishes "reading code" (hypothesis) from "running it" '
-    "(fact) as the basis for that choice"
+    "the content names the contract/artifact surface — the lead's own "
+    '"features/" Gherkin, "adr/"/"pdr/", message schemas, scenario hashes, '
+    'and "shop-msg" mailbox state, together with the BC\'s reported '
+    '"work_done" demonstration — as the admissible evidence for that choice'
 )
-def then_content_distinguishes_reading_from_running(context: dict) -> None:
-    content = context["template_content"].lower()
-    # The Finding 17 prose introduced the
-    # "reading code is hypothesis / running it is fact" distinction. Pin
-    # both halves of the contrast — either alone is satisfiable by an
-    # unrelated sentence, but both together unambiguously identify this
-    # discipline.
-    assert "reading code" in content, (
-        "template must reference 'reading code' as the hypothesis side of "
-        "the pre-state-verification distinction (Finding 17 / S16)"
+def then_content_names_contract_artifact_surface(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # The admissible evidence must be the lead's own contract/artifact surface.
+    assert "contract" in lc and "artifact" in lc, (
+        "template must name the contract/artifact surface as the admissible "
+        "evidence for message-type selection (lead-6gaj / 489fe7b30c010cab)"
     )
-    assert "running it" in content, (
-        "template must reference 'running it' as the fact side of the "
-        "pre-state-verification distinction (Finding 17 / S16)"
+    # Each named member of the surface must appear.
+    for token in ("features/", "adr/", "pdr/", "schema", "shop-msg", "work_done"):
+        assert token in lc, (
+            f"template must name {token!r} as part of the admissible "
+            "contract/artifact surface (lead-6gaj / 489fe7b30c010cab)"
+        )
+    assert "scenario hash" in lc, (
+        "template must name scenario hashes as part of the admissible "
+        "contract/artifact surface (lead-6gaj / 489fe7b30c010cab)"
     )
-    assert "hypothesis" in content, (
-        "template must label the 'reading code' side as a hypothesis "
-        "(Finding 17 / S16)"
+    assert "mailbox" in lc, (
+        "template must name the shop-msg mailbox state as part of the "
+        "admissible contract/artifact surface (lead-6gaj / 489fe7b30c010cab)"
     )
-    assert "fact" in content, (
-        "template must label the 'running it' side as a fact "
-        "(Finding 17 / S16)"
+
+
+@then(
+    'the content names invoking an installed contract tool such as "scenarios '
+    'hash" over contract text as the admissible "run" that produces a contract '
+    "fact"
+)
+def then_content_names_scenarios_hash_as_admissible_run(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "scenarios hash" in lc, (
+        "template must name the installed 'scenarios hash' contract tool as the "
+        "admissible 'run' (lead-6gaj / 489fe7b30c010cab)"
+    )
+    # Frame it as the admissible run producing a contract fact.
+    assert "run" in lc and "fact" in lc, (
+        "template must frame invoking 'scenarios hash' as the admissible 'run' "
+        "that produces a contract fact (lead-6gaj / 489fe7b30c010cab)"
+    )
+
+
+@then(
+    "the content directs the architect that establishing a BC's behavior by "
+    "reading or executing that BC's implementation is not admissible evidence, "
+    'and that there is no "repos/" BC source on the lead host to read or run'
+)
+def then_content_directs_no_bc_code_reads_or_runs(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Reading/executing BC implementation must be ruled out as admissible.
+    assert "not admissible" in lc or "is not admissible" in lc, (
+        "template must direct that reading or executing BC implementation is "
+        "not admissible evidence (lead-6gaj / 489fe7b30c010cab)"
+    )
+    # There is no repos/ BC source on the lead host.
+    assert "repos/" in content, (
+        "template must state there is no 'repos/' BC source on the lead host "
+        "(lead-6gaj / 489fe7b30c010cab)"
+    )
+    assert "no" in lc and "lead host" in lc, (
+        "template must state there is no repos/ BC source on the lead host to "
+        "read or run (lead-6gaj / 489fe7b30c010cab)"
+    )
+
+
+@then(
+    "the content directs the architect to route any question that would "
+    "otherwise require running BC implementation to the BC as a \"clarify\" or "
+    '"nudge", rather than reaching for the proof itself'
+)
+def then_content_directs_route_to_bc_clarify_or_nudge(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "clarify" in lc, (
+        "template must direct routing such questions to the BC as a 'clarify' "
+        "(lead-6gaj / 489fe7b30c010cab)"
+    )
+    assert "nudge" in lc, (
+        "template must name 'nudge' as the alternative routing for questions "
+        "that would otherwise require running BC implementation "
+        "(lead-6gaj / 489fe7b30c010cab)"
+    )
+    assert "route" in lc, (
+        "template must direct the architect to route the question to the BC "
+        "rather than reaching for the proof itself (lead-6gaj / 489fe7b30c010cab)"
     )
 
 
 # -----------------------------------------------------------------------
-# Then steps — BC @scenario_hash pre-state enumeration discipline
-# (lead-dbc scenarios 0d384c6b92004c8d, 48dd1f01012efafe, 22cbdf7cc9e917ca,
-# 744cd4a4532c28d7)
+# Then steps — BC @scenario_hash pre-state enumeration over the lead-held
+# features/ surface + mailbox-reported register (ADR-018 D2; no clone grep).
+# lead-6gaj scenarios 9de387f9fc77ca3a, 3f096e334ceb77f2, 7d7f4bd2c88e5f0a,
+# 96cf1667aec9a98f.
 # -----------------------------------------------------------------------
-#
-# These steps pin that the lead-architect template names @scenario_hash
-# enumeration (via grep over features/*.feature) as a discrete, required
-# pre-state step whenever a dispatch retires, supersedes, or contradicts
-# prior BC-side coverage — and that the discipline applies on every
-# dispatch in a clarify-correction chain, not only the initial one.
 
 
 @then(
     'the content names "@scenario_hash" as a pre-state surface the architect '
-    "must verify before composing a dispatch that retires, supersedes, or "
+    "must enumerate before composing a dispatch that retires, supersedes, or "
     "contradicts prior BC-side coverage"
 )
 def then_content_names_scenario_hash_pre_state_surface(context: dict) -> None:
     content = context["template_content"]
-    # Must contain @scenario_hash in the context of a pre-state enumeration
-    # discipline — specifically that the architect must enumerate @scenario_hash
-    # values from the BC's features/ before dispatching.  The tell is that
-    # both "@scenario_hash" and "enumerate" appear (the existing template only
-    # has @scenario_hash in the context of tag-computation, not enumeration).
     assert "@scenario_hash" in content, (
         "template must name '@scenario_hash' as a pre-state surface "
-        "(lead-dbc / 0d384c6b92004c8d)"
+        "(lead-6gaj / 9de387f9fc77ca3a)"
     )
     assert "enumerate" in content.lower(), (
-        "template must use the word 'enumerate' to describe the @scenario_hash "
-        "pre-state step — the existing template does not use this word in the "
-        "@scenario_hash context (lead-dbc / 0d384c6b92004c8d)"
+        "template must use 'enumerate' to describe the @scenario_hash "
+        "pre-state step (lead-6gaj / 9de387f9fc77ca3a)"
     )
 
 
 @then(
-    "the content directs the architect to enumerate that surface from the "
-    'BC\'s "features/" directory rather than from the lead shop\'s scenario register'
+    "the content directs the architect to establish that @scenario_hash set "
+    'from the lead-held "features/" Gherkin in this repo together with the BC\'s '
+    'mailbox-reported scenario register/hashes, and not from a "repos/<bc>" clone'
 )
-def then_content_directs_enumerate_from_features_dir(context: dict) -> None:
+def then_content_directs_establish_from_lead_held_and_mailbox(context: dict) -> None:
     content = context["template_content"]
-    # The BC's features/ directory must be named as the source for enumeration.
-    # The existing template has "features/" only in the context of the lead
-    # shop's own features/ — not as a BC's enumeration source. The new content
-    # must explicitly name the BC's features/ as the authoritative source for
-    # the @scenario_hash enumeration (in contrast to the lead shop's register).
-    # Check: "features/" appears AND either "BC's" or a BC-side context exists.
+    lc = content.lower()
     assert "features/" in content, (
-        "template must name the BC's 'features/' directory as the enumeration "
-        "source for @scenario_hash (lead-dbc / 0d384c6b92004c8d)"
+        "template must name the lead-held 'features/' Gherkin as the enumeration "
+        "source (lead-6gaj / 9de387f9fc77ca3a)"
     )
-    # The new enumeration context must pair features/ with @scenario_hash
-    # to distinguish it from the existing mention of the lead shop's features/.
-    assert "enumerate" in content.lower() or "grep" in content, (
-        "template must describe enumerating @scenario_hash from features/ "
-        "(via 'enumerate' or 'grep') — the existing features/ reference is "
-        "about the lead shop's own features, not BC-side enumeration "
-        "(lead-dbc / 0d384c6b92004c8d)"
+    assert "mailbox" in lc, (
+        "template must name the BC's mailbox-reported scenario register/hashes "
+        "as a second enumeration source (lead-6gaj / 9de387f9fc77ca3a)"
+    )
+    assert "repos/<bc>" in content or "repos/" in content, (
+        "template must contrast the lead-held surface against a 'repos/<bc>' "
+        "clone (lead-6gaj / 9de387f9fc77ca3a)"
+    )
+
+
+@then(
+    'the content names invoking the installed "scenarios hash" contract tool '
+    "over the lead-held scenario text as the means of computing the hashes for "
+    "that enumeration"
+)
+def then_content_names_scenarios_hash_for_enumeration(context: dict) -> None:
+    content = context["template_content"].lower()
+    assert "scenarios hash" in content, (
+        "template must name the installed 'scenarios hash' tool as the means of "
+        "computing the enumeration hashes (lead-6gaj / 9de387f9fc77ca3a)"
+    )
+    assert "lead-held" in content or "features/" in content, (
+        "template must name the lead-held scenario text as the input to "
+        "'scenarios hash' (lead-6gaj / 9de387f9fc77ca3a)"
     )
 
 
 @then(
     "the content marks the enumeration as a discrete pre-state step (alongside "
-    "the existing behavior-verification step), not as optional guidance the "
-    "architect may skip"
+    "the contract-surface behavior-verification step), not as optional guidance "
+    "the architect may skip"
 )
 def then_content_marks_enumeration_as_discrete_step(context: dict) -> None:
     content = context["template_content"]
-    # The @scenario_hash enumeration must be framed as a mandatory, discrete
-    # pre-state step — not optional guidance.  The signal is that both
-    # "enumerate" (or "grep") and a mandatory modal ("must" / "required") appear
-    # in the new content, AND the existing step-numbering structure already uses
-    # "must" heavily — so we require the combination of "enumerate"/"grep" with
-    # "step" or a numbered list item in the enumeration context.
-    # Minimal test: "enumerate" or "grep" appears (ensuring there's actual new
-    # @scenario_hash enumeration prose) AND "must" appears (mandatory framing).
-    assert "enumerate" in content.lower() or "grep" in content, (
-        "template must describe the @scenario_hash enumeration as a step "
-        "(via 'enumerate' or 'grep') (lead-dbc / 0d384c6b92004c8d)"
+    lc = content.lower()
+    assert "enumerate" in lc or "enumeration" in lc, (
+        "template must describe the @scenario_hash enumeration as a discrete "
+        "step (lead-6gaj / 9de387f9fc77ca3a)"
+    )
+    assert "discrete" in lc and "step" in lc, (
+        "template must mark the enumeration as a discrete pre-state step "
+        "(lead-6gaj / 9de387f9fc77ca3a)"
     )
     assert "must" in content, (
-        "template must use 'must' to frame the @scenario_hash enumeration as "
-        "mandatory (lead-dbc / 0d384c6b92004c8d)"
+        "template must frame the enumeration as mandatory, not optional "
+        "(lead-6gaj / 9de387f9fc77ca3a)"
     )
 
 
@@ -436,84 +513,120 @@ def then_content_marks_enumeration_as_discrete_step(context: dict) -> None:
 )
 def then_content_names_trigger_conditions(context: dict) -> None:
     content = context["template_content"].lower()
-    # At least one of the trigger conditions must appear as the gate that
-    # requires the @scenario_hash enumeration.  "supersede" already appears
-    # in the existing template (in "superseded"), but in the context of
-    # request_bugfix scope marking — not as a trigger for @scenario_hash
-    # enumeration.  The new content must place a trigger condition in the
-    # enumeration context.  Since "enumerate" is the distinguishing word
-    # for the new section, we verify that at least one trigger appears in
-    # the same content that also contains "enumerate" (i.e., the new section
-    # exists AND has a trigger word).
     trigger_words = ("retire", "supersede", "contradict")
     found = [t for t in trigger_words if t in content]
     assert found, (
         "template must name at least one trigger condition "
-        f"({', '.join(trigger_words)}) for the @scenario_hash enumeration step "
-        "(lead-dbc / 0d384c6b92004c8d)"
+        f"({', '.join(trigger_words)}) for the enumeration step "
+        "(lead-6gaj / 9de387f9fc77ca3a)"
     )
-    # The enumeration content must also be present — a trigger alone in the
-    # existing request_bugfix section is insufficient.
-    assert "enumerate" in content, (
-        "template must use 'enumerate' in the @scenario_hash pre-state section "
-        "that the trigger condition gates (lead-dbc / 0d384c6b92004c8d)"
-    )
-
-
-@then(
-    'the content names the literal substring "grep" as the enumeration '
-    "mechanism for the BC's @scenario_hash pre-state surface"
-)
-def then_content_names_grep_as_enumeration_mechanism(context: dict) -> None:
-    content = context["template_content"]
-    assert "grep" in content, (
-        "template must name 'grep' as the enumeration mechanism for the BC's "
-        "@scenario_hash pre-state surface (lead-dbc / 48dd1f01012efafe)"
+    assert "enumerat" in content, (
+        "template must use 'enumerate'/'enumeration' in the section the trigger "
+        "gates (lead-6gaj / 9de387f9fc77ca3a)"
     )
 
 
 @then(
     'the content names the literal substring "@scenario_hash" as the pattern '
-    "that grep enumerates"
+    "the architect enumerates"
 )
-def then_content_names_scenario_hash_as_grep_pattern(context: dict) -> None:
+def then_content_names_scenario_hash_as_enumerated_pattern(context: dict) -> None:
     content = context["template_content"]
     assert "@scenario_hash" in content, (
-        "template must name '@scenario_hash' as the pattern that grep "
-        "enumerates (lead-dbc / 48dd1f01012efafe)"
+        "template must name '@scenario_hash' as the pattern the architect "
+        "enumerates (lead-6gaj / 3f096e334ceb77f2)"
     )
 
 
 @then(
-    "the content names the BC's \"features/*.feature\" tree (not a single named "
-    "feature file) as the surface the grep is run against"
+    "the content names a concrete, mechanically observable enumeration mechanism "
+    'that runs over the lead-held "features/" Gherkin in this repo, naming the '
+    'installed "scenarios hash" contract tool as the means of computing each '
+    "entry's hash"
 )
-def then_content_names_features_glob_as_grep_surface(context: dict) -> None:
+def then_content_names_concrete_enumeration_over_lead_held(context: dict) -> None:
     content = context["template_content"]
-    assert "features/*.feature" in content, (
-        "template must name 'features/*.feature' (the glob, not a single named "
-        "file) as the surface the grep runs against "
-        "(lead-dbc / 48dd1f01012efafe)"
-    )
-
-
-@then(
-    "the content names the BC's \"features/\" directory as the authoritative "
-    "source for the BC's pinned @scenario_hash set, in contrast to the lead "
-    "shop's scenario register"
-)
-def then_content_names_features_dir_as_authoritative_source(context: dict) -> None:
-    content = context["template_content"]
-    # features/ must appear as the authoritative source
+    lc = content.lower()
     assert "features/" in content, (
-        "template must name 'features/' as the authoritative source for the BC's "
-        "pinned @scenario_hash set (lead-dbc / 48dd1f01012efafe)"
+        "template must name the lead-held 'features/' Gherkin as the surface the "
+        "enumeration runs over (lead-6gaj / 3f096e334ceb77f2)"
     )
-    # Some contrast to the lead shop's register must also be named
-    lead_signals = ("lead shop", "scenario register", "lead-shop")
-    assert any(s in content.lower() for s in lead_signals), (
-        "template must contrast the BC's 'features/' directory against the lead "
-        "shop's scenario register (lead-dbc / 48dd1f01012efafe)"
+    assert "scenarios hash" in lc, (
+        "template must name 'scenarios hash' as the means of computing each "
+        "entry's hash (lead-6gaj / 3f096e334ceb77f2)"
+    )
+    # A concrete, mechanically observable mechanism — grep/git grep over the
+    # lead-held features/ text.
+    assert "grep" in lc, (
+        "template must name a concrete, mechanically observable enumeration "
+        "mechanism (grep) over the lead-held features/ Gherkin "
+        "(lead-6gaj / 3f096e334ceb77f2)"
+    )
+
+
+@then(
+    "the content names the BC's mailbox-reported scenario register/hashes "
+    '(carried in its "work_done" demonstration) as the second surface the '
+    "architect reconciles that enumeration against"
+)
+def then_content_names_mailbox_register_as_second_surface(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "mailbox" in lc, (
+        "template must name the BC's mailbox-reported scenario register/hashes "
+        "as the second reconciliation surface (lead-6gaj / 3f096e334ceb77f2)"
+    )
+    assert "work_done" in lc, (
+        "template must name the BC's 'work_done' demonstration as where the "
+        "mailbox-reported register is carried (lead-6gaj / 3f096e334ceb77f2)"
+    )
+    assert "reconcile" in lc or "reconciles" in lc, (
+        "template must direct the architect to reconcile the enumeration against "
+        "the mailbox-reported register (lead-6gaj / 3f096e334ceb77f2)"
+    )
+
+
+@then(
+    'the content names the lead-held "features/" surface and the '
+    "mailbox-reported register as the authoritative source for the BC's pinned "
+    '@scenario_hash set, in contrast to a "repos/<bc>" clone grep'
+)
+def then_content_names_authoritative_source_vs_clone_grep(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "features/" in content, (
+        "template must name the lead-held 'features/' surface as authoritative "
+        "(lead-6gaj / 3f096e334ceb77f2)"
+    )
+    assert "mailbox" in lc, (
+        "template must name the mailbox-reported register as authoritative "
+        "(lead-6gaj / 3f096e334ceb77f2)"
+    )
+    assert "repos/<bc>" in content or "repos/" in content, (
+        "template must contrast against a 'repos/<bc>' clone grep "
+        "(lead-6gaj / 3f096e334ceb77f2)"
+    )
+
+
+@then(
+    "the content directs the architect not to run the enumeration against a "
+    '"repos/<bc>/features/*.feature" tree, there being no such clone on the '
+    "lead host"
+)
+def then_content_directs_not_against_clone_tree(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "repos/<bc>/features" in content or "repos/<bc>" in content, (
+        "template must name the 'repos/<bc>/features' clone tree it directs the "
+        "architect NOT to run the enumeration against (lead-6gaj / 3f096e334ceb77f2)"
+    )
+    assert "no such clone" in lc or ("no" in lc and "clone" in lc), (
+        "template must state there is no such clone on the lead host "
+        "(lead-6gaj / 3f096e334ceb77f2)"
+    )
+    assert "lead host" in lc, (
+        "template must state the absence of the clone is on the lead host "
+        "(lead-6gaj / 3f096e334ceb77f2)"
     )
 
 
@@ -524,38 +637,39 @@ def then_content_names_features_dir_as_authoritative_source(context: dict) -> No
 )
 def then_content_names_clarify_correction_requires_enumeration(context: dict) -> None:
     content = context["template_content"].lower()
-    # The template must name clarify-correction / follow-up dispatch / clarify
-    # chain as a context that also requires the @scenario_hash enumeration.
     clarify_signals = ("clarify", "follow-up dispatch", "clarify-correction chain",
                        "clarify chain")
     assert any(s in content for s in clarify_signals), (
         "template must name a clarify-driven correction as a moment that requires "
-        "the @scenario_hash pre-state enumeration (lead-dbc / 22cbdf7cc9e917ca)"
+        "the @scenario_hash pre-state enumeration (lead-6gaj / 7d7f4bd2c88e5f0a)"
     )
     assert "@scenario_hash" in context["template_content"], (
         "template must name @scenario_hash in the clarify-correction context "
-        "(lead-dbc / 22cbdf7cc9e917ca)"
+        "(lead-6gaj / 7d7f4bd2c88e5f0a)"
     )
 
 
 @then(
     "the content directs the architect not to limit the re-enumeration to only "
-    "the @scenario_hash entries a prior clarify named, but to re-run the "
-    'enumeration against the BC\'s full "features/" tree'
+    "the @scenario_hash entries a prior clarify named, but to re-run the full "
+    'enumeration over the lead-held "features/" Gherkin in this repo reconciled '
+    "against the BC's mailbox-reported scenario register/hashes"
 )
-def then_content_directs_full_features_tree_reenumeration(context: dict) -> None:
+def then_content_directs_full_reenumeration_lead_held_and_mailbox(context: dict) -> None:
     content = context["template_content"]
-    # The template must direct re-enumeration against the full features/ tree
+    lc = content.lower()
     assert "features/" in content, (
-        "template must direct re-enumeration against the full 'features/' tree, "
-        "not limited to hashes named in a prior clarify "
-        "(lead-dbc / 22cbdf7cc9e917ca)"
+        "template must direct re-enumeration over the lead-held 'features/' "
+        "Gherkin (lead-6gaj / 7d7f4bd2c88e5f0a)"
     )
-    # Must reference the full tree (not just prior clarify's hashes)
     full_signals = ("full", "entire", "all", "every")
-    assert any(s in content.lower() for s in full_signals), (
-        "template must direct re-enumeration against the full 'features/' tree "
-        "(not only prior clarify hashes) (lead-dbc / 22cbdf7cc9e917ca)"
+    assert any(s in lc for s in full_signals), (
+        "template must direct a full re-enumeration, not only prior clarify "
+        "hashes (lead-6gaj / 7d7f4bd2c88e5f0a)"
+    )
+    assert "mailbox" in lc, (
+        "template must direct reconciliation against the mailbox-reported "
+        "register (lead-6gaj / 7d7f4bd2c88e5f0a)"
     )
 
 
@@ -566,13 +680,11 @@ def then_content_directs_full_features_tree_reenumeration(context: dict) -> None
 )
 def then_content_frames_prior_clarify_as_incomplete_evidence(context: dict) -> None:
     content = context["template_content"].lower()
-    # The template must frame a prior clarify as evidence of incompleteness
     incomplete_signals = ("incomplete", "not definitive", "not a definitive",
                           "evidence", "missed")
     assert any(s in content for s in incomplete_signals), (
         "template must frame a prior clarify as evidence of an incomplete "
-        "enumeration, not as a definitive list of conflicts "
-        "(lead-dbc / 22cbdf7cc9e917ca)"
+        "enumeration (lead-6gaj / 7d7f4bd2c88e5f0a)"
     )
 
 
@@ -583,46 +695,59 @@ def then_content_frames_prior_clarify_as_incomplete_evidence(context: dict) -> N
 )
 def then_content_names_per_dispatch_discipline(context: dict) -> None:
     content = context["template_content"].lower()
-    # The per-dispatch / per-event application must be made explicit
     per_dispatch_signals = ("each dispatch", "every dispatch",
                             "clarify-correction chain", "per dispatch",
                             "per-dispatch", "not only the initial")
     assert any(s in content for s in per_dispatch_signals), (
-        "template must name the @scenario_hash enumeration discipline as "
-        "applying to each dispatch in a clarify-correction chain, not only the "
-        "initial dispatch (lead-dbc / 22cbdf7cc9e917ca)"
+        "template must name the enumeration discipline as applying to each "
+        "dispatch in a clarify-correction chain (lead-6gaj / 7d7f4bd2c88e5f0a)"
+    )
+
+
+@then(
+    "the content directs the architect not to source the re-enumeration from a "
+    '"repos/<bc>" clone tree, there being no such clone on the lead host'
+)
+def then_content_directs_not_source_from_clone(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "repos/<bc>" in content or "repos/" in content, (
+        "template must name the 'repos/<bc>' clone tree it directs the architect "
+        "NOT to source the re-enumeration from (lead-6gaj / 7d7f4bd2c88e5f0a)"
+    )
+    assert "lead host" in lc, (
+        "template must state there is no such clone on the lead host "
+        "(lead-6gaj / 7d7f4bd2c88e5f0a)"
     )
 
 
 @then(
     "the content directs the architect that, for any dispatch that retires, "
     "supersedes, or contradicts prior BC-side coverage, the dispatch text must "
-    "reference each conflicting BC-side @scenario_hash entry by its hash ID, "
-    "or carry an explicit retirement instruction for that hash"
+    "reference each conflicting @scenario_hash entry — as established from the "
+    'lead-held "features/" surface and the BC\'s mailbox-reported register — by '
+    "its hash ID, or carry an explicit retirement instruction for that hash"
 )
 def then_content_directs_hash_reference_or_retirement(context: dict) -> None:
     content = context["template_content"]
-    # Must direct that the dispatch text references conflicting @scenario_hash
-    # entries by hash ID or carries an explicit retirement instruction.
-    # The new content must use "hash ID" or similar to name the reference form,
-    # and must name "retirement" or "retire" as the alternative — the existing
-    # template has "explicit" in unrelated contexts, so we require "retire" or
-    # "retirement" as a stronger signal.
+    lc = content.lower()
     assert "@scenario_hash" in content, (
         "template must name @scenario_hash in the dispatch-text evidence "
-        "requirement (lead-dbc / 744cd4a4532c28d7)"
+        "requirement (lead-6gaj / 96cf1667aec9a98f)"
     )
     retirement_signals = ("retirement instruction", "retirement", "retire")
-    assert any(s in content.lower() for s in retirement_signals), (
-        "template must name 'retirement' or 'retire' as the alternative form "
-        "in the dispatch-text hash-reference requirement "
-        "(lead-dbc / 744cd4a4532c28d7)"
+    assert any(s in lc for s in retirement_signals), (
+        "template must name 'retirement'/'retire' as the alternative form "
+        "(lead-6gaj / 96cf1667aec9a98f)"
     )
-    # Must also require the dispatch text to reference the hash by ID
-    id_signals = ("hash id", "hash ID", "by id", "by ID", "conflicting")
-    assert any(s in content for s in id_signals), (
-        "template must direct the architect to reference conflicting hashes "
-        "by their ID in the dispatch text (lead-dbc / 744cd4a4532c28d7)"
+    id_signals = ("hash id", "by id", "conflicting")
+    assert any(s in lc for s in id_signals), (
+        "template must direct referencing conflicting hashes by their ID "
+        "(lead-6gaj / 96cf1667aec9a98f)"
+    )
+    assert "mailbox" in lc, (
+        "template must name the mailbox-reported register as a source the "
+        "conflicting set is established from (lead-6gaj / 96cf1667aec9a98f)"
     )
 
 
@@ -633,42 +758,32 @@ def then_content_directs_hash_reference_or_retirement(context: dict) -> None:
 )
 def then_content_frames_hash_reference_as_observable_evidence(context: dict) -> None:
     content = context["template_content"].lower()
-    # The requirement must be framed as observable evidence for the Implementer.
-    # "confirm" exists in the current template in unrelated contexts; we need
-    # "observable" or "evidence" to appear in the new content as a stronger pin.
-    evidence_signals = ("observable", "observable evidence")
-    assert any(s in content for s in evidence_signals), (
-        "template must use 'observable' or 'observable evidence' to frame the "
-        "hash-reference requirement as evidence the Implementer can verify "
-        "(lead-dbc / 744cd4a4532c28d7)"
+    assert "observable" in content, (
+        "template must use 'observable'/'observable evidence' to frame the "
+        "hash-reference requirement (lead-6gaj / 96cf1667aec9a98f)"
     )
 
 
 @then(
     "the content directs the architect to cite the enumeration in the dispatch "
-    "description (in the same shape that the existing behavior-verification step "
-    "is cited), so the Implementer does not have to re-run the enumeration to "
-    "discover conflicts the architect missed"
+    "description in the same shape that the contract-surface verification step "
+    "(ADR-018 D1) is cited, so the Implementer does not have to re-derive the "
+    "conflicts the architect missed"
 )
 def then_content_directs_cite_enumeration_in_dispatch(context: dict) -> None:
-    content = context["template_content"].lower()
-    # Must direct citing the @scenario_hash enumeration in the dispatch
-    # description. The existing template already has "cite" and "dispatch
-    # description" in the context of empirical behavior verification — we need
-    # to check that the enumeration itself (grep / @scenario_hash) is explicitly
-    # called out as something to cite, not just the general behavior-verification.
-    # Signal: "enumeration" appears in the context of citing / dispatch
-    cite_signals = ("cite the enumeration", "cite the @scenario_hash",
-                    "cite.*enumeration", "enumeration.*cite")
-    # Simple substring check: "enumeration" must appear AND "cite" must appear
-    assert "enumeration" in content, (
-        "template must use 'enumeration' to describe what the architect should "
-        "cite in the dispatch description (not just the behavior-verification) "
-        "(lead-dbc / 744cd4a4532c28d7)"
+    content = context["template_content"]
+    lc = content.lower()
+    assert "enumeration" in lc, (
+        "template must use 'enumeration' to describe what to cite in the "
+        "dispatch description (lead-6gaj / 96cf1667aec9a98f)"
     )
-    assert "cite" in content, (
-        "template must direct the architect to cite the @scenario_hash "
-        "enumeration in the dispatch description (lead-dbc / 744cd4a4532c28d7)"
+    assert "cite" in lc, (
+        "template must direct the architect to cite the enumeration in the "
+        "dispatch description (lead-6gaj / 96cf1667aec9a98f)"
+    )
+    assert "adr-018" in lc or "contract-surface" in lc or "contract surface" in lc, (
+        "template must reference the contract-surface verification step "
+        "(ADR-018 D1) as the shape the citation takes (lead-6gaj / 96cf1667aec9a98f)"
     )
 
 

@@ -56,10 +56,16 @@ change to an existing BC:
 1. **PO authors intent first.** Brief → PDR → Gherkin scenarios.
    Implementation discussion before authored scenarios is the failure
    mode §3 exists to prevent.
-2. **Architect verifies the relevant BC's pre-state empirically.**
-   Reading the BC's code is hypothesis; running it is fact. Construct a
-   concrete input that exhibits (or fails to exhibit) the behavior;
-   observe; cite the demonstration in the dispatch description.
+2. **Architect verifies the relevant BC's pre-state empirically against
+   the contract/artifact surface.** Admissible evidence is: this repo's
+   `features/` Gherkin, `adr/`/`pdr/`, message schemas, scenario hashes
+   computed via the installed `scenarios hash` contract tool (ADR-018 D2),
+   `shop-msg` mailbox state, and the BC's reported `work_done`
+   demonstration. The lead host carries no `repos/` BC source — there is
+   nothing to read, run, or git-observe. Construct the demonstration
+   against the artifact surface, cite it in the dispatch description. Any
+   question that would otherwise require running BC implementation routes
+   to the BC as a `clarify` or `nudge`, never as a lead-side execution.
 3. **Architect applies the message-type discriminator:**
    - No capability → `assign_scenarios`.
    - Capability exists but unpinned → `request_bugfix`.

@@ -204,6 +204,65 @@ def read_claude_settings_template(shop_type: str) -> str:
     return resource.read_text()
 
 
+# -----------------------------------------------------------------------
+# Lead-shop ops scaffolding (PDR-003 path F — shop-owned, NOT canonical).
+#
+# Per lead-8hxz (scenarios 90138f78dfa46697, 3d94639d5af360d7,
+# 314d4485b8197f2a, 82c069bd3fb3b1d4, 8cf5656c55b466e7, 43e085e8627c7756):
+# bootstrap of a "lead" shop renders three ops files — a top-level
+# compose.yaml, an executable bin/shop-shell, and a top-level
+# Dockerfile.shopsystem-shell — from package data under templates/ops/.
+# A "bc" shop bootstrap renders NONE of them (a BC runs inside a
+# bc-launcher container and never owns its own postgres or shell image).
+#
+# These files are SHOP-OWNED bootstrap-time starter content: they live at
+# the repo top level / under bin/, NEVER under .claude/canonical/, because
+# they are not subject to the canonical-managed re-pour contract that
+# .claude/canonical/ implies.
+# -----------------------------------------------------------------------
+
+_OPS_TEMPLATES_PKG = "shop_templates.templates.ops"
+
+# Each entry maps a package-data ops template name to (relative target
+# path, executable?). The relative target path is resolved against the
+# bootstrap target directory; it is deliberately a top-level / bin/ path
+# and never under .claude/.
+_LEAD_OPS_FILES: tuple[tuple[str, str, bool], ...] = (
+    ("compose.yaml", "compose.yaml", False),
+    ("shop-shell", "bin/shop-shell", True),
+    ("Dockerfile.shopsystem-shell", "Dockerfile.shopsystem-shell", False),
+)
+
+
+def read_ops_template(name: str) -> str:
+    """Return the named lead-shop ops template body from package data.
+
+    Loaded via importlib.resources from templates/ops/; never read from a
+    filesystem path under the product working directory. The returned
+    string is the source of truth from which bootstrap renders a lead
+    shop's compose.yaml / bin/shop-shell / Dockerfile.shopsystem-shell.
+    """
+    return (files(_TEMPLATES_PKG) / "ops" / name).read_text()
+
+
+def _render_lead_ops_scaffolding(target: Path) -> None:
+    """Render the three lead-shop ops files into the target directory.
+
+    Writes compose.yaml and Dockerfile.shopsystem-shell at the top level
+    and bin/shop-shell (with its owner-execute bit set) — all shop-owned,
+    none under .claude/. Caller gates this on shop_type == "lead".
+    """
+    for template_name, rel_path, executable in _LEAD_OPS_FILES:
+        body = read_ops_template(template_name)
+        dest = target / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body)
+        if executable:
+            mode = dest.stat().st_mode
+            # Set the owner-execute bit (scenario 3d94639d5af360d7).
+            dest.chmod(mode | 0o100)
+
+
 def canonical_role_set(shop_type: str) -> tuple[str, ...]:
     """Return the canonical role-prompt-template names for a shop type.
 
@@ -486,6 +545,17 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     (claude_dir / "settings.json").write_text(
         read_claude_settings_template(shop_type)
     )
+
+    # Lead-shop ops scaffolding (PDR-003 path F — shop-owned). For a
+    # "lead" shop, render the three ops files (compose.yaml,
+    # bin/shop-shell, Dockerfile.shopsystem-shell) at the repo top level /
+    # under bin/, NEVER under .claude/. For a "bc" shop, render NONE of
+    # them — a BC runs inside a bc-launcher container and never owns its
+    # own postgres or shell image (scenarios 90138f78dfa46697,
+    # 3d94639d5af360d7, 314d4485b8197f2a, 82c069bd3fb3b1d4,
+    # 8cf5656c55b466e7, 43e085e8627c7756).
+    if shop_type == "lead":
+        _render_lead_ops_scaffolding(target)
 
     # Initialize .beads/ via a `bd init` subprocess. shop-templates MUST
     # NOT import bd / beads internals and MUST NOT write to .beads/

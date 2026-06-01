@@ -1,0 +1,43 @@
+# Dockerfile.shopsystem-shell — lead-shop daily-driver shell image recipe
+# (shop-owned, PDR-003 path F).
+#
+# Build locally when no published shopsystem-shell image is available:
+#
+#     docker build -t shopsystem-shell:dev -f Dockerfile.shopsystem-shell .
+#
+# This recipe may later be retired in favor of bc-launcher's published
+# shopsystem-shell image; ship it now to unblock docker-only onboarding.
+FROM debian:bookworm-slim
+
+# Base tooling: git, python, and the docker CLI (docker-ce-cli) so in-shell
+# tooling can drive the host docker daemon over the forwarded socket.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+        python3 \
+        python3-pip \
+        python3-venv \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg \
+        -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install the framework CLIs (shop-msg, scenarios, shop-templates) so the
+# operator has the full shopsystem toolchain on PATH inside the shell.
+RUN pip install --no-cache-dir --break-system-packages \
+        shop-msg \
+        scenarios \
+        shop-templates
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]

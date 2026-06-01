@@ -10109,3 +10109,663 @@ def given_previously_bootstrapped_no_name(
     _do_bootstrap_for_test(
         alias, shop_type, "shopsystem-product", context, tmp_path
     )
+
+
+# =======================================================================
+# lead-8hxz — bootstrap renders lead-shop ops scaffolding (compose.yaml,
+# bin/shop-shell, Dockerfile.shopsystem-shell); bc renders none of them.
+# Scenarios 90138f78dfa46697, 3d94639d5af360d7, 314d4485b8197f2a,
+# 82c069bd3fb3b1d4, 8cf5656c55b466e7, 43e085e8627c7756.
+# =======================================================================
+
+
+def _ops_target(context: dict) -> Path:
+    """Resolve the bootstrap target for the ops-scaffolding scenarios.
+
+    Prefer the target the When step recorded; fall back to the single
+    alias in scope so the Then steps work even before any standalone
+    invocation has run.
+    """
+    target = context.get("last_invocation_target")
+    if target is not None:
+        return Path(target)
+    return _resolve_single_target(context)
+
+
+def _parse_yaml_via_subprocess(path: Path) -> object:
+    """Parse a YAML file and return the data, validating real
+    YAML-parseability.
+
+    The test venv has no PyYAML and no pip; the global interpreter does.
+    Try an in-process import first (so the check is self-contained when
+    PyYAML happens to be present), then fall back to a yaml-capable
+    interpreter that round-trips the parsed document through JSON (stdlib)
+    so this process can load it without a yaml dependency. A parse failure
+    in either path raises, which is exactly the "parses as valid YAML"
+    contract failing.
+    """
+    text = path.read_text()
+    try:  # pragma: no cover - depends on environment
+        import yaml  # type: ignore
+
+        return yaml.safe_load(text)
+    except ModuleNotFoundError:
+        pass
+
+    import json
+    import shutil
+
+    helper = (
+        "import sys, json, yaml\n"
+        "data = yaml.safe_load(sys.stdin.read())\n"
+        "json.dump(data, sys.stdout)\n"
+    )
+    last_err = None
+    for interp in (
+        sys.executable,
+        shutil.which("python3"),
+        "/usr/local/bin/python",
+        shutil.which("python"),
+    ):
+        if not interp:
+            continue
+        proc = subprocess.run(
+            [interp, "-c", helper],
+            input=text,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0:
+            return json.loads(proc.stdout)
+        last_err = proc.stderr
+    raise AssertionError(
+        f"could not parse {path!s} as YAML via any available interpreter; "
+        f"last stderr:\n{last_err}"
+    )
+
+
+# -- Given premises (ops-file absence) ----------------------------------
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'with no top-level "compose.yaml" file'
+    )
+)
+def given_repo_no_compose(alias: str, context: dict, tmp_path: Path) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    assert not (real / "compose.yaml").exists(), (
+        f"premise of Given violated: {(real / 'compose.yaml')!s} exists"
+    )
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'with no "bin/" subdirectory'
+    )
+)
+def given_repo_no_bin_dir(alias: str, context: dict, tmp_path: Path) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    assert not (real / "bin").exists(), (
+        f"premise of Given violated: {(real / 'bin')!s} exists"
+    )
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'with no top-level "Dockerfile.shopsystem-shell" file'
+    )
+)
+def given_repo_no_dockerfile(alias: str, context: dict, tmp_path: Path) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    assert not (real / "Dockerfile.shopsystem-shell").exists(), (
+        f"premise violated: {(real / 'Dockerfile.shopsystem-shell')!s} exists"
+    )
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'with no top-level "compose.yaml", no "bin/" subdirectory, and no '
+        'top-level "Dockerfile.shopsystem-shell"'
+    )
+)
+def given_repo_no_ops_files(alias: str, context: dict, tmp_path: Path) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    for rel in ("compose.yaml", "bin", "Dockerfile.shopsystem-shell"):
+        assert not (real / rel).exists(), (
+            f"premise of Given violated: {(real / rel)!s} exists"
+        )
+
+
+# -- Then: file presence -------------------------------------------------
+
+
+@then(
+    parsers.parse(
+        'after the invocation the target directory contains a top-level '
+        'file named "{name}"'
+    )
+)
+def then_target_contains_top_level_file(name: str, context: dict) -> None:
+    real = _ops_target(context)
+    path = real / name
+    assert path.is_file(), f"expected top-level file {path!s} to exist"
+
+
+@then(
+    parsers.parse(
+        'after the invocation the target directory contains a file at '
+        '"{rel}"'
+    )
+)
+def then_target_contains_file_at(rel: str, context: dict) -> None:
+    real = _ops_target(context)
+    path = real / rel
+    assert path.is_file(), f"expected file {path!s} to exist"
+
+
+@then(
+    parsers.parse(
+        'the file at "{rel}" in the target directory has its '
+        'owner-execute permission bit set'
+    )
+)
+def then_file_owner_execute_set(rel: str, context: dict) -> None:
+    import stat as _stat
+
+    real = _ops_target(context)
+    path = real / rel
+    mode = path.stat().st_mode
+    assert mode & _stat.S_IXUSR, (
+        f"expected owner-execute bit set on {path!s}; mode={oct(mode)}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the first line of the file at "{rel}" is exactly "{line}"'
+    )
+)
+def then_first_line_is_exactly(rel: str, line: str, context: dict) -> None:
+    real = _ops_target(context)
+    text = (real / rel).read_text()
+    first = text.splitlines()[0] if text.splitlines() else ""
+    assert first == line, f"first line of {rel} is {first!r}, expected {line!r}"
+
+
+# -- Then: bin/shop-shell body literals ---------------------------------
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" contains the literal substring '
+        r'"(?P<first>[^"]+)" followed somewhere later in the file by the '
+        r'literal substring "(?P<second>[^"]+)"'
+    )
+)
+def then_body_contains_ordered(
+    rel: str, first: str, second: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    i = body.find(first)
+    j = body.find(second)
+    assert i != -1, f"{rel} missing literal {first!r}"
+    assert j != -1, f"{rel} missing literal {second!r}"
+    assert i < j, (
+        f"{rel}: {first!r} (at {i}) must precede {second!r} (at {j})"
+    )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" contains the literal substring '
+        r'"(?P<needle>[^"]+)"$'
+    )
+)
+def then_body_contains_literal(rel: str, needle: str, context: dict) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert needle in body, f"{rel} missing literal substring {needle!r}"
+
+
+@then(
+    parsers.parse(
+        'the body of "{rel}" references the environment variable '
+        '"{var}" with a default of "{default}"'
+    )
+)
+def then_body_references_env_with_default(
+    rel: str, var: str, default: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert var in body, f"{rel} does not reference env var {var!r}"
+    assert default in body, (
+        f"{rel} does not express default {default!r} for {var!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the body of "{rel}" references the environment variable '
+        '"{var}" for the shell image tag'
+    )
+)
+def then_body_references_env(rel: str, var: str, context: dict) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert var in body, f"{rel} does not reference env var {var!r}"
+
+
+# -- Then: Dockerfile literals ------------------------------------------
+
+
+@then(
+    parsers.parse(
+        'the file at "{rel}" in the target directory contains at least '
+        'one line beginning with the literal token "{token}"'
+    )
+)
+def then_file_has_line_beginning_with(
+    rel: str, token: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert any(ln.startswith(token) for ln in body.splitlines()), (
+        f"{rel} has no line beginning with {token!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the file at "{rel}" in the target directory contains the literal '
+        'substring "{needle}"'
+    )
+)
+def then_file_contains_literal(rel: str, needle: str, context: dict) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert needle in body, f"{rel} missing literal substring {needle!r}"
+
+
+@then(
+    parsers.parse(
+        'the file at "{rel}" in the target directory installs at least '
+        'one of the framework CLIs by literal substring match against the '
+        'set "{a}", "{b}", or "{c}"'
+    )
+)
+def then_file_installs_a_framework_cli(
+    rel: str, a: str, b: str, c: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert any(x in body for x in (a, b, c)), (
+        f"{rel} installs none of the framework CLIs {a!r}, {b!r}, {c!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the file at "{rel}" in the target directory contains a "{kw1}" or '
+        '"{kw2}" instruction whose literal token form references "{t1}" or '
+        '"{t2}"'
+    )
+)
+def then_file_has_cmd_or_entrypoint(
+    rel: str, kw1: str, kw2: str, t1: str, t2: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    has_instr = any(
+        ln.lstrip().startswith(kw1) or ln.lstrip().startswith(kw2)
+        for ln in body.splitlines()
+    )
+    assert has_instr, f"{rel} has no {kw1} or {kw2} instruction"
+    references = any(
+        (t1 in ln or t2 in ln)
+        and (ln.lstrip().startswith(kw1) or ln.lstrip().startswith(kw2))
+        for ln in body.splitlines()
+    )
+    assert references, (
+        f"{rel}: no {kw1}/{kw2} instruction references {t1!r} or {t2!r}"
+    )
+
+
+# -- Then: compose.yaml parsing + structure -----------------------------
+
+
+def _load_compose(context: dict, rel: str = "compose.yaml") -> object:
+    real = _ops_target(context)
+    data = _parse_yaml_via_subprocess(real / rel)
+    context["parsed_compose"] = data
+    return data
+
+
+@then(
+    parsers.parse(
+        'the file at "{rel}" in the target directory parses as valid YAML'
+    )
+)
+def then_file_parses_as_yaml(rel: str, context: dict) -> None:
+    data = _load_compose(context, rel)
+    assert data is not None, f"{rel} parsed to an empty/None YAML document"
+
+
+@then(
+    parsers.parse(
+        'after the invocation the file at "{rel}" in the target directory '
+        'parses as valid YAML'
+    )
+)
+def then_after_file_parses_as_yaml(rel: str, context: dict) -> None:
+    data = _load_compose(context, rel)
+    assert data is not None, f"{rel} parsed to an empty/None YAML document"
+
+
+@then(
+    parsers.parse(
+        'the parsed YAML contains a top-level key "{key}" whose value is a '
+        'mapping containing a key "{subkey}"'
+    )
+)
+def then_parsed_yaml_top_level_mapping_has_subkey(
+    key: str, subkey: str, context: dict
+) -> None:
+    data = context.get("parsed_compose") or _load_compose(context)
+    assert isinstance(data, dict) and key in data, (
+        f"parsed YAML has no top-level key {key!r}"
+    )
+    value = data[key]
+    assert isinstance(value, dict) and subkey in value, (
+        f"top-level {key!r} is not a mapping containing {subkey!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the "{svc}" mapping has an "{field}" value whose string form '
+        'begins with the literal "{prefix}"'
+    )
+)
+def then_service_field_begins_with(
+    svc: str, field: str, prefix: str, context: dict
+) -> None:
+    data = context.get("parsed_compose") or _load_compose(context)
+    node = _resolve_dotted(data, svc)
+    assert isinstance(node, dict) and field in node, (
+        f"{svc!r} has no {field!r} value"
+    )
+    assert str(node[field]).startswith(prefix), (
+        f"{svc}.{field} = {node[field]!r} does not begin with {prefix!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the "{svc}" mapping has a "networks" entry naming the "{net}" '
+        'network'
+    )
+)
+def then_service_networks_names(svc: str, net: str, context: dict) -> None:
+    data = context.get("parsed_compose") or _load_compose(context)
+    node = _resolve_dotted(data, svc)
+    assert isinstance(node, dict) and "networks" in node, (
+        f"{svc!r} has no networks entry"
+    )
+    nets = node["networks"]
+    if isinstance(nets, dict):
+        names = list(nets.keys())
+    else:
+        names = list(nets)
+    assert net in names, f"{svc}.networks {names!r} does not name {net!r}"
+
+
+@then(
+    parsers.parse(
+        'the "{svc}" mapping has a "volumes" entry whose source string '
+        'contains the literal substring "{src_lit}" and whose target '
+        'string is exactly "{target}"'
+    )
+)
+def then_service_volume_source_target(
+    svc: str, src_lit: str, target: str, context: dict
+) -> None:
+    data = context.get("parsed_compose") or _load_compose(context)
+    node = _resolve_dotted(data, svc)
+    src, tgt = _find_volume_for_target(node, target)
+    assert src is not None, (
+        f"{svc!r} has no volume whose target is {target!r}"
+    )
+    context["last_volume_source"] = src
+    assert src_lit in src, (
+        f"volume source {src!r} does not contain {src_lit!r}"
+    )
+    assert tgt == target, f"volume target {tgt!r} is not exactly {target!r}"
+
+
+@then(
+    parsers.parse(
+        'the source string of the volume mount on "{svc}" whose target is '
+        '"{target}" contains the literal substring "{src_lit}"'
+    )
+)
+def then_volume_source_contains(
+    svc: str, target: str, src_lit: str, context: dict
+) -> None:
+    data = context.get("parsed_compose") or _load_compose(context)
+    node = _resolve_dotted(data, svc)
+    src, _tgt = _find_volume_for_target(node, target)
+    assert src is not None, f"no volume on {svc!r} with target {target!r}"
+    context["last_volume_source"] = src
+    assert src_lit in src, f"source {src!r} missing literal {src_lit!r}"
+
+
+@then(
+    parsers.re(
+        r'the source string of that volume mount expresses a default whose '
+        r'literal substring is "(?P<a>[^"]+)" or "(?P<b>[^"]+)"'
+    )
+)
+def then_volume_source_default(a: str, b: str, context: dict) -> None:
+    src = context.get("last_volume_source")
+    assert src is not None, "no volume source captured by a prior step"
+    assert a in src or b in src, (
+        f"volume source {src!r} expresses neither {a!r} nor {b!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the source string of that volume mount does not contain the '
+        'literal substring "{needle}"'
+    )
+)
+def then_volume_source_excludes(needle: str, context: dict) -> None:
+    src = context.get("last_volume_source")
+    assert src is not None, "no volume source captured by a prior step"
+    assert needle not in src, (
+        f"volume source {src!r} unexpectedly contains {needle!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'no service entry under "services" mounts a volume whose source '
+        'path resolves underneath "{root}"'
+    )
+)
+def then_no_service_volume_under_root(root: str, context: dict) -> None:
+    data = context.get("parsed_compose") or _load_compose(context)
+    services = data.get("services", {}) if isinstance(data, dict) else {}
+    for svc_name, svc in services.items():
+        if not isinstance(svc, dict):
+            continue
+        for vol in svc.get("volumes", []) or []:
+            src = _volume_source(vol)
+            if src is None:
+                continue
+            assert root not in src, (
+                f"service {svc_name!r} mounts a volume whose source {src!r} "
+                f"resolves underneath {root!r}"
+            )
+
+
+@then(
+    parsers.parse(
+        'the body of "{rel}" in the target directory contains no path '
+        'beginning with the literal "{a}" or "{b}"'
+    )
+)
+def then_body_contains_no_path(rel: str, a: str, b: str, context: dict) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert a not in body, f"{rel} unexpectedly contains {a!r}"
+    assert b not in body, f"{rel} unexpectedly contains {b!r}"
+
+
+# -- Then: shop-owned placement (not under .claude/) --------------------
+
+
+@then(
+    parsers.re(
+        r'after the invocation the target directory contains a top-level '
+        r'file named "(?P<name>[^"]+)" at the path "(?P<abspath>[^"]+)" '
+        r'\(not under any "\.claude/" subdirectory\)'
+    )
+)
+def then_top_level_file_at_abspath_not_under_claude(
+    name: str, abspath: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    path = real / name
+    assert path.is_file(), f"expected file {path!s} to exist"
+    assert ".claude" not in path.relative_to(real).parts, (
+        f"{name} is under a .claude/ subdirectory: {path!s}"
+    )
+
+
+@then(
+    parsers.re(
+        r'after the invocation the target directory contains a file at '
+        r'"(?P<abspath>[^"]+)" \(not under any "\.claude/" subdirectory\)'
+    )
+)
+def then_file_at_abspath_not_under_claude(abspath: str, context: dict) -> None:
+    real = _ops_target(context)
+    # The scenario expresses the path as /tmp/example-lead-shop/<rel>; map
+    # it onto the real target by stripping the alias prefix.
+    rel = abspath.split("/tmp/example-lead-shop/", 1)[-1]
+    path = real / rel
+    assert path.is_file(), f"expected file {path!s} to exist"
+    assert ".claude" not in path.relative_to(real).parts, (
+        f"{rel} is under a .claude/ subdirectory: {path!s}"
+    )
+
+
+@then(
+    parsers.re(
+        r'after the invocation the directory at "(?P<dirpath>[^"]+)" does '
+        r'not contain a file named "(?P<n1>[^"]+)", "(?P<n2>[^"]+)", or '
+        r'"(?P<n3>[^"]+)"'
+    )
+)
+def then_canonical_dir_lacks_files(
+    dirpath: str, n1: str, n2: str, n3: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    rel = dirpath.split("/tmp/example-lead-shop/", 1)[-1].rstrip("/")
+    cdir = real / rel
+    for n in (n1, n2, n3):
+        assert not (cdir / n).exists(), (
+            f"{cdir!s} unexpectedly contains {n!r}"
+        )
+
+
+# -- Then: ops-file non-emission (bc shop) ------------------------------
+
+
+@then(
+    parsers.parse(
+        'after the invocation the target directory contains no top-level '
+        'file named "{name}"'
+    )
+)
+def then_target_lacks_top_level_file(name: str, context: dict) -> None:
+    real = _ops_target(context)
+    assert not (real / name).exists(), (
+        f"{(real / name)!s} unexpectedly exists"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the invocation the target directory contains no file at '
+        '"{rel}"'
+    )
+)
+def then_target_lacks_file_at(rel: str, context: dict) -> None:
+    real = _ops_target(context)
+    assert not (real / rel).exists(), (
+        f"{(real / rel)!s} unexpectedly exists"
+    )
+
+
+# -- helpers for compose structure --------------------------------------
+
+
+def _resolve_dotted(data: object, dotted: str) -> object:
+    node = data
+    for part in dotted.split("."):
+        assert isinstance(node, dict) and part in node, (
+            f"path {dotted!r} not resolvable: missing {part!r}"
+        )
+        node = node[part]
+    return node
+
+
+def _volume_source(vol: object) -> str | None:
+    """Return the source string of a compose volume entry (long or short
+    form), or None if it has no identifiable source."""
+    if isinstance(vol, dict):
+        src = vol.get("source")
+        return None if src is None else str(src)
+    if isinstance(vol, str):
+        # short form "source:target[:opts]" — but our source may itself
+        # contain ":-"; long form is used in the rendered file, so this
+        # branch is best-effort only.
+        return vol.split(":")[0]
+    return None
+
+
+def _volume_target(vol: object) -> str | None:
+    if isinstance(vol, dict):
+        tgt = vol.get("target")
+        return None if tgt is None else str(tgt)
+    if isinstance(vol, str):
+        parts = vol.split(":")
+        return parts[1] if len(parts) > 1 else None
+    return None
+
+
+def _find_volume_for_target(node: object, target: str):
+    """Return (source, target) for the volume on a service mapping whose
+    target equals `target`, capturing the source on context for later
+    'that volume mount' steps. Returns (None, None) when not found."""
+    if not isinstance(node, dict):
+        return None, None
+    for vol in node.get("volumes", []) or []:
+        tgt = _volume_target(vol)
+        if tgt == target:
+            src = _volume_source(vol)
+            return src, tgt
+    return None, None

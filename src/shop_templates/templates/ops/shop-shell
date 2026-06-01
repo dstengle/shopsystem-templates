@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# bin/shop-shell — lead-shop daily-driver shell (shop-owned, PDR-003 path F).
+#
+# Brings up the compose-defined postgres if it is not already running, then
+# drops the operator into the shopsystem shell image with the project mounted
+# and the docker socket forwarded. A fresh operator can run ./bin/shop-shell
+# with no further configuration.
+set -euo pipefail
+
+# Resolve the repo root (this script lives at <repo>/bin/shop-shell).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Persistent data root lives OUTSIDE the repo so the shop tree stays clean.
+SHOPSYSTEM_DATA="${SHOPSYSTEM_DATA:-$HOME/.local/share/shopsystem}"
+export SHOPSYSTEM_DATA
+mkdir -p "$SHOPSYSTEM_DATA/pgdata"
+
+# The daily-driver shell image tag. Override with SHOPSYSTEM_SHELL_IMAGE to
+# point at a published image; defaults to the locally-built recipe in
+# Dockerfile.shopsystem-shell (docker build -t shopsystem-shell:dev -f
+# Dockerfile.shopsystem-shell .).
+SHOPSYSTEM_SHELL_IMAGE="${SHOPSYSTEM_SHELL_IMAGE:-shopsystem-shell:dev}"
+
+# Bring up postgres if it is not already running.
+docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres
+
+# Drop into the shell image on the shopsystem network, with the project
+# mounted and the docker socket forwarded so in-shell tooling can drive
+# docker.
+exec docker run --rm -it \
+  --network shopsystem \
+  -e SHOPSYSTEM_DATA \
+  -v "$REPO_ROOT:$REPO_ROOT" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -w "$REPO_ROOT" \
+  "$SHOPSYSTEM_SHELL_IMAGE" \
+  /bin/bash "$@"

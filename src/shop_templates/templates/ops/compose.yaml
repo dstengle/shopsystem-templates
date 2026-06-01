@@ -1,0 +1,30 @@
+# compose.yaml — lead-shop ops scaffolding (shop-owned, PDR-003 path F).
+#
+# Brings up the shopsystem postgres that the lead shop and its BC clones
+# share. Run it via ./bin/shop-shell, or directly with:
+#
+#     docker compose up -d postgres
+#
+# The pgdata bind source is derived from SHOPSYSTEM_DATA (default
+# ${HOME}/.local/share/shopsystem) and deliberately lives OUTSIDE this
+# repository so a `docker compose up` never pollutes the shop tree with a
+# pgdata/ directory.
+services:
+  postgres:
+    image: postgres:16
+    networks:
+      - shopsystem
+    environment:
+      POSTGRES_USER: shopsystem
+      POSTGRES_PASSWORD: shopsystem
+      POSTGRES_DB: shopsystem
+    volumes:
+      - type: bind
+        source: "${SHOPSYSTEM_DATA:-${HOME}/.local/share/shopsystem}/pgdata"
+        target: /var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+networks:
+  shopsystem:
+    name: shopsystem

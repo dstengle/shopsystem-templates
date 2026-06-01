@@ -28,10 +28,46 @@ consumer reads templates via this surface rather than by path.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from importlib.resources import files
 from pathlib import Path
+
+
+# The canonical shop-identity slug shape (ADR-018): .claude/shop/name.md is
+# the single source of truth for shop identity and must carry only the
+# canonical registry slug — lowercase ASCII letters, digits, and hyphens,
+# with no whitespace and no other characters. Any human-readable display
+# form of the shop name lives in the shop-owned .claude/shop/primer.md,
+# which is NOT canonical-managed.
+_SLUG_RE = re.compile(r"^[a-z0-9-]+$")
+
+
+def _is_canonical_slug(value: str) -> bool:
+    """Return True iff `value` is a canonical shop-identity slug.
+
+    A slug is one or more characters drawn only from lowercase ASCII
+    letters, digits, and hyphens — no whitespace, no uppercase, no other
+    punctuation. Per ADR-018 this is the only admissible content for
+    .claude/shop/name.md.
+    """
+    return bool(_SLUG_RE.match(value))
+
+
+def _suggest_slug(value: str) -> str:
+    """Return a best-effort canonical-slug suggestion for a display-form name.
+
+    Lowercases the input and replaces each run of disallowed characters
+    (whitespace and any character outside [a-z0-9-]) with a single hyphen,
+    then trims leading/trailing hyphens. Used only to surface a helpful
+    suggestion in the drift advisory; it does NOT mutate any shop-owned
+    file. For the canonical example "shopsystem product" this yields
+    "shopsystem-product".
+    """
+    lowered = value.strip().lower()
+    slugged = re.sub(r"[^a-z0-9-]+", "-", lowered)
+    return slugged.strip("-")
 
 
 _TEMPLATES_PKG = "shop_templates.templates"
@@ -300,6 +336,13 @@ def _validate_shop_name(shop_name: str | None, command: str) -> str | None:
     (matching the in-house pattern used by `_validate_shop_type`) rather
     than letting argparse short-circuit so the error shape is ours, not
     argparse's auto-generated message.
+
+    Per scenario 51e39aa4a790e5fb (ADR-018): the --shop-name value must
+    additionally be the canonical slug form (lowercase letters, digits,
+    and hyphens only; no whitespace). A non-slug --shop-name (e.g. a
+    display form containing a space) is rejected here with a diagnostic
+    that names "--shop-name" + the slug constraint + the offending input
+    + the disallowed character class, BEFORE any scaffold is written.
     """
     if shop_name is None:
         print(
@@ -308,6 +351,26 @@ def _validate_shop_name(shop_name: str | None, command: str) -> str | None:
             file=sys.stderr,
         )
         return "missing"
+    if not _is_canonical_slug(shop_name):
+        # Name the offending input and, when present, call out whitespace
+        # explicitly (scenario 51e39aa4a790e5fb pins that the diagnostic
+        # identifies whitespace as the disallowed character for the
+        # "shopsystem product" example). Fall back to a generic
+        # disallowed-character phrasing for non-whitespace violations.
+        if any(c.isspace() for c in shop_name):
+            disallowed = "whitespace"
+        else:
+            disallowed = "a disallowed character"
+        print(
+            f"shop-templates {command}: --shop-name must be a canonical slug "
+            f"(lowercase letters, digits, and hyphens only); the input "
+            f"{shop_name!r} contains {disallowed}. The slug written into "
+            f".claude/shop/name.md is the single source of truth for shop "
+            f"identity; any human-readable display form belongs in the "
+            f"shop-owned .claude/shop/primer.md, not in name.md.",
+            file=sys.stderr,
+        )
+        return "invalid"
     return None
 
 
@@ -702,6 +765,37 @@ def _cmd_update(args: argparse.Namespace) -> int:
         pass  # leave byte+mtime unchanged
     else:
         primer_file.write_text(canonical_primer)
+
+    # Step 6: surface (without modifying) drift in .claude/shop/name.md.
+    # Per scenario 97245affb1dbe5e4 (ADR-018 / ADR-007): name.md is the
+    # single source of truth for shop identity and must hold the canonical
+    # slug; but name.md is a SHOP-OWNED file that update must never
+    # modify (scenario 3d3f8c8427366491). When its on-disk content has
+    # drifted to a non-slug form (e.g. a legacy display form with a
+    # space), update emits a stderr advisory naming the file, the on-disk
+    # value, a suggested canonical slug, and the instruction to edit
+    # name.md to slug form — and explicitly notes that update did NOT
+    # modify the shop-owned file. This respects the canonical-managed vs
+    # shop-owned boundary while still surfacing the drift to the operator.
+    name_file = target / ".claude" / "shop" / "name.md"
+    if name_file.exists():
+        on_disk = name_file.read_text()
+        on_disk_value = on_disk.rstrip("\n")
+        if not _is_canonical_slug(on_disk_value):
+            suggested = _suggest_slug(on_disk_value)
+            print(
+                f"shop-templates update: advisory — the shop-owned file "
+                f".claude/shop/name.md contains {on_disk_value!r}, which is "
+                f"not a canonical shop-identity slug (lowercase letters, "
+                f"digits, and hyphens only; no whitespace). Suggested "
+                f"canonical slug: {suggested!r}. Please edit "
+                f".claude/shop/name.md to the slug form "
+                f"(e.g. {suggested!r}); any human-readable display form "
+                f"belongs in the shop-owned .claude/shop/primer.md. "
+                f"shop-templates update did NOT modify the shop-owned file "
+                f".claude/shop/name.md.",
+                file=sys.stderr,
+            )
 
     return 0
 

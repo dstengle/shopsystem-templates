@@ -9744,3 +9744,368 @@ def then_content_orphan_check_cites_adr_010_subset_rule(
         "as the field being constrained "
         "(lead-83l / 36d22e52adcea48e)"
     )
+
+
+# =======================================================================
+# lead-yi0k / ADR-018 — shop name source-of-truth doctrine (scenarios
+# 51e39aa4a790e5fb, 3133b1c8c5447cd4, 97245affb1dbe5e4).
+#
+# name.md is the single source of truth for shop identity and must carry
+# only the canonical slug (lowercase letters, digits, hyphens; no
+# whitespace). Display forms live in the shop-owned primer.md. Bootstrap
+# rejects a non-slug --shop-name; update surfaces (without modifying)
+# drifted display-form name.md via a stderr advisory.
+# =======================================================================
+
+
+# -- When: bootstrap invocation whose shop-name carries a parenthetical
+#    "(with a literal space)" annotation in the scenario text. The
+#    annotation is descriptive Gherkin only; the actual argument value
+#    passed to the CLI is the {shop_name} captured before the parenthetical.
+@when(
+    parsers.parse(
+        'I invoke the "shop-templates" bootstrap entry point with shop type '
+        '"{shop_type}", shop name "{shop_name}" (with a literal space), and '
+        'target directory "{alias}"'
+    )
+)
+def when_invoke_bootstrap_with_literal_space_annotation(
+    shop_type: str,
+    shop_name: str,
+    alias: str,
+    context: dict,
+    tmp_path: Path,
+) -> None:
+    real = _real_target_for_alias(alias, context)
+    result = _run_shop_templates_with_bd_shim(
+        [
+            "bootstrap",
+            "--shop-type",
+            shop_type,
+            "--shop-name",
+            shop_name,
+            "--target",
+            str(real),
+        ],
+        context,
+        tmp_path,
+    )
+    context["cli_returncode"] = result.returncode
+    context["cli_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+    context["last_invocation_target"] = real
+    context["last_invocation_shop_type"] = shop_type
+    context["last_invocation_shop_name"] = shop_name
+
+
+# -- Then: bootstrap slug-rejection diagnostic shape (scenario
+#    51e39aa4a790e5fb). The stderr must name "--shop-name" + the
+#    canonical-slug constraint (lowercase letters, digits, hyphens) AND
+#    the offending input AND identify the disallowed character as
+#    whitespace.
+@then(
+    parsers.parse(
+        'stderr contains a diagnostic naming that "--shop-name" must be a '
+        'canonical slug (lowercase letters, digits, and hyphens only) and '
+        'that the input "{bad_input}" contains a disallowed character '
+        '(whitespace)'
+    )
+)
+def then_stderr_names_slug_constraint_and_whitespace(
+    bad_input: str, context: dict
+) -> None:
+    stderr = context.get("cli_stderr", "")
+    assert "--shop-name" in stderr, (
+        f"expected stderr to name '--shop-name'; got:\n{stderr!r}"
+    )
+    lower = stderr.lower()
+    assert "canonical slug" in lower or "slug" in lower, (
+        f"expected stderr to name the canonical-slug constraint; "
+        f"got:\n{stderr!r}"
+    )
+    # The slug constraint must enumerate the allowed character classes.
+    assert "lowercase letters" in lower, (
+        f"expected stderr to name 'lowercase letters' in the slug "
+        f"constraint; got:\n{stderr!r}"
+    )
+    assert "digits" in lower and "hyphen" in lower, (
+        f"expected stderr to name 'digits' and 'hyphens' in the slug "
+        f"constraint; got:\n{stderr!r}"
+    )
+    assert bad_input in stderr, (
+        f"expected stderr to name the offending input {bad_input!r}; "
+        f"got:\n{stderr!r}"
+    )
+    assert "whitespace" in lower, (
+        f"expected stderr to identify the disallowed character as "
+        f"'whitespace'; got:\n{stderr!r}"
+    )
+
+
+# -- Then: the target directory does NOT contain a file at <path>.
+@then(
+    parsers.parse(
+        'the target directory does not contain a file at "{path}"'
+    )
+)
+def then_target_does_not_contain_file_at_path(
+    path: str, context: dict
+) -> None:
+    real = context["last_invocation_target"]
+    target_file = real / path
+    assert not target_file.exists(), (
+        f"expected NO file at {path!r} under target directory {real!s}, "
+        f"but one exists"
+    )
+
+
+# -- Then: the target directory does NOT contain a top-level <filename>.
+@then(
+    parsers.parse(
+        'the target directory does not contain a top-level "{filename}"'
+    )
+)
+def then_target_does_not_contain_top_level(
+    filename: str, context: dict
+) -> None:
+    real = context["last_invocation_target"]
+    target_file = real / filename
+    assert not target_file.exists(), (
+        f"expected NO top-level {filename!r} under target directory "
+        f"{real!s}, but one exists"
+    )
+
+
+# -- Then: byte contents of a named file equal exactly <value> + single
+#    trailing newline (inline-path variant; scenarios 51e39aa4a790e5fb
+#    and 3133b1c8c5447cd4).
+@then(
+    parsers.parse(
+        'the byte contents of ".claude/shop/name.md" in the target '
+        'directory are exactly the literal string "{value}" with a single '
+        'trailing newline and no other content'
+    )
+)
+def then_named_file_exact_value_with_newline(
+    value: str, context: dict
+) -> None:
+    real = context["last_invocation_target"]
+    target_file = real / ".claude" / "shop" / "name.md"
+    actual = target_file.read_bytes()
+    expected = (value + "\n").encode()
+    assert actual == expected, (
+        f"byte contents of '.claude/shop/name.md' are {actual!r}; "
+        f"expected exactly {expected!r} (literal {value!r} + single "
+        f"trailing newline)"
+    )
+
+
+# -- Then: a named file contains no whitespace other than the single
+#    trailing newline (scenario 3133b1c8c5447cd4).
+@then(
+    parsers.parse(
+        'the file at ".claude/shop/name.md" contains no whitespace '
+        'character other than the single trailing newline'
+    )
+)
+def then_name_md_no_internal_whitespace(context: dict) -> None:
+    real = context["last_invocation_target"]
+    target_file = real / ".claude" / "shop" / "name.md"
+    text = target_file.read_text()
+    assert text.endswith("\n"), (
+        f"expected name.md to end with a single trailing newline; "
+        f"got {text!r}"
+    )
+    body = text[:-1]  # strip the single trailing newline
+    offending = [c for c in body if c.isspace()]
+    assert not offending, (
+        f"name.md body {body!r} contains whitespace character(s) "
+        f"{offending!r} other than the single trailing newline"
+    )
+
+
+# -- Then: the bootstrap-written primer.md is a shop-owned placeholder
+#    (scenario 3133b1c8c5447cd4). Empirically: the file exists, and it
+#    is NOT canonical-managed — i.e. it does not carry the canonical
+#    primer template content (which would mean it was treated as
+#    canonical-managed). An empty placeholder body satisfies "shop-owned
+#    placeholder whose body may contain prose".
+@then(
+    parsers.parse(
+        'the bootstrap-written ".claude/shop/primer.md" in the target '
+        'directory is a shop-owned placeholder whose body may contain '
+        'prose using either the slug or a display variant; that file is '
+        'not canonical-managed and its content is the shop\'s to evolve'
+    )
+)
+def then_primer_is_shop_owned_placeholder(context: dict) -> None:
+    from shop_templates.cli import read_claude_md_primer
+
+    real = context["last_invocation_target"]
+    primer_file = real / ".claude" / "shop" / "primer.md"
+    assert primer_file.exists() and primer_file.is_file(), (
+        f"expected bootstrap to write a shop-owned placeholder at "
+        f".claude/shop/primer.md under {real!s}"
+    )
+    # Not canonical-managed: the shop-owned primer must NOT carry the
+    # canonical primer template body. Determine shop type from the
+    # invocation context to compare against the right canonical primer.
+    shop_type = context.get("last_invocation_shop_type")
+    body = primer_file.read_text()
+    if shop_type is not None:
+        canonical = read_claude_md_primer(shop_type)
+        # A non-trivial overlap (64+ char shared substring) would mean
+        # the file is canonical-managed content rather than a shop-owned
+        # placeholder.
+        min_len = 64
+        if len(canonical) >= min_len:
+            for i in range(len(canonical) - min_len + 1):
+                chunk = canonical[i : i + min_len]
+                assert chunk not in body, (
+                    f".claude/shop/primer.md carries canonical primer "
+                    f"template content (it is being treated as "
+                    f"canonical-managed, not shop-owned): matched chunk "
+                    f"{chunk!r}"
+                )
+
+
+# -- Then: no other bootstrap-written file contains a display variant of
+#    the shop name (scenario 3133b1c8c5447cd4). Scans every file under
+#    the target directory and asserts the literal display string (with a
+#    space) appears in none of them, EXCEPT the shop-owned primer.md
+#    (which the prior Then explicitly carves out as the home for display
+#    prose).
+@then(
+    parsers.parse(
+        'no other bootstrap-written file under the target directory '
+        'contains a display variant of the shop name (i.e. the literal '
+        'string "{display}" with a space) introduced by the templates '
+        'package'
+    )
+)
+def then_no_other_file_contains_display_variant(
+    display: str, context: dict
+) -> None:
+    real = context["last_invocation_target"]
+    primer_rel = (real / ".claude" / "shop" / "primer.md").resolve()
+    offenders = []
+    for p in real.rglob("*"):
+        if not p.is_file():
+            continue
+        # The shop-owned primer.md is explicitly allowed to carry display
+        # prose; exclude it from the "no other bootstrap-written file"
+        # scan. Also skip .git internals (not bootstrap-written).
+        if p.resolve() == primer_rel:
+            continue
+        if ".git" in p.parts:
+            continue
+        if ".beads" in p.parts:
+            continue
+        try:
+            content = p.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        if display in content:
+            offenders.append(str(p.relative_to(real)))
+    assert not offenders, (
+        f"bootstrap-written file(s) {offenders!r} contain the display "
+        f"variant {display!r} of the shop name"
+    )
+
+
+# -- Given: name.md has been edited to a display form (scenario
+#    97245affb1dbe5e4). Establishes the drifted-display-form pre-state.
+@given(
+    parsers.parse(
+        'the file at ".claude/shop/name.md" in the target directory has '
+        'been edited so that its byte contents are exactly the literal '
+        'string "{value}" with a single trailing newline (a display form '
+        'containing a literal space, not a canonical slug)'
+    )
+)
+def given_name_md_edited_to_display_form(
+    value: str, context: dict
+) -> None:
+    real = _resolve_single_target(context)
+    name_file = real / ".claude" / "shop" / "name.md"
+    assert name_file.exists(), (
+        f"premise of Given violated: {name_file!s} does not exist "
+        f"(target must have been previously bootstrapped)"
+    )
+    name_file.write_bytes((value + "\n").encode())
+
+
+# -- Then: stderr advisory naming file + on-disk value + suggested slug +
+#    edit instruction (scenario 97245affb1dbe5e4).
+@then(
+    parsers.parse(
+        'stderr contains an advisory naming the file ".claude/shop/name.md", '
+        'the on-disk value "{on_disk}", the suggested canonical slug '
+        '"{slug}", and the instruction to edit name.md to the slug form'
+    )
+)
+def then_stderr_advisory_names_drift(
+    on_disk: str, slug: str, context: dict
+) -> None:
+    stderr = context.get("cli_stderr", "")
+    assert ".claude/shop/name.md" in stderr, (
+        f"expected advisory to name '.claude/shop/name.md'; got:\n{stderr!r}"
+    )
+    assert on_disk in stderr, (
+        f"expected advisory to name the on-disk value {on_disk!r}; "
+        f"got:\n{stderr!r}"
+    )
+    assert slug in stderr, (
+        f"expected advisory to name the suggested canonical slug "
+        f"{slug!r}; got:\n{stderr!r}"
+    )
+    lower = stderr.lower()
+    assert "edit" in lower and "name.md" in stderr and "slug" in lower, (
+        f"expected advisory to instruct editing name.md to the slug "
+        f"form; got:\n{stderr!r}"
+    )
+
+
+# -- Then: advisory explicitly notes update did not modify the shop-owned
+#    file (scenario 97245affb1dbe5e4).
+@then(
+    'the advisory explicitly notes that "shop-templates update" did not '
+    'modify the shop-owned file'
+)
+def then_advisory_notes_no_modification(context: dict) -> None:
+    stderr = context.get("cli_stderr", "")
+    lower = stderr.lower()
+    assert "did not modify" in lower or "did not" in lower and (
+        "modif" in lower
+    ), (
+        f"expected advisory to explicitly note that update did NOT "
+        f"modify the shop-owned file; got:\n{stderr!r}"
+    )
+    assert "shop-owned" in lower, (
+        f"expected advisory to name the file as 'shop-owned'; "
+        f"got:\n{stderr!r}"
+    )
+
+
+# -- Given: previously-bootstrapped shop with no explicit shop-name in the
+#    scenario text (scenario 97245affb1dbe5e4). Bootstraps with a canonical
+#    slug name so the pre-state is a clean slug-form name.md, which the
+#    follow-up Given then edits to a display form.
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" that '
+        'was previously bootstrapped as a "{shop_type}" shop'
+    )
+)
+def given_previously_bootstrapped_no_name(
+    alias: str,
+    shop_type: str,
+    context: dict,
+    tmp_path: Path,
+) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    # Use a canonical slug name for the bootstrap so the resulting
+    # name.md holds a valid slug; the next Given drifts it to display form.
+    _do_bootstrap_for_test(
+        alias, shop_type, "shopsystem-product", context, tmp_path
+    )

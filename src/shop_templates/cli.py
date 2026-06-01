@@ -292,6 +292,16 @@ def _cmd_list(args: argparse.Namespace) -> int:
 def _cmd_show(args: argparse.Namespace) -> int:
     content = _read_template(args.name)
     if content is None:
+        # Fall back to the lead-shop ops scaffolding templates so the drift
+        # advisory emitted by `update` (lead-xjsq) can truthfully point the
+        # operator at `shop-templates show <ops-template-name>` to read the
+        # current canonical ops body. The `list` surface deliberately does
+        # NOT enumerate these (it stays the four role names), but `show`
+        # resolves them by exact name.
+        ops_names = {tn for tn, _rel, _exe in _LEAD_OPS_FILES}
+        if args.name in ops_names:
+            sys.stdout.write(read_ops_template(args.name))
+            return 0
         available = ", ".join(_list_template_names())
         print(
             f"shop-templates show: no template named {args.name!r}. Available: {available}",
@@ -867,7 +877,54 @@ def _cmd_update(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
 
+    # Step 7: surface (without modifying) drift in the lead-shop ops
+    # scaffolding files. Per lead-xjsq (scenarios 3e8c8087c483db9e,
+    # ebbe3f1b92258299, 59d41246cbd5235b): compose.yaml, bin/shop-shell,
+    # and Dockerfile.shopsystem-shell are SHOP-OWNED under PDR-003 path F's
+    # two-bucket model — update NEVER overwrites them (the ops-scaffolding
+    # analogue of scenarios 86/87/88 for .claude/shop/). When an ops file's
+    # on-disk content has drifted from the current canonical ops template
+    # body, update emits a stderr advisory naming the file, noting the
+    # drift, explicitly noting it did NOT modify the shop-owned file, and
+    # pointing the operator at the canonical body — without touching the
+    # file or changing the exit code (stays 0). When an ops file already
+    # matches canonical byte-for-byte, no advisory is emitted and the file
+    # is left byte+mtime untouched (idempotence, the ops analogue of
+    # scenario 89). BC shops own NO ops scaffolding, so this is gated on
+    # shop_type == "lead".
+    if shop_type == "lead":
+        _advise_ops_scaffolding_drift(target)
+
     return 0
+
+
+def _advise_ops_scaffolding_drift(target: Path) -> None:
+    """Emit a non-modifying stderr drift advisory for each lead-shop ops
+    scaffolding file whose on-disk content differs from canonical.
+
+    The ops scaffolding files (compose.yaml, bin/shop-shell,
+    Dockerfile.shopsystem-shell) are shop-owned: this function NEVER writes
+    to them. It only inspects on-disk content against the current canonical
+    ops template body and, on drift, prints an advisory to stderr that
+    mirrors the name.md advisory pattern (scenario 132). Files that match
+    canonical, or that are absent, produce no advisory.
+    """
+    for template_name, rel_path, _executable in _LEAD_OPS_FILES:
+        dest = target / rel_path
+        if not dest.exists():
+            continue
+        canonical_body = read_ops_template(template_name)
+        if dest.read_text() == canonical_body:
+            continue
+        print(
+            f"shop-templates update: advisory — the shop-owned ops "
+            f"scaffolding file {rel_path} has drifted from the current "
+            f"canonical template body. shop-templates update did NOT modify "
+            f"the shop-owned file {rel_path}. To view the current canonical "
+            f"body, run `shop-templates show {template_name}` and reconcile "
+            f"the file by hand if you intend to adopt the canonical update.",
+            file=sys.stderr,
+        )
 
 
 # -----------------------------------------------------------------------

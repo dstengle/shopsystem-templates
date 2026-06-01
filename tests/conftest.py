@@ -10769,3 +10769,228 @@ def _find_volume_for_target(node: object, target: str):
             src = _volume_source(vol)
             return src, tgt
     return None, None
+
+
+# =======================================================================
+# lead-xjsq: shop-templates update — ops scaffolding coverage
+# (scenarios 3e8c8087c483db9e / ebbe3f1b92258299 / 59d41246cbd5235b).
+#
+# The three lead-shop ops scaffolding files are SHOP-OWNED (PDR-003 path
+# F two-bucket model): update never overwrites them, emits a drift
+# advisory on stderr (exit 0) when on-disk content differs from the
+# current canonical template body, and is idempotent (no advisory, no
+# mtime bump) when on-disk content already matches canonical. The
+# advisory pattern mirrors scenario 132's name.md advisory.
+#
+# Map a scenario-visible relative target path to the package-data ops
+# template name read via shop_templates.cli.read_ops_template().
+# =======================================================================
+
+_OPS_PATH_TO_TEMPLATE_NAME: dict[str, str] = {
+    "compose.yaml": "compose.yaml",
+    "bin/shop-shell": "shop-shell",
+    "Dockerfile.shopsystem-shell": "Dockerfile.shopsystem-shell",
+}
+
+
+def _canonical_ops_body(path: str) -> str:
+    from shop_templates.cli import read_ops_template
+
+    template_name = _OPS_PATH_TO_TEMPLATE_NAME[path]
+    return read_ops_template(template_name)
+
+
+# -- Given: an ops scaffolding file has been hand-edited so its byte
+#    contents differ from the canonical template body (scenario 139).
+@given(
+    parsers.parse(
+        'the file at "{path}" in the target directory has been hand-edited '
+        'so that its byte contents are not equal to the canonical "{path_again}" '
+        'template body for shop type "{shop_type}"'
+    )
+)
+def given_ops_file_hand_edited_differs(
+    path: str, path_again: str, shop_type: str, context: dict
+) -> None:
+    assert path == path_again, (
+        f"scenario inconsistency: {path!r} vs {path_again!r}"
+    )
+    real = _resolve_single_target(context)
+    target_file = real / path
+    assert target_file.exists(), (
+        f"premise of Given violated: {target_file!s} does not exist "
+        f"(lead shop must have been previously bootstrapped with ops "
+        f"scaffolding)"
+    )
+    edited = target_file.read_text() + "\n# HAND-EDITED — not in canonical ops body\n"
+    target_file.write_text(edited)
+    canonical = _canonical_ops_body(path)
+    assert target_file.read_text() != canonical, (
+        f"premise of Given violated: hand-edited {path!r} still equals "
+        f"the canonical ops template body"
+    )
+
+
+# -- Given: record byte contents of the three named ops files (scenario 139).
+@given('I record the byte contents of those three files before the invocation')
+def given_record_three_ops_files(context: dict) -> None:
+    real = _resolve_single_target(context)
+    snap = context.setdefault("two_file_snapshot", {})
+    for path in ("compose.yaml", "bin/shop-shell", "Dockerfile.shopsystem-shell"):
+        target_file = real / path
+        assert target_file.exists(), (
+            f"premise of Given violated: {target_file!s} does not exist"
+        )
+        snap[path] = {
+            "bytes": target_file.read_bytes(),
+            "mtime_ns": target_file.stat().st_mtime_ns,
+        }
+
+
+# -- Given: an ops scaffolding file's on-disk content differs from the
+#    current canonical template body (scenario 140 outline).
+@given(
+    parsers.parse(
+        'the file at "{path}" in the target directory has byte contents '
+        'that differ from the current canonical "{path_again}" template '
+        'body for shop type "{shop_type}"'
+    )
+)
+def given_ops_file_differs_from_canonical(
+    path: str, path_again: str, shop_type: str, context: dict
+) -> None:
+    assert path == path_again
+    real = _resolve_single_target(context)
+    target_file = real / path
+    assert target_file.exists(), (
+        f"premise of Given violated: {target_file!s} does not exist"
+    )
+    edited = target_file.read_text() + "\n# DRIFTED FROM CANONICAL\n"
+    target_file.write_text(edited)
+    assert target_file.read_text() != _canonical_ops_body(path), (
+        f"premise of Given violated: {path!r} still equals canonical"
+    )
+
+
+# -- Given: an ops scaffolding file's on-disk content equals the current
+#    canonical template body byte-for-byte (scenario 141 outline).
+@given(
+    parsers.parse(
+        'the file at "{path}" in the target directory has byte contents '
+        'equal to the current canonical "{path_again}" template body for '
+        'shop type "{shop_type}"'
+    )
+)
+def given_ops_file_equals_canonical(
+    path: str, path_again: str, shop_type: str, context: dict
+) -> None:
+    assert path == path_again
+    real = _resolve_single_target(context)
+    target_file = real / path
+    canonical = _canonical_ops_body(path)
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    target_file.write_text(canonical)
+    assert target_file.read_text() == canonical, (
+        f"premise of Given violated: could not establish {path!r} == canonical"
+    )
+
+
+# -- Given: record byte contents and mtime of a single ops file (scenarios
+#    140 / 141 outlines). Populates two_file_snapshot keyed by the path so
+#    the existing "equal the recorded byte contents" / "equals the recorded
+#    mtime" Then steps reconcile against it.
+@given(
+    parsers.parse(
+        'I record the byte contents and mtime of the file at "{path}" in '
+        'the target directory before the invocation'
+    )
+)
+def given_record_single_ops_file_byte_and_mtime(path: str, context: dict) -> None:
+    real = _resolve_single_target(context)
+    target_file = real / path
+    assert target_file.exists(), (
+        f"premise of Given violated: {target_file!s} does not exist"
+    )
+    snap = context.setdefault("two_file_snapshot", {})
+    snap[path] = {
+        "bytes": target_file.read_bytes(),
+        "mtime_ns": target_file.stat().st_mtime_ns,
+    }
+
+
+# -- Then: an ops file is byte-for-byte unchanged across the invocation
+#    (scenario 140 outline). Reads the pre_invocation_files snapshot
+#    populated by the existing "I record the byte contents of the file at
+#    <path>" Given step.
+@then(
+    parsers.parse(
+        'after the invocation the file at "{path}" in the target directory '
+        'has byte-for-byte the same on-disk contents as before the invocation'
+    )
+)
+def then_ops_file_unchanged_vs_recorded(path: str, context: dict) -> None:
+    snap = context.get("pre_invocation_files", {})
+    assert path in snap, (
+        f"no recorded snapshot for {path!r}; the 'I record the byte "
+        f"contents of the file at' Given step must run first"
+    )
+    real = context["last_invocation_target"]
+    actual = (real / path).read_bytes()
+    expected = snap[path]
+    assert actual == expected, (
+        f"on-disk byte contents of {path!r} changed across update "
+        f"invocation; expected the shop-owned ops file to be left untouched"
+    )
+
+
+# -- Then: stderr advisory names the drifted ops file path and notes the
+#    drift (scenario 140 outline). Mirrors scenario 132's name.md advisory.
+@then(
+    parsers.parse(
+        'stderr contains an advisory naming the file path "{path}" and '
+        'noting that the file has drifted from canonical'
+    )
+)
+def then_stderr_ops_drift_advisory(path: str, context: dict) -> None:
+    stderr = context.get("cli_stderr", "")
+    assert path in stderr, (
+        f"expected advisory to name the file path {path!r}; got:\n{stderr!r}"
+    )
+    lower = stderr.lower()
+    assert "drift" in lower or "drifted" in lower, (
+        f"expected advisory to note the file has drifted from canonical; "
+        f"got:\n{stderr!r}"
+    )
+
+
+# -- Then: advisory names a means to view the canonical body (scenario 140
+#    outline). Accepts the literal "shop-templates show" substring or an
+#    equivalent operator-visible canonical-read path.
+@then(
+    parsers.parse(
+        'the advisory names a means for the operator to view the canonical '
+        'body (e.g., the literal substring "{needle}" or an equivalent '
+        'operator-visible path the canonical body can be read from)'
+    )
+)
+def then_advisory_names_canonical_read_means(needle: str, context: dict) -> None:
+    stderr = context.get("cli_stderr", "")
+    assert needle in stderr, (
+        f"expected advisory to name a means to view the canonical body "
+        f"(literal substring {needle!r}); got:\n{stderr!r}"
+    )
+
+
+# -- Then: stderr contains NO advisory naming the file path (scenario 141
+#    outline — idempotent / already-up-to-date case).
+@then(
+    parsers.parse(
+        'stderr does not contain any advisory naming the file path "{path}"'
+    )
+)
+def then_stderr_no_advisory_for_path(path: str, context: dict) -> None:
+    stderr = context.get("cli_stderr", "")
+    assert path not in stderr, (
+        f"expected NO advisory naming {path!r} on stderr (file matches "
+        f"canonical; update must be a silent no-op for it); got:\n{stderr!r}"
+    )

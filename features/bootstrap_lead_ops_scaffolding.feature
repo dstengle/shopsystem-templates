@@ -28,14 +28,15 @@ Feature: bootstrap renders ops scaffolding (lead-shop only): compose.yaml, bin/s
   And the body of "bin/shop-shell" references the environment variable "SHOPSYSTEM_SHELL_IMAGE" for the shell image tag
   And the body of "bin/shop-shell" contains the literal substring "/var/run/docker.sock:/var/run/docker.sock"
 
-  @scenario_hash:314d4485b8197f2a @bc:shopsystem-templates
+  @scenario_hash:9bc85eced7685a40 @bc:shopsystem-templates
   Scenario: bootstrap of a "lead" shop writes a top-level "Dockerfile.shopsystem-shell" containing the recipe for the daily-driver shell image referenced by "bin/shop-shell", so an operator without a published shopsystem-shell image can build it locally with "docker build -t shopsystem-shell:dev -f Dockerfile.shopsystem-shell ."
   Given an existing git repository at a target directory "/tmp/example-lead-shop" with no top-level "Dockerfile.shopsystem-shell" file
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "shopsystem-product", and target directory "/tmp/example-lead-shop"
   Then the exit code is 0
   And after the invocation the target directory contains a top-level file named "Dockerfile.shopsystem-shell"
-  And the file at "Dockerfile.shopsystem-shell" in the target directory contains at least one line beginning with the literal token "FROM "
-  And the file at "Dockerfile.shopsystem-shell" in the target directory contains the literal substring "docker-ce-cli"
+  And the file at "Dockerfile.shopsystem-shell" in the target directory contains a "FROM" instruction whose literal image reference is "ghcr.io/dstengle/devcontainer-python-node-claude:latest", which is the same devcontainer base image the lead host and bc-launcher containers run and which already ships a working docker CLI on PATH for the non-root shell user
+  And the file at "Dockerfile.shopsystem-shell" in the target directory does not contain the literal substring "docker-ce-cli", because the docker CLI is provided by the devcontainer base image rather than by an explicit apt-install layer
+  And the file at "Dockerfile.shopsystem-shell" in the target directory contains a "USER" instruction whose literal token form names a non-root user, so the built image runs the shell as that user and the base image's socket-GID reconciler can make the mounted docker socket reachable
   And the file at "Dockerfile.shopsystem-shell" in the target directory installs at least one of the framework CLIs by literal substring match against the set "shop-msg", "scenarios", or "shop-templates"
   And the file at "Dockerfile.shopsystem-shell" in the target directory contains a "CMD" or "ENTRYPOINT" instruction whose literal token form references "/bin/bash" or "bash"
 

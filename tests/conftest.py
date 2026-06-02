@@ -10398,6 +10398,77 @@ def then_file_contains_literal(rel: str, needle: str, context: dict) -> None:
 
 
 @then(
+    parsers.re(
+        r'the file at "(?P<rel>[^"]+)" in the target directory contains a '
+        r'"(?P<kw>[^"]+)" instruction whose literal image reference is '
+        r'"(?P<img>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_file_from_instruction_image(
+    rel: str, kw: str, img: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    matched = any(
+        ln.lstrip().startswith(kw) and img in ln
+        for ln in body.splitlines()
+    )
+    assert matched, (
+        f"{rel}: no {kw} instruction with image reference {img!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the file at "(?P<rel>[^"]+)" in the target directory does not '
+        r'contain the literal substring "(?P<needle>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_file_does_not_contain_literal(
+    rel: str, needle: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert needle not in body, (
+        f"{rel}: expected NOT to contain literal substring {needle!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the file at "(?P<rel>[^"]+)" in the target directory contains a '
+        r'"(?P<kw>[^"]+)" instruction whose literal token form names a '
+        r'non-root user(?:,.*)?$'
+    )
+)
+def then_file_user_instruction_non_root(
+    rel: str, kw: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    user_lines = [
+        ln.strip()
+        for ln in body.splitlines()
+        if ln.lstrip().startswith(kw)
+    ]
+    assert user_lines, f"{rel}: no {kw} instruction present"
+    named_non_root = False
+    for ln in user_lines:
+        # Token after the keyword, e.g. "USER vscode" -> "vscode".
+        parts = ln.split()
+        if len(parts) < 2:
+            continue
+        user_token = parts[1]
+        if user_token not in ("root", "0", "0:0") and not user_token.startswith(
+            "root:"
+        ):
+            named_non_root = True
+    assert named_non_root, (
+        f"{rel}: {kw} instruction(s) {user_lines!r} name no non-root user"
+    )
+
+
+@then(
     parsers.parse(
         'the file at "{rel}" in the target directory installs at least '
         'one of the framework CLIs by literal substring match against the '

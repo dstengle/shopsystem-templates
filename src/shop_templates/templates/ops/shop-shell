@@ -24,14 +24,21 @@ SHOPSYSTEM_SHELL_IMAGE="${SHOPSYSTEM_SHELL_IMAGE:-shopsystem-shell:dev}"
 # Bring up postgres if it is not already running.
 docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres
 
+# Resolve the GID that owns the mounted docker socket so the non-root
+# shell user can be granted access to it via --group-add. stat -L follows
+# the devcontainer-installed symlink to the real socket.
+SOCKET_GID="$(stat -L -c '%g' /var/run/docker.sock)"
+
 # Drop into the shell image on the shopsystem network, with the project
 # mounted and the docker socket forwarded so in-shell tooling can drive
-# docker.
+# docker. --group-add grants the non-root shell user membership in the
+# socket-owning group so the forwarded socket is reachable.
 exec docker run --rm -it \
   --network shopsystem \
   -e SHOPSYSTEM_DATA \
   -v "$REPO_ROOT:$REPO_ROOT" \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$SOCKET_GID" \
   -w "$REPO_ROOT" \
   "$SHOPSYSTEM_SHELL_IMAGE" \
   /bin/bash "$@"

@@ -264,6 +264,15 @@ def read_ops_template(name: str) -> str:
     return (files(_TEMPLATES_PKG) / "ops" / name).read_text()
 
 
+def _pour_skills(target: Path) -> None:
+    """Mirror the skills package-data tree into <target>/.claude/skills/."""
+    skills_root = target / ".claude" / "skills"
+    for rel, body in iter_skill_files():
+        dest = skills_root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+
+
 def _render_lead_ops_scaffolding(target: Path) -> None:
     """Render the three lead-shop ops files into the target directory.
 
@@ -574,6 +583,11 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     (claude_dir / "settings.json").write_text(
         read_claude_settings_template(shop_type)
     )
+
+    # Pour canonical skills into .claude/skills/ for bc shops only.
+    # Lead shops pour no skills.
+    if shop_type == "bc":
+        _pour_skills(target)
 
     # Lead-shop ops scaffolding (PDR-003 path F — shop-owned). For a
     # "lead" shop, render the three ops files (compose.yaml,

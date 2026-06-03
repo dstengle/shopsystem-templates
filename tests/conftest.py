@@ -11303,3 +11303,37 @@ def then_dispatch_carries_credential(context: dict) -> None:
         "use the default GITHUB_TOKEN and must carry an authorized token. "
         "Dispatch step text(s):\n" + "\n---\n".join(t for _s, t in targeted)
     )
+
+
+# -----------------------------------------------------------------------
+# Skills pouring — A2/A3 step definitions
+# -----------------------------------------------------------------------
+
+from shop_templates.cli import iter_skill_files as _iter_skill_files  # noqa: E402
+
+
+@when(parsers.parse('I bootstrap a "{shop_type}" shop named "{name}" at "{target}"'))
+def when_bootstrap_shop(shop_type, name, target, context, tmp_path):
+    ws = context["bootstrap_workspace"]
+    result = _run_shop_templates_with_bd_shim(
+        ["bootstrap", "--shop-type", shop_type, "--shop-name", name, "--target", str(ws)],
+        context, tmp_path,
+    )
+    context["cli_returncode"] = result.returncode
+    context["cli_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+
+
+@then('every shipped skill file appears under ".claude/skills/" in the target byte-for-byte')
+def then_skills_poured(context):
+    ws = Path(context["bootstrap_workspace"])
+    for rel, body in _iter_skill_files():
+        dest = ws / ".claude" / "skills" / rel
+        assert dest.exists(), f"missing poured skill file: {rel}"
+        assert dest.read_bytes() == body, f"skill file content drift: {rel}"
+
+
+@then(parsers.parse('the target directory contains no ".claude/skills/" directory'))
+def then_no_skills_dir(context):
+    ws = Path(context["bootstrap_workspace"])
+    assert not (ws / ".claude" / "skills").exists()

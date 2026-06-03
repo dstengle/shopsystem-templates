@@ -75,7 +75,7 @@ shop-msg respond work_done \
   --bc <name> \
   --work-id <work_id> \
   --status complete \
-  --scenario-hashes "<hash1>,<hash2>"
+  --scenario-hash <hash1> [--scenario-hash <hash2> ...]
 ```
 
 ### Scenario Gap → Clarify to Lead

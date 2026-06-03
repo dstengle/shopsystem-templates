@@ -69,7 +69,7 @@ git grep "@scenario_hash:<hash>" features/
 Each hash you intend to report must appear in the committed `features/` tree. If a hash is not present in `features/`, it was never pinned — you cannot claim it.
 
 **3c. Enforce subset rule.**
-The set of hashes you pass to `--scenario-hashes` must be a strict subset of the hashes found in `features/`. You may report fewer than all pinned hashes (partial delivery is valid); you must not report a hash not in `features/`.
+The set of hashes you pass (one repeatable `--scenario-hash <hash>` flag per hash) must be a strict subset of the hashes found in `features/`. You may report fewer than all pinned hashes (partial delivery is valid); you must not report a hash not in `features/`.
 
 **Pass:** all three sub-steps pass for every hash in the intended `work_done` payload.
 

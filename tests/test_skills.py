@@ -47,10 +47,19 @@ def test_writing_plans_is_beads_backed_no_doc():
 
 
 def test_implementer_not_the_gate_reviewer_sole_emitter():
-    impl = dict(iter_skill_files())  # not used directly; check templates instead
-    # The role discipline lives in the subagent-driven-development skill:
+    # subagent-driven-development must tell the implementer it never emits
+    # work_done for scenario work:
     sdd = _skill("subagent-driven-development").lower()
-    assert "work_done" in sdd
-    # Reviewer's sole-emitter stance is in bc-review:
-    review = _skill("bc-review").lower()
-    assert "blocked" in review or "sign-off" in review or "work_done" in review
+    assert "never emits `work_done`" in sdd or "never emits work_done" in sdd
+    # bc-review must name the reviewer as the SOLE emitter for scenario work:
+    assert "sole" in _skill("bc-review").lower()
+
+
+def test_work_done_uses_repeatable_scenario_hash_flag_not_comma_joined():
+    """Guard against the invalid `--scenario-hashes "<a>,<b>"` spelling.
+    The CLI takes a repeatable singular `--scenario-hash` flag."""
+    for name in ("bc-review", "work-done-gate"):
+        assert "--scenario-hashes" not in _skill(name), (
+            f"{name} uses the invalid plural flag"
+        )
+    assert "--scenario-hash" in _skill("bc-review")

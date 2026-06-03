@@ -134,6 +134,12 @@ poured under `.claude/skills/` — `bc-router`, `bc-sufficiency-check`,
 from the canonical `shopsystem-templates` package; do not edit them in place
 — update the canonical source and re-pour.
 
+The `.claude/skills/` tree is **fully canonical-managed**: `shop-templates
+update` mirrors it against the package and prunes anything the package no
+longer ships. Do NOT author shop-local skills under `.claude/skills/` — they
+will be deleted on the next update. Shop-specific guidance belongs in
+`.claude/shop/primer.md`.
+
 ## BC inbox / outbox protocol
 
 Inbox and outbox state are stored in postgres; there are no inbox or outbox

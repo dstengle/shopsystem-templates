@@ -97,7 +97,7 @@ shop-msg respond work_done \
   --bc <name> \
   --work-id <work_id> \
   --status blocked \
-  --message "<named evidence from the failing check>"
+  --summary "<named evidence from the failing check>"
 ```
 
 Named evidence means: specific paths, the work_id value, the `origin/main` short SHA, and the specific check that failed. Vague evidence ("something went wrong") is not acceptable.

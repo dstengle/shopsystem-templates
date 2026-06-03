@@ -86,7 +86,7 @@ The reviewer discovers that the assigned scenarios do not fully specify the requ
 shop-msg respond clarify \
   --bc <name> \
   --work-id <work_id> \
-  --message "Scenario gap: <description of what the scenario does not specify>"
+  --question "Scenario gap: <description of what the scenario does not specify>"
 ```
 
 Do not emit `work_done` in this case. The lead must revise the scenario(s) first.
@@ -100,7 +100,7 @@ shop-msg respond work_done \
   --bc <name> \
   --work-id <work_id> \
   --status blocked \
-  --message "Implementation gap: <specific finding>"
+  --summary "Implementation gap: <specific finding>"
 ```
 
 Name the specific gap: quote the shortcut, name the failing adjacent case, or describe the step definition flaw. The implementer uses this as the input for a new implementation pass.

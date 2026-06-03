@@ -85,7 +85,7 @@ When the sufficiency check fails:
 shop-msg respond clarify \
   --bc <name> \
   --work-id <id> \
-  --message "Gap: <specific gap named here>"
+  --question "Gap: <specific gap named here>"
 ```
 
 Name the specific sufficiency criterion that failed. Do not ask for information the message already contains. Do not clarify speculatively — if the check passes, proceed.

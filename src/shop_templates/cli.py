@@ -74,6 +74,7 @@ _TEMPLATES_PKG = "shop_templates.templates"
 _CLAUDE_TEMPLATES_PKG = "shop_templates.templates.claude"
 _CLAUDE_BODY_TEMPLATES_PKG = "shop_templates.templates.claude_body"
 _CLAUDE_SETTINGS_PKG = "shop_templates.templates.claude_settings"
+_SKILLS_PKG = "shop_templates.templates.skills"
 
 # The canonical role-set assignment per shop type. The bootstrap surface
 # uses this to decide which role files to pour into .claude/agents/ for
@@ -202,6 +203,24 @@ def read_claude_settings_template(shop_type: str) -> str:
         )
     resource = files(_CLAUDE_SETTINGS_PKG) / f"{shop_type}.json"
     return resource.read_text()
+
+
+def iter_skill_files():
+    """Yield (relative_posix_path, content_bytes) for every file under the
+    skills package-data tree, recursively. Relative path rooted at
+    templates/skills/ (e.g. "test-driven-development/SKILL.md"). Served from
+    importlib.resources package data."""
+    root = files(_SKILLS_PKG)
+
+    def _walk(node, prefix):
+        for child in node.iterdir():
+            rel = child.name if prefix == "" else f"{prefix}/{child.name}"
+            if child.is_dir():
+                yield from _walk(child, rel)
+            elif child.is_file():
+                yield rel, child.read_bytes()
+
+    yield from _walk(root, "")
 
 
 # -----------------------------------------------------------------------

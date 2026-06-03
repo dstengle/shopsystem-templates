@@ -1,6 +1,6 @@
 """Pins the skills package-data surface and its content guardrails."""
 import pytest
-from shop_templates.cli import iter_skill_files
+from shop_templates.cli import iter_skill_files, _read_template
 
 
 def test_iter_skill_files_yields_relative_paths_and_bytes():
@@ -63,3 +63,36 @@ def test_work_done_uses_repeatable_scenario_hash_flag_not_comma_joined():
             f"{name} uses the invalid plural flag"
         )
     assert "--scenario-hash" in _skill("bc-review")
+
+
+def test_subagents_grant_skill_tool():
+    for name in ("bc-implementer", "bc-reviewer"):
+        body = _read_template(name)
+        # the tools: frontmatter line must include Skill
+        tools_line = next(l for l in body.splitlines() if l.strip().startswith("tools:"))
+        assert "Skill" in tools_line, f"{name} tools line lacks Skill: {tools_line!r}"
+
+
+def test_writing_plans_bdd_has_failing_test_subissue_and_deps_and_parallel():
+    body = _skill("writing-plans-bdd").lower()
+    assert "failing test" in body
+    assert "bd dep" in body
+    assert "parallel" in body
+
+
+def test_subagent_driven_development_describes_parallel_and_gate():
+    body = _skill("subagent-driven-development").lower()
+    assert "parallel" in body
+    assert "gate" in body or "between" in body and "layer" in body
+
+
+def test_work_done_gate_has_plan_and_test_first_artifact_checks():
+    body = _skill("work-done-gate").lower()
+    assert "sub-issue" in body or "sub-issues" in body  # plan artifact
+    assert "test(red)" in body and "feat(green)" in body  # test-first ordering
+
+
+def test_integrating_to_main_staged_commits_survive_squash():
+    body = _skill("integrating-to-main").lower()
+    assert "test(red)" in body and "feat(green)" in body
+    assert "squash" in body

@@ -11065,3 +11065,241 @@ def then_stderr_no_advisory_for_path(path: str, context: dict) -> None:
         f"expected NO advisory naming {path!r} on stderr (file matches "
         f"canonical; update must be a silent no-op for it); got:\n{stderr!r}"
     )
+
+
+# =======================================================================
+# Release-workflow repository_dispatch to bc-launcher
+# (lead-jx4u, scenario 26ca8a14e01db50c)
+#
+# This scenario pins behavior of THIS repository's own CI: on a
+# version-tag release of shopsystem-templates, its release workflow
+# performs a repository_dispatch API call targeting the
+# shopsystem-bc-launcher repository, carrying a credential authorized
+# to dispatch.
+#
+# The testable artifact is the GitHub Actions release workflow file
+# committed under .github/workflows/ in this repo. We parse it as YAML
+# and assert, against the static workflow definition:
+#   - it triggers on a version-tag push (so a "v0.2.0" tag push on main
+#     is associated with a run of this workflow),
+#   - some step performs a repository_dispatch targeting
+#     shopsystem-bc-launcher (either the GitHub API
+#     /repos/<owner>/shopsystem-bc-launcher/dispatches endpoint, or a
+#     repository-dispatch action wired to that repository),
+#   - that step wires a credential (a secrets.* token reference) into
+#     the dispatch call.
+#
+# "runs to successful completion" is interpreted statically: the
+# workflow is well-formed and the dispatch step is unconditionally part
+# of the version-tag run path (not gated behind a manual-only trigger).
+# =======================================================================
+
+def _bc_repo_root() -> Path:
+    # tests/ sits directly under the BC repo root.
+    return Path(__file__).resolve().parent.parent
+
+
+def _workflow_on_block(parsed: dict):
+    """Return the `on:` trigger mapping from a parsed workflow.
+
+    PyYAML parses the bare `on:` key as the boolean True; the
+    JSON-round-trip fallback in _parse_yaml_via_subprocess turns that
+    same key into the string "true". Accept all three spellings.
+    """
+    for key in ("on", True, "true"):
+        on = parsed.get(key)
+        if isinstance(on, dict):
+            return on
+    return None
+
+
+def _find_release_workflow_for_version_tag(root: Path):
+    """Return (path, parsed) for the first .github/workflows/*.ya?ml whose
+    push trigger fires on a version tag, or None if there is none.
+
+    A workflow "fires on a version tag" when its `on.push.tags` list
+    contains at least one glob that the tag "v0.2.0" matches. We
+    recognize the common version-tag globs (e.g. "v*", "v*.*.*",
+    "v[0-9]+*") via fnmatch against "v0.2.0".
+    """
+    import fnmatch
+
+    wf_dir = root / ".github" / "workflows"
+    if not wf_dir.is_dir():
+        return None
+    for path in sorted(wf_dir.iterdir()):
+        if path.suffix not in (".yml", ".yaml"):
+            continue
+        try:
+            parsed = _parse_yaml_via_subprocess(path)
+        except AssertionError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        on = _workflow_on_block(parsed)
+        if not isinstance(on, dict):
+            continue
+        push = on.get("push")
+        if not isinstance(push, dict):
+            continue
+        tags = push.get("tags")
+        if not isinstance(tags, list):
+            continue
+        for glob in tags:
+            if isinstance(glob, str) and fnmatch.fnmatch("v0.2.0", glob):
+                return (path, parsed)
+    return None
+
+
+def _iter_workflow_steps(parsed: dict):
+    """Yield every step mapping across every job in a parsed workflow."""
+    jobs = parsed.get("jobs")
+    if not isinstance(jobs, dict):
+        return
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps")
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if isinstance(step, dict):
+                yield step
+
+
+def _step_text(step: dict) -> str:
+    """Flatten a step's run/uses/with into a single searchable string."""
+    parts = []
+    for key in ("uses", "run", "name"):
+        val = step.get(key)
+        if isinstance(val, str):
+            parts.append(val)
+    with_block = step.get("with")
+    if isinstance(with_block, dict):
+        for k, v in with_block.items():
+            parts.append(str(k))
+            parts.append(str(v))
+    env_block = step.get("env")
+    if isinstance(env_block, dict):
+        for k, v in env_block.items():
+            parts.append(str(k))
+            parts.append(str(v))
+    return "\n".join(parts)
+
+
+@given("the shopsystem-templates source repository")
+def given_templates_source_repo(context: dict) -> None:
+    root = _bc_repo_root()
+    assert (root / ".git").exists(), (
+        f"premise of Given violated: {root!s} is not a git repository "
+        f"(no .git present)"
+    )
+    context["bc_repo_root"] = root
+
+
+@given(parsers.parse('a tag named "{tag}" is pushed to its "{branch}" branch'))
+def given_version_tag_pushed(tag: str, branch: str, context: dict) -> None:
+    # The premise is that a version tag like "v0.2.0" exists on the
+    # release line. We do not actually mutate git here; we record the tag
+    # so the When step can confirm the release workflow's trigger is
+    # associated with this tag push.
+    context["release_tag"] = tag
+    context["release_branch"] = branch
+
+
+@when(
+    "the shopsystem-templates release workflow associated with that tag "
+    "push runs to successful completion"
+)
+def when_release_workflow_runs(context: dict) -> None:
+    root = context["bc_repo_root"]
+    found = _find_release_workflow_for_version_tag(root)
+    assert found is not None, (
+        "no release workflow under .github/workflows/ triggers on a "
+        f"version-tag push (a push of tag {context.get('release_tag')!r} "
+        "is not associated with any workflow run): expected a workflow "
+        "whose on.push.tags matches a version tag like 'v0.2.0'"
+    )
+    path, parsed = found
+    context["release_workflow_path"] = path
+    context["release_workflow"] = parsed
+
+    # "runs to successful completion" — the workflow must be well-formed
+    # enough to run: it must define at least one job with at least one
+    # step.
+    steps = list(_iter_workflow_steps(parsed))
+    assert steps, (
+        f"release workflow {path.name} defines no runnable steps; a run "
+        "could not complete successfully"
+    )
+    context["release_workflow_steps"] = steps
+
+
+@then(
+    parsers.parse(
+        'the workflow performs a "repository_dispatch" API call targeting '
+        'the "{repo}" repository'
+    )
+)
+def then_workflow_dispatches_repo(repo: str, context: dict) -> None:
+    steps = context["release_workflow_steps"]
+    # A repository_dispatch can be realized two ways:
+    #   (a) a direct API call to
+    #       /repos/<owner>/<repo>/dispatches  (gh api / curl), or
+    #   (b) a repository-dispatch action (e.g. peter-evans/repository-dispatch)
+    #       whose `with.repository` (or `with.repo`) names <owner>/<repo>.
+    # Either way the call must (1) be a repository_dispatch and (2) target
+    # the named repository.
+    dispatch_steps = []
+    for step in steps:
+        text = _step_text(step)
+        is_dispatch = (
+            "repository_dispatch" in text
+            or "repository-dispatch" in text
+            or "/dispatches" in text
+        )
+        if is_dispatch:
+            dispatch_steps.append((step, text))
+
+    assert dispatch_steps, (
+        "release workflow contains no step performing a repository_dispatch "
+        "(no 'repository_dispatch', 'repository-dispatch', or '/dispatches' "
+        f"reference found across its steps); workflow: "
+        f"{context['release_workflow_path'].name}"
+    )
+
+    targeted = [
+        (step, text) for step, text in dispatch_steps if repo in text
+    ]
+    assert targeted, (
+        f"a repository_dispatch step exists but none targets the {repo!r} "
+        f"repository; dispatch step text(s):\n"
+        + "\n---\n".join(text for _step, text in dispatch_steps)
+    )
+    # Stash the targeting dispatch step(s) for the credential assertion.
+    context["dispatch_steps"] = targeted
+
+
+@then(
+    "that dispatch call carries a credential authorized to dispatch to the "
+    "bc-launcher repository"
+)
+def then_dispatch_carries_credential(context: dict) -> None:
+    targeted = context["dispatch_steps"]
+    # The dispatch call must wire in a credential rather than run
+    # unauthenticated. A repository_dispatch to a *different* repository
+    # cannot use the default GITHUB_TOKEN (which is scoped to the current
+    # repo), so the workflow must reference a secret (a PAT / app token).
+    # We assert at least one targeting dispatch step references a
+    # `secrets.<NAME>` token expression.
+    secret_re = re.compile(r"secrets\.[A-Za-z_][A-Za-z0-9_]*")
+    for step, text in targeted:
+        if secret_re.search(text):
+            return
+    raise AssertionError(
+        "the repository_dispatch step targeting shopsystem-bc-launcher does "
+        "not wire in a credential: no `secrets.<NAME>` reference found on "
+        "the dispatch step. A cross-repository repository_dispatch cannot "
+        "use the default GITHUB_TOKEN and must carry an authorized token. "
+        "Dispatch step text(s):\n" + "\n---\n".join(t for _s, t in targeted)
+    )

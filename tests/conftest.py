@@ -11337,3 +11337,65 @@ def then_skills_poured(context):
 def then_no_skills_dir(context):
     ws = Path(context["bootstrap_workspace"])
     assert not (ws / ".claude" / "skills").exists()
+
+
+# -----------------------------------------------------------------------
+# Skills update (A3) step definitions
+# -----------------------------------------------------------------------
+
+
+@given(parsers.parse('a bootstrapped "{shop_type}" shop at a target directory "{target}"'))
+def given_bootstrapped_shop(shop_type, target, context, tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
+    context["bootstrap_workspace"] = ws
+    res = _run_shop_templates_with_bd_shim(
+        ["bootstrap", "--shop-type", shop_type, "--shop-name", "probe-shop", "--target", str(ws)],
+        context, tmp_path,
+    )
+    assert res.returncode == 0, res.stderr
+
+
+@given(parsers.parse('the skill file "{rel}" has drifted to "{text}"'))
+def given_skill_drifted(rel, text, context):
+    p = Path(context["bootstrap_workspace"]) / rel
+    p.write_text(text)
+
+
+@given(parsers.parse('an extra file "{rel}" exists in the target'))
+def given_extra_file(rel, context):
+    p = Path(context["bootstrap_workspace"]) / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("orphan")
+
+
+@when(parsers.parse('I record the mtime of "{rel}"'))
+def when_record_mtime(rel, context):
+    p = Path(context["bootstrap_workspace"]) / rel
+    context.setdefault("mtimes", {})[rel] = p.stat().st_mtime_ns
+
+
+@when(parsers.parse('I run update for shop type "{shop_type}" at "{target}"'))
+def when_run_update(shop_type, target, context):
+    import argparse
+    from shop_templates.cli import _cmd_update
+    ws = context["bootstrap_workspace"]
+    ns = argparse.Namespace(target=str(ws), shop_type=shop_type)
+    context["update_rc"] = _cmd_update(ns)
+
+
+@then("the exit code of the update invocation is 0")
+def then_update_rc_zero(context):
+    assert context["update_rc"] == 0
+
+
+@then(parsers.parse('the mtime of "{rel}" is unchanged'))
+def then_mtime_unchanged(rel, context):
+    p = Path(context["bootstrap_workspace"]) / rel
+    assert p.stat().st_mtime_ns == context["mtimes"][rel]
+
+
+@then(parsers.parse('the target directory contains no file at "{rel}"'))
+def then_no_file(rel, context):
+    assert not (Path(context["bootstrap_workspace"]) / rel).exists()

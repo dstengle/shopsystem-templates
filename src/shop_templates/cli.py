@@ -273,6 +273,28 @@ def _pour_skills(target: Path) -> None:
         dest.write_bytes(body)
 
 
+def _mirror_skills(target: Path) -> None:
+    """Mirror skills package data into <target>/.claude/skills/: re-pour
+    drifted/missing (idempotent on byte-equality), remove managed files no
+    longer shipped, prune empty dirs."""
+    skills_root = target / ".claude" / "skills"
+    shipped = dict(iter_skill_files())
+    for rel, body in shipped.items():
+        dest = skills_root / rel
+        if dest.exists() and dest.read_bytes() == body:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+    if skills_root.exists():
+        shipped_abs = {skills_root / rel for rel in shipped}
+        for path in sorted(skills_root.rglob("*")):
+            if path.is_file() and path not in shipped_abs:
+                path.unlink()
+        for path in sorted(skills_root.rglob("*"), reverse=True):
+            if path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
+
+
 def _render_lead_ops_scaffolding(target: Path) -> None:
     """Render the three lead-shop ops files into the target directory.
 
@@ -879,7 +901,13 @@ def _cmd_update(args: argparse.Namespace) -> int:
     else:
         primer_file.write_text(canonical_primer)
 
-    # Step 6: surface (without modifying) drift in .claude/shop/name.md.
+    # Step 6: mirror canonical skills into .claude/skills/ for bc shops;
+    # re-pour drifted/missing files, remove managed files no longer shipped,
+    # prune empty dirs. Lead shops own no skills.
+    if shop_type == "bc":
+        _mirror_skills(target)
+
+    # Step 7: surface (without modifying) drift in .claude/shop/name.md.
     # Per scenario 97245affb1dbe5e4 (ADR-018 / ADR-007): name.md is the
     # single source of truth for shop identity and must hold the canonical
     # slug; but name.md is a SHOP-OWNED file that update must never

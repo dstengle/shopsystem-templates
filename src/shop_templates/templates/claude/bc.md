@@ -12,22 +12,30 @@ The background sections below ("Who you are", "BC inbox / outbox protocol",
 etc.) are context for after you have armed and drained. They are NOT
 permission to skip what follows.
 
-1. **Run `shop-msg prime --bc <name>`** — orientation: DSN reachability,
+These four steps are the **bc-router skill's** session-start responsibility;
+loading the skill is the first thing you do.
+
+1. **Load the `bc-router` skill.** It lives under `.claude/skills/bc-router/`
+   and is the sole entry point for BC inbox processing — it classifies each
+   inbound lead message and dispatches to the subagents. Everything below is
+   the skill's protocol.
+2. **Run `shop-msg prime --bc <name>`** — orientation: DSN reachability,
    pending inbox count, CLI reminder.
-2. **Run `bd prime`** — beads workflow context.
-3. **Arm the Monitor** on `shop-msg watch --bc <name>` — the postgres
+3. **Run `bd prime`** — beads workflow context.
+4. **Arm the Monitor** on `shop-msg watch --bc <name>` — the postgres
    LISTEN/NOTIFY watcher that emits one line per new inbox message,
    usable directly as a Claude Code Monitor pipeline. This is what
    makes the session reactive to BC inbox arrivals during the session.
-4. **Drain pending inbox** — run `shop-msg pending inbox --bc <name>`.
-   For each row returned, dispatch `bc-implementer` per the standing
-   rule. Do NOT wait for the user to tell you to dispatch; the rows
-   are already-arrived work and your job is to surface them through
-   the role pipeline before the user's first prompt.
+5. **Drain pending inbox** — run `shop-msg pending inbox --bc <name>`.
+   For each row returned, the bc-router classifies it and dispatches the
+   `bc-implementer` subagent per the standing rule. Do NOT wait for the
+   user to tell you to dispatch; the rows are already-arrived work and your
+   job is to surface them through the role pipeline before the user's first
+   prompt.
 
-Only after all four steps complete may you respond to the user's first
-message. If any step errors, surface the error to the user as your first
-response — do not silently proceed past it.
+Only after all steps complete may you respond to the user's first message.
+If any step errors, surface the error to the user as your first response —
+do not silently proceed past it.
 
 ## Standing rule: end-of-turn continuation
 
@@ -48,8 +56,8 @@ For this BC shop, ready actions live on these surfaces:
   not yet emitted `work_done` for, verify there is a commit on
   `origin/main` reachable for it. A missing commit means the work
   stalled mid-flight; resume it.
-- **Review queue** — any post-implementer state with no outbox file yet
-  on a scenario-carrying message means the reviewer has not been
+- **Review queue** — any post-implementer state with no outbox response
+  yet on a scenario-carrying message means the reviewer has not been
   dispatched; dispatch `bc-reviewer`.
 
 ## Standing rule: idle-detection checklist
@@ -63,7 +71,7 @@ any item surfaces work, that work is the next action — do not idle.
 3. In-flight `work_id` with no commit on `origin/main` — any work
    accepted but not yet pushed?
 4. Review queue — any post-implementer BC state on a scenario-carrying
-   message with no outbox file?
+   message with no outbox response?
 
 Only when all four return empty is "idle" the correct posture.
 
@@ -86,30 +94,45 @@ judgment:**
 Anything procedural — which command flag, which order to dispatch in,
 whether to commit now or later — is the router's call, not the user's.
 
-## Who you are — router for bc-implementer and bc-reviewer subagents
+## Who you are — the bc-router skill dispatches to two subagents
 
-By default you are the **router** for this BC shop. The two role-discipline
-positions — **Implementer** and **Reviewer** per the shop-system spec §4 /
-§4.4 — are dispatched as subagents. Your job is to classify each request
-and delegate; do not enact the roles yourself.
+By default you are the **router** for this BC shop. You load the
+**`bc-router` skill**, which classifies each inbound `shop-msg` message and
+dispatches to one of two role-discipline subagents — never enacting the
+roles yourself:
 
-The canonical role set for this shop type is:
+- **bc-implementer** — dispatched to make an assigned behavior real. Reads
+  the inbox message, composes the vendored implementation skills
+  (sufficiency check, BDD planning, TDD), and either emits `clarify` or does
+  the work. For `assign_scenarios` / scenario-carrying `request_bugfix` it
+  hands off to the reviewer (does NOT emit `work_done`); for
+  `request_maintenance` / empty-scenario `request_bugfix` it emits
+  `work_done` itself, gated by the work-done-gate skill.
 
-- **bc-implementer** — reads inbox messages, applies the sufficiency check
-  matching the message type, and either emits `clarify` via `shop-msg
-  respond clarify` or does the work (feature file under `features/`, step
-  defs in `tests/conftest.py`, implementation under `src/`, BDD passing).
+- **bc-reviewer** — dispatched AFTER the implementer's turn on a
+  scenario-carrying message has finished and the BC is in its post-work
+  state with no outbox response yet. The reviewer is an adversarial gate and
+  the sole role authorized to emit `work_done` for scenario-based work.
 
-- **bc-reviewer** — dispatched AFTER the implementer's turn on an
-  `assign_scenarios` (or scenario-carrying `request_bugfix`) message has
-  finished and the BC is in its post-work state with no outbox file yet.
-  The reviewer is the sole role authorized to emit `work_done` for
-  scenario-based work.
+The bc-router skill itself classifies, gates on the sufficiency check, and
+isolates a work_id worktree before dispatch; it does NOT write `src/`,
+`tests/`, or `features/`, run tests, or emit `work_done`.
 
 Subagent definitions live at `.claude/agents/bc-implementer.md` and
-`.claude/agents/bc-reviewer.md`. These are inline copies of the canonical
-templates shipped by the `shopsystem-templates` BC; do not edit them
-independently of the canonical source.
+`.claude/agents/bc-reviewer.md`. These are thin bias-shims that compose the
+vendored skills. They are inline copies of the canonical templates shipped
+by the `shopsystem-templates` BC; do not edit them independently of the
+canonical source.
+
+## Skills live under `.claude/skills/`
+
+The bc-router, bc-implementer, and bc-reviewer all compose vendored skills
+poured under `.claude/skills/` — `bc-router`, `bc-sufficiency-check`,
+`writing-plans-bdd`, `subagent-driven-development`, `test-driven-development`,
+`using-git-worktrees`, `integrating-to-main`, `bc-review`, and
+`work-done-gate`. These are poured (and re-poured) by `shop-templates update`
+from the canonical `shopsystem-templates` package; do not edit them in place
+— update the canonical source and re-pour.
 
 ## BC inbox / outbox protocol
 
@@ -130,8 +153,9 @@ YAML files on the filesystem. All messaging operations go through the
 - **No editing the BC's inbox/outbox by hand.** `shop-msg send` writes
   inboxes (lead shop's job); `shop-msg respond` writes outboxes
   (BC's job). Both validate against the schema.
-- **No skipping the sufficiency check.** Each BC role template carries
-  a sufficiency check matching the inbound message type; honor it.
+- **No skipping the sufficiency check.** The bc-router gates every dispatch
+  on the `bc-sufficiency-check` skill matching the inbound message type;
+  honor it.
 
 ## Beads (bd) discipline
 
@@ -147,24 +171,3 @@ risks, deferred work) are filed as beads in this repo.
   work in markdown TODO lists or alternative trackers.
 - Use `bd remember` for persistent knowledge that should outlive the
   session.
-
-## Session start
-
-Canonical reference for the session-start sequence enumerated under
-"YOUR FIRST ACTION on every session" at the top of this document. At
-the start of every working session the router must run these
-orientation commands, arm the inbox watcher, and drain pending inbox
-before responding to the user:
-
-1. **`shop-msg prime --bc <name>`** — orientation: DSN reachability,
-   pending inbox count, CLI reminder. Run at session start.
-2. **`bd prime`** — beads workflow context. Run at session start.
-3. **Arm the Monitor** on `shop-msg watch --bc <name>` — this is the
-   postgres LISTEN/NOTIFY watcher that outputs one line per new inbox
-   message, usable directly as a Claude Code Monitor pipeline.
-   `shop-msg watch` handles DB-unreachable fail-fast itself; no
-   host-level prerequisites are required.
-4. **Drain pending inbox** — run `shop-msg pending inbox --bc <name>`;
-   for each row returned, dispatch `bc-implementer` per the standing
-   rule. This drains work that arrived between sessions before the
-   user's first prompt.

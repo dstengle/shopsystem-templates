@@ -43,18 +43,31 @@ digraph bc_router {
     suff   [label="bc-sufficiency-check", shape=diamond];
     clarify [label="shop-msg respond clarify\n(stop)", shape=box, style=filled, fillcolor="#ffcccc"];
     worktree [label="using-git-worktrees\n(isolate work_id branch)", shape=box];
-    impl   [label="bc-implementer\nsubagent", shape=box, style=filled, fillcolor="#ccffcc"];
-    rev    [label="bc-reviewer\nsubagent", shape=box, style=filled, fillcolor="#ccccff"];
+    plan   [label="writing-plans-bdd\n(bd sub-issue DAG:\nRED + GREEN per behavior)", shape=box];
+    sdd    [label="subagent-driven-development\ndispatch loop", shape=box, style=filled, fillcolor="#ffffcc"];
+    ready  [label="bd ready", shape=diamond];
+    impl   [label="bc-implementer subagents\n(parallel, one per ready sub-issue;\neach runs TDD RED→GREEN)", shape=box, style=filled, fillcolor="#ccffcc"];
+    gate   [label="inter-layer gate:\nsub-issue closed +\ntest(red) before feat(green)", shape=diamond];
+    integ  [label="integrating-to-main\n(land on origin/main)", shape=box];
+    rev    [label="bc-reviewer subagent\n(bc-review + work-done-gate)", shape=box, style=filled, fillcolor="#ccccff"];
+    impl1  [label="bc-implementer subagent\n(single behavior)", shape=box, style=filled, fillcolor="#ccffcc"];
     done   [label="work_done emitted", shape=ellipse];
 
     intake -> read;
     read   -> suff;
     suff   -> clarify [label="insufficient"];
     suff   -> worktree [label="sufficient"];
-    worktree -> impl;
-    impl   -> rev  [label="assign_scenarios\nor bugfix w/ scenarios"];
-    impl   -> done [label="maintenance or\nbugfix no scenarios"];
-    rev    -> done;
+    worktree -> plan  [label="scenario work"];
+    worktree -> impl1 [label="maintenance /\nbugfix no scenarios"];
+    plan   -> sdd;
+    sdd    -> ready;
+    ready  -> impl   [label="dispatch unblocked\nin parallel"];
+    impl   -> gate;
+    gate   -> ready  [label="more sub-issues"];
+    gate   -> integ  [label="DAG drained"];
+    integ  -> rev;
+    rev    -> done   [label="reviewer emits"];
+    impl1  -> done   [label="implementer emits\n(via work-done-gate)"];
 }
 ```
 

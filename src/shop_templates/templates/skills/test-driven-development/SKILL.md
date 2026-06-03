@@ -20,6 +20,12 @@ Write the test first. Watch it fail. Write minimal code to pass.
 > `clarify` message to the lead and awaits the lead's decision. This draft is
 > meant to be learned from, not treated as canon.
 
+## TDD Is Mandatory in This BC
+
+**TDD is MANDATORY in this BC — not optional.** There is no self-granted exception. If you believe an exception applies (throwaway prototype, generated code, configuration file), you do NOT decide unilaterally: emit a `clarify` message to the lead naming the work and the exception you think applies, and await the lead's decision before proceeding without TDD.
+
+The only exception path is: emit `clarify` → await the lead's decision. No other path exists.
+
 ## The Two Loops
 
 A BC Implementer works against **two nested loops**, and TDD lives in the inner one.

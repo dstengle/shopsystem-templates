@@ -63,11 +63,17 @@ digraph bc_router {
 1. **Orient.** Run `shop-msg prime --bc <name>` and `bd prime` at session start.
 2. **Arm Monitor.** Start `shop-msg watch --bc <name>`.
 3. **Read.** For each pending message: `shop-msg read inbox --bc <name> --work-id <id>`.
-4. **Sufficiency check.** Invoke the `bc-sufficiency-check` skill with the full message. If the check fails, emit `shop-msg respond clarify` naming the gap(s) and **stop** — do not dispatch.
-5. **Isolate.** Invoke `using-git-worktrees` to create a branch/worktree named for the work_id before any implementation begins.
-6. **Dispatch.** Route to the implementer subagent (`.claude/agents/bc-implementer.md`). Pass the full message content and the work_id.
-7. **Gate (scenario work only).** After the implementer's turn, dispatch to the reviewer subagent (`.claude/agents/bc-reviewer.md`) — do NOT emit `work_done` yourself. The reviewer is the sole gate for scenario-based work.
-8. **Non-scenario work.** For `request_maintenance` and `request_bugfix` with no scenarios, the implementer emits `work_done` directly; there is no reviewer dispatch.
+4. **Sufficiency check.** Invoke the `bc-sufficiency-check` skill (via Skill tool) with the full message. If the check fails, emit `shop-msg respond clarify` naming the gap(s) and **stop** — do not dispatch.
+5. **Isolate.** Invoke `using-git-worktrees` (via Skill tool) to create a branch/worktree named for the work_id before any implementation begins.
+6. **Plan (scenario work only).** Invoke `writing-plans-bdd` (via Skill tool) to decompose the assigned scenario(s) into a bd sub-issue DAG: one RED sub-issue and one GREEN sub-issue per behavior, with `bd dep` edges encoding order. The router uses the Skill tool for this; it does NOT write feature files, step defs, or src/ files itself.
+7. **Orchestrate (scenario work only).** Run the `subagent-driven-development` dispatch loop (via Skill tool):
+   - `bd ready` → dispatch all unblocked sub-issues **in parallel** to bc-implementer subagents (via Task/Agent tools).
+   - Wait for all dispatched subagents to complete.
+   - Gate between layers: verify each sub-issue is closed and that `test(red)` precedes `feat(green)` in the work-branch history.
+   - Repeat until the DAG is drained.
+8. **Integrate (scenario work only).** Invoke `integrating-to-main` (via Skill tool) to land the work branch on `origin/main`.
+9. **Review dispatch (scenario work only).** Dispatch to the reviewer subagent (`.claude/agents/bc-reviewer.md`) via the Task/Agent tool — do NOT emit `work_done` yourself. The reviewer is the sole gate for scenario-based work.
+10. **Non-scenario work.** For `request_maintenance` and `request_bugfix` with no scenarios, dispatch a single bc-implementer subagent (no planning phase, no reviewer dispatch). The implementer emits `work_done` directly.
 
 ## What the Router Does NOT Do
 
@@ -76,6 +82,7 @@ digraph bc_router {
 - Does NOT emit `work_done` (for any message type).
 - Does NOT modify the inbox or outbox by hand — all messaging goes through `shop-msg`.
 - Does NOT grant itself exceptions to the sufficiency check.
+- Uses the **Skill tool** to invoke skills (writing-plans-bdd, subagent-driven-development, integrating-to-main, using-git-worktrees, bc-sufficiency-check) and the **Task/Agent tools** to dispatch subagents.
 
 ## Clarify Protocol
 

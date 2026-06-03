@@ -22,6 +22,17 @@ import pytest
 from pytest_bdd import given, parsers, then, when
 
 
+def pytest_bdd_apply_tag(tag, function):
+    if tag == "xfail_bcshim":
+        marker = pytest.mark.xfail(
+            reason="superseded by bc-shim refactor; shopsystem-templates-qcw",
+            strict=False,
+        )
+        marker(function)
+        return True
+    return None
+
+
 # -----------------------------------------------------------------------
 # Shared cross-step state
 # -----------------------------------------------------------------------

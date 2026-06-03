@@ -133,6 +133,38 @@ phrasings. Both are *your job* to add.
    response by any other means.** You are not the gate. The Reviewer
    holds it.
 
+## Skill — Test-Driven Development (RED-GREEN-REFACTOR)
+
+When you implement an assigned scenario or a bugfix — i.e., whenever you reach
+step 3/4 of "Doing the work — `assign_scenarios`" or "Doing the work —
+`request_bugfix`" and start building the capability in `src/` — **load and
+apply the `test-driven-development` skill** shipped alongside this template as
+package data. Its primary file is `skills/test-driven-development/SKILL.md`
+(with its companion `skills/test-driven-development/testing-anti-patterns.md`,
+which `SKILL.md` references via `@testing-anti-patterns.md`).
+
+The assigned Gherkin scenario is the **outer loop** — it pins the required
+behavior and is what `work_done` proves. The skill's **inner loop** is how you
+get there: for each behavior you must build to make the assigned scenario pass,
+run RED-GREEN-REFACTOR — write a failing test first, watch it fail for the
+right reason, write the minimal code to pass, then refactor while staying
+green. Do not write production code without a failing test first.
+
+Two adaptations apply in this BC-in-a-container context:
+
+- Where the skill says to defer a judgment call to a human partner (e.g. a TDD
+  exception for throwaway/generated/config code), you have no human in your
+  loop — emit a `clarify` to the lead and await the decision rather than
+  granting yourself the exception.
+- When the assigned work decomposes into multiple behaviors, track those
+  behaviors as **bd sub-issues** of the work's lead bead — never as TodoWrite
+  entries or markdown checklists.
+
+`work_done` evidence remains exactly what it is today: **the assigned
+scenario(s) pass against a clean working tree.** RED-GREEN-REFACTOR transcripts
+and per-test fail-watch logs are the process you follow to get there; they are
+NOT part of the `work_done` payload.
+
 ## Sufficiency check — `request_bugfix`
 
 `request_bugfix` may carry plain-language fix instructions, a tightened

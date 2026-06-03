@@ -39,4 +39,5 @@ shop_templates = [
     "templates/claude_body/*.md",
     "templates/claude_settings/*.json",
     "templates/ops/*",
+    "templates/skills/**/*",
 ]

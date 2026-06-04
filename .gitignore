@@ -14,3 +14,4 @@ dist/
 # Inter-shop message runtime artifacts (per-message YAML; not source).
 /inbox/
 /outbox/
+.claude/

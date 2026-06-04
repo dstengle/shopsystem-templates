@@ -74,6 +74,7 @@ _TEMPLATES_PKG = "shop_templates.templates"
 _CLAUDE_TEMPLATES_PKG = "shop_templates.templates.claude"
 _CLAUDE_BODY_TEMPLATES_PKG = "shop_templates.templates.claude_body"
 _CLAUDE_SETTINGS_PKG = "shop_templates.templates.claude_settings"
+_SKILLS_PKG = "shop_templates.templates.skills"
 
 # The canonical role-set assignment per shop type. The bootstrap surface
 # uses this to decide which role files to pour into .claude/agents/ for
@@ -204,6 +205,24 @@ def read_claude_settings_template(shop_type: str) -> str:
     return resource.read_text()
 
 
+def iter_skill_files():
+    """Yield (relative_posix_path, content_bytes) for every file under the
+    skills package-data tree, recursively. Relative path rooted at
+    templates/skills/ (e.g. "test-driven-development/SKILL.md"). Served from
+    importlib.resources package data."""
+    root = files(_SKILLS_PKG)
+
+    def _walk(node, prefix):
+        for child in node.iterdir():
+            rel = child.name if prefix == "" else f"{prefix}/{child.name}"
+            if child.is_dir():
+                yield from _walk(child, rel)
+            elif child.is_file():
+                yield rel, child.read_bytes()
+
+    yield from _walk(root, "")
+
+
 # -----------------------------------------------------------------------
 # Lead-shop ops scaffolding (PDR-003 path F — shop-owned, NOT canonical).
 #
@@ -243,6 +262,37 @@ def read_ops_template(name: str) -> str:
     shop's compose.yaml / bin/shop-shell / Dockerfile.shopsystem-shell.
     """
     return (files(_TEMPLATES_PKG) / "ops" / name).read_text()
+
+
+def _pour_skills(target: Path) -> None:
+    """Mirror the skills package-data tree into <target>/.claude/skills/."""
+    skills_root = target / ".claude" / "skills"
+    for rel, body in iter_skill_files():
+        dest = skills_root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+
+
+def _mirror_skills(target: Path) -> None:
+    """Mirror skills package data into <target>/.claude/skills/: re-pour
+    drifted/missing (idempotent on byte-equality), remove managed files no
+    longer shipped, prune empty dirs."""
+    skills_root = target / ".claude" / "skills"
+    shipped = dict(iter_skill_files())
+    for rel, body in shipped.items():
+        dest = skills_root / rel
+        if dest.exists() and dest.read_bytes() == body:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+    if skills_root.exists():
+        shipped_abs = {skills_root / rel for rel in shipped}
+        for path in sorted(skills_root.rglob("*")):
+            if path.is_file() and path not in shipped_abs:
+                path.unlink()
+        for path in sorted(skills_root.rglob("*"), reverse=True):
+            if path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
 
 
 def _render_lead_ops_scaffolding(target: Path) -> None:
@@ -556,6 +606,11 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
         read_claude_settings_template(shop_type)
     )
 
+    # Pour canonical skills into .claude/skills/ for bc shops only.
+    # Lead shops pour no skills.
+    if shop_type == "bc":
+        _pour_skills(target)
+
     # Lead-shop ops scaffolding (PDR-003 path F — shop-owned). For a
     # "lead" shop, render the three ops files (compose.yaml,
     # bin/shop-shell, Dockerfile.shopsystem-shell) at the repo top level /
@@ -846,7 +901,13 @@ def _cmd_update(args: argparse.Namespace) -> int:
     else:
         primer_file.write_text(canonical_primer)
 
-    # Step 6: surface (without modifying) drift in .claude/shop/name.md.
+    # Step 6: mirror canonical skills into .claude/skills/ for bc shops;
+    # re-pour drifted/missing files, remove managed files no longer shipped,
+    # prune empty dirs. Lead shops own no skills.
+    if shop_type == "bc":
+        _mirror_skills(target)
+
+    # Step 7: surface (without modifying) drift in .claude/shop/name.md.
     # Per scenario 97245affb1dbe5e4 (ADR-018 / ADR-007): name.md is the
     # single source of truth for shop identity and must hold the canonical
     # slug; but name.md is a SHOP-OWNED file that update must never

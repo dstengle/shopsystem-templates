@@ -14,6 +14,28 @@ This ensures:
 - Each sub-issue has a lifecycle: claimed, in-progress, closed.
 - The plan survives context resets.
 
+## Check for an Existing Plan First (idempotency)
+
+**Before creating any sub-issue, run `bd show <work_id>` and read the
+existing decomposition.** The plan step is **idempotent**: re-entering it
+(after a context reset, a reopened sub-issue, a clarify round-trip, or a
+re-dispatch) must RECONCILE the existing plan, never blindly re-decompose.
+
+Decide per behavior the assigned scenario(s) require:
+
+- **No sub-issues exist** → decompose (create the RED/GREEN pair as today).
+- **A complete RED/GREEN pair already exists for the behavior** → ADOPT it.
+  Create nothing. Claim and execute the existing pair.
+- **Partial or inconsistent** (e.g. a RED without its GREEN, or duplicate
+  legs) → RECONCILE IN PLACE: add only the missing leg(s), or close the
+  stragglers with `bd close --reason "<reason>"` naming the surviving plan.
+  **Never leave two sub-issues decomposing one behavior.**
+
+**Definition — "already planned":** a RED ("write the failing test for
+`<behavior>`") AND its GREEN ("implement `<behavior>`") already exist under
+this `work_id`, matched on the behavior the title names. If both legs are
+present and consistent, the behavior is planned; do not create a second pair.
+
 ## Plan Structure
 
 ### Two Sub-Issues Per Behavior: RED and GREEN
@@ -76,6 +98,13 @@ wait until all their blockers are closed.
 ## `bd` Commands
 
 ```bash
+# ADOPT EXISTING — never create blind. Read the current plan first.
+bd show <work_id>
+# No sub-issues → decompose below.
+# Complete RED/GREEN pair for the behavior already present → adopt it, create nothing.
+# Partial/duplicate → reconcile in place (add the missing leg, or
+#   `bd close <straggler> --reason "duplicate of <surviving_id>"`).
+
 # Create the RED sub-issue
 bd create "write the failing test for <behavior>" --parent <work_id>
 # → prints <red_id>
@@ -111,14 +140,22 @@ digraph bdd_plan {
     rankdir=TB;
     assign  [label="Receive assign_scenarios\nor bugfix w/ scenarios", shape=box];
     read    [label="Read scenario(s) carefully", shape=box];
+    show    [label="bd show <work_id>", shape=box];
+    exists  [label="Plan already exists?", shape=diamond];
     decomp  [label="Decompose into behaviors\n(RED + GREEN sub-issues per behavior,\nbd dep edges for order)", shape=box];
+    recon   [label="Adopt / reconcile in place\n(complete a partial pair,\nclose duplicate stragglers)", shape=box];
     ready   [label="bd ready\n→ dispatch all unblocked sub-issues\nIN PARALLEL to bc-implementer", shape=box];
     loop    [label="Each bc-implementer: TDD inner loop\ntest(red) commit → feat(green) commit", shape=box];
     gate    [label="Gate: all dispatched sub-issues closed?\ntest(red) precedes feat(green)?", shape=diamond];
     outer   [label="Run assigned Gherkin\nscenario(s) — must pass", shape=diamond];
     review  [label="Hand off to bc-reviewer", shape=box];
 
-    assign -> read -> decomp -> ready -> loop -> gate;
+    assign -> read -> show -> exists;
+    exists -> decomp [label="no: decompose"];
+    exists -> recon  [label="yes: adopt/reconcile"];
+    decomp -> ready;
+    recon  -> ready;
+    ready  -> loop -> gate;
     gate   -> ready  [label="no: wait for layer"];
     gate   -> outer  [label="DAG drained"];
     outer  -> review [label="pass"];
@@ -134,6 +171,7 @@ digraph bdd_plan {
 4. **Close sub-issues promptly.** Close each sub-issue when its TDD phase is complete. Do not batch-close at the end.
 5. **The outer loop is immutable.** The assigned scenario(s) are fixed. You build to them; you do not negotiate them during implementation.
 6. **Parallel dispatch.** Sub-issues with no open blockers (`bd ready`) are dispatched together, in parallel, by the router. Dependent sub-issues wait for all their blockers to close before being dispatched.
+7. **Plan once — idempotent decomposition.** Run `bd show <work_id>` before creating any sub-issue. A re-entered plan step RECONCILES the existing plan (adopt a complete pair, complete a partial one, close duplicate stragglers); it does NOT duplicate. Two sub-issues decomposing one behavior is a defect the work-done-gate blocks on.
 
 ## Sizing Sub-Issues
 

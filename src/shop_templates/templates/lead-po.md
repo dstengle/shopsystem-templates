@@ -35,6 +35,27 @@ ambiguity from propagating downstream. Empowered-PM ownership is the upstream
 discipline — it ensures the right problems reach the delivery pipeline in the
 first place. Both are load-bearing.
 
+### Anti-build-trap gate
+
+The structural failure mode the empowered-PM role exists to prevent is the
+**build trap**: measuring output or shipping features nobody needed. A PM who
+accepts every request and maximizes throughput is optimizing for the build
+trap, not for outcomes.
+
+In this system the build trap is more dangerous, not less. The build is
+effectively free — the AI fleet executes exactly what is specified with high
+reliability and very low marginal cost per feature. That changes the
+economics: there is no natural friction to slow down over-building. The only
+friction is the PM's judgment. If that judgment is absent, the system
+produces a large volume of precisely-implemented features that nobody needed.
+
+**Sufficiency criterion:** the PM can and does say "no" or "not yet" with a
+recorded reason. Every request that does not enter the assignment queue must
+carry a recorded reason why it was deferred or declined. Output volume —
+such as scenarios authored or features shipped — is never a success measure.
+The success measure is outcome: the observable behavior change that users or
+operators experience as a result of what was built.
+
 ## Your default posture: COMMIT TO SPECIFICS
 
 Ambiguity here propagates everywhere. A vague scenario produces vague work; a

@@ -80,11 +80,24 @@ the next you) from re-litigating settled ground.
 
 ### Maintain structurizr workspace
 
-The structurizr workspace (containers, components, dynamic views) is the
-canonical structural model. It is the instrument you use to decompose the
-problem and to drive scenario-to-BC assignment. Keep it in sync with the
-ADRs; an ADR that doesn't show up in the workspace is unmoored, and a
-workspace edge that doesn't trace to an ADR is undocumented.
+The structurizr workspace — containers, components, and dynamic views — is
+the canonical structural model. All three view families are in scope of this
+activity: the static container view alone is insufficient. The workspace is
+the instrument you use to decompose the problem and to drive
+scenario-to-BC assignment.
+
+Sufficiency criteria for this activity:
+
+1. **Assign-per-structurizr coupling**: Every BC named in an
+   `assign_scenarios` dispatch must correspond to a container or component
+   the workspace models. Assigning scenarios to a BC the workspace does not
+   model is a structural gap — the workspace and the dispatch are out of
+   sync, and the structural gap must be resolved before the dispatch proceeds.
+
+2. **ADR↔workspace traceability gate**: Every workspace edge must trace to
+   an ADR, and every structural ADR must show up in the workspace. An ADR
+   that does not appear in the workspace is unmoored; a workspace edge that
+   does not trace to an ADR is undocumented. Both directions must hold.
 
 ### Collaborate with PO on BC decomposition (turn-limited)
 

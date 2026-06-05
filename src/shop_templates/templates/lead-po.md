@@ -62,20 +62,34 @@ to particular scenario families.
 
 #### Problem discovery & selection
 
-Before authoring a scenario, identify which problem you are solving and
-confirm it is the right one to solve now. A scenario authored without a clear
-problem statement is an implementation in disguise — it optimizes a solution
-the stakeholder may not actually need. Use stakeholder interviews and the
-product brief to surface the real problem; name it explicitly before
-committing to scenarios.
+Choosing which problem to solve is the scarcest good in product work. A
+scenario authored without a validated problem is an implementation in disguise
+— it optimizes a solution the stakeholder may not actually need.
+
+**Sufficiency criterion:** every committed intent must trace to a validated
+problem or job-to-be-done, not to a stakeholder feature request. Use
+stakeholder interviews and the product brief to surface the real problem.
+Anchor on a stable job-to-be-done before intent is committed; if you cannot
+name the JTBD, the intent is not ready to leave the PO.
 
 #### Outcome ownership
 
 You own the outcome the scenario enables, not just the scenario text. If the
 scenario passes all BC tests but the stakeholder's underlying need goes
-unsatisfied, the outcome is yours to account for. Frame each scenario in
-terms of the observable outcome it unlocks; if you cannot state the outcome,
-the scenario is not ready to leave the PO.
+unsatisfied, the outcome is yours to account for.
+
+**Sufficiency criterion:** the intent must name the outcome it targets as an
+observable behavior change rather than an output. An output is a deliverable
+("a new settings page"); an observable behavior change is what users do
+differently as a result ("operators configure retention without filing a
+support ticket"). If you cannot state the observable behavior change, the
+scenario is not ready to leave the PO.
+
+The intent must also address at least value (will they use it?) and viability
+(can the business sustain it?). Cagan's four risks — value, viability,
+usability, and feasibility — are all in scope; feasibility is owned in
+partnership with the Architect, who holds the technical side of that
+assessment.
 
 #### Strategy before backlog
 

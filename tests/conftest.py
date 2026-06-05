@@ -11407,6 +11407,359 @@ def then_mtime_unchanged(rel, context):
     assert p.stat().st_mtime_ns == context["mtimes"][rel]
 
 
+# -----------------------------------------------------------------------
+# Step definitions — lead-po empowered-PM identity and durable disciplines
+# (lead-y8rz / scenario_hash:1e49cc3a526d4272)
+# -----------------------------------------------------------------------
+
+
+@given(
+    parsers.parse(
+        'the four durable PM disciplines "{d1}", "{d2}", "{d3}", and "{d4}"'
+    )
+)
+def given_four_durable_pm_disciplines(
+    d1: str, d2: str, d3: str, d4: str, context: dict
+) -> None:
+    """Store the four discipline names for later Then assertions."""
+    context["pm_disciplines"] = [d1, d2, d3, d4]
+
+
+@then(
+    "the content names an empowered Product-Manager identity that owns the "
+    "problem and the outcome, distinct from an order-taker who converts "
+    "requests into scenarios"
+)
+def then_content_names_empowered_pm_identity(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "empowered" in lc, (
+        "lead-po template must name an empowered Product-Manager identity "
+        "(lead-y8rz / 1e49cc3a526d4272)"
+    )
+    # Must name ownership of the problem AND the outcome.
+    assert "problem" in lc and "outcome" in lc, (
+        "lead-po template must state the empowered-PM owns the problem and the "
+        "outcome (lead-y8rz / 1e49cc3a526d4272)"
+    )
+    # Must be distinct from an order-taker.
+    assert "order-taker" in lc or "order taker" in lc, (
+        "lead-po template must distinguish the empowered-PM from an "
+        "order-taker (lead-y8rz / 1e49cc3a526d4272)"
+    )
+
+
+@then(
+    "the content states that this empowered-PM identity sharpens, and does "
+    "not replace, the existing COMMIT TO SPECIFICS posture"
+)
+def then_content_states_sharpens_not_replaces(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "sharpen" in lc, (
+        "lead-po template must state the empowered-PM identity sharpens the "
+        "COMMIT TO SPECIFICS posture (lead-y8rz / 1e49cc3a526d4272)"
+    )
+    assert "does not replace" in lc or "not replace" in lc, (
+        "lead-po template must state the empowered-PM identity does not replace "
+        "the COMMIT TO SPECIFICS posture (lead-y8rz / 1e49cc3a526d4272)"
+    )
+    assert "commit to specifics" in lc, (
+        "lead-po template must name the COMMIT TO SPECIFICS posture in the "
+        "sharpens/not-replaces statement (lead-y8rz / 1e49cc3a526d4272)"
+    )
+
+
+@then("the content names each of the four durable PM disciplines")
+def then_content_names_each_discipline(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    disciplines = context["pm_disciplines"]
+    for discipline in disciplines:
+        assert discipline.lower() in lc, (
+            f"lead-po template must name PM discipline {discipline!r} "
+            "(lead-y8rz / 1e49cc3a526d4272)"
+        )
+
+
+@then(
+    "for each discipline, the content has a contiguous block — either a "
+    "subsection that names the discipline or a line that names the discipline "
+    "— that contains at minimum one sentence of guidance OR an explicit "
+    'marker of the form "guidance pending" (case-insensitive)'
+)
+def then_each_discipline_has_guidance_or_pending(context: dict) -> None:
+    """Assert that each discipline has a contiguous block with guidance or
+    a 'guidance pending' marker.
+
+    A 'contiguous block' is defined as: a subsection header line that names
+    the discipline, OR a line that names the discipline, followed by at least
+    one non-empty line within the same block (before the next heading or end
+    of file) that constitutes guidance, OR the discipline name (or its block)
+    contains the literal phrase 'guidance pending' (case-insensitive).
+    """
+    content = context["template_content"]
+    lines = content.splitlines()
+    disciplines = context["pm_disciplines"]
+
+    for discipline in disciplines:
+        discipline_lc = discipline.lower()
+        # Find the line index where this discipline is named.
+        block_start = None
+        for i, line in enumerate(lines):
+            if discipline_lc in line.lower():
+                block_start = i
+                break
+
+        assert block_start is not None, (
+            f"discipline {discipline!r} not found anywhere in lead-po template"
+        )
+
+        # Collect the contiguous block: from block_start until the next
+        # heading line (## or ###) or end of file, but at least the current
+        # line itself.
+        block_lines = [lines[block_start]]
+        for j in range(block_start + 1, len(lines)):
+            line = lines[j]
+            # A new heading starts a new block.
+            if re.match(r"^#{1,6}\s", line):
+                break
+            block_lines.append(line)
+
+        block_text = "\n".join(block_lines)
+        block_lc = block_text.lower()
+
+        # Satisfied if "guidance pending" appears anywhere in the block.
+        if "guidance pending" in block_lc:
+            continue
+
+        # Satisfied if the block (beyond the discipline-naming line itself)
+        # contains at least one non-empty sentence of guidance — i.e. at least
+        # one non-empty line after the discipline-naming line.
+        guidance_lines = [
+            ln for ln in block_lines[1:]
+            if ln.strip()
+        ]
+        assert len(guidance_lines) >= 1, (
+            f"discipline {discipline!r} has no guidance and no 'guidance "
+            f"pending' marker in its contiguous block. Block was:\n{block_text}"
+        )
+
+
+@then(
+    "no PM discipline appears as a bare list item with neither guidance nor "
+    'a "guidance pending" marker'
+)
+def then_no_bare_list_item(context: dict) -> None:
+    """Assert that no discipline is a bare bullet/list item with nothing after.
+
+    A 'bare list item' is a line that starts with a markdown list marker
+    (* or - or a digit followed by .) that contains the discipline name but
+    has no guidance text on the same line AND no non-empty content on
+    immediately following lines before the next list item or heading.
+    """
+    content = context["template_content"]
+    lines = content.splitlines()
+    disciplines = context["pm_disciplines"]
+
+    for discipline in disciplines:
+        discipline_lc = discipline.lower()
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            # Is this line a list item naming this discipline?
+            is_list_item = re.match(r"^[-*]|\d+\.", stripped)
+            if not is_list_item:
+                continue
+            if discipline_lc not in line.lower():
+                continue
+
+            # It's a list item naming this discipline. Check if it has
+            # inline content beyond the discipline name itself.
+            # Remove the list marker and discipline name and see what's left.
+            after_marker = re.sub(r"^[-*]|\d+\.", "", stripped, count=1).strip()
+            # Remove the discipline name from what remains.
+            remaining_inline = after_marker.lower().replace(discipline_lc, "").strip()
+            # Strip common punctuation to see if there's substantive content.
+            remaining_inline_clean = re.sub(r"[.,;:\"'()\[\]]", "", remaining_inline).strip()
+
+            if "guidance pending" in remaining_inline.lower():
+                continue  # explicit marker present inline — OK
+
+            if remaining_inline_clean:
+                continue  # inline guidance present — OK
+
+            # No inline content. Check next non-empty lines before the next
+            # list item or heading.
+            following_guidance = []
+            for j in range(i + 1, len(lines)):
+                next_line = lines[j]
+                next_stripped = next_line.strip()
+                if not next_stripped:
+                    continue
+                # Another list item or heading terminates this item's block.
+                if re.match(r"^[-*]|\d+\.", next_stripped) or re.match(r"^#{1,6}\s", next_line):
+                    break
+                following_guidance.append(next_stripped)
+
+            if "guidance pending" in " ".join(following_guidance).lower():
+                continue
+
+            assert following_guidance, (
+                f"discipline {discipline!r} appears as a bare list item at "
+                f"line {i + 1} with neither guidance nor a 'guidance pending' "
+                f"marker. Line: {line!r}"
+            )
+
+
 @then(parsers.parse('the target directory contains no file at "{rel}"'))
 def then_no_file(rel, context):
     assert not (Path(context["bootstrap_workspace"]) / rel).exists()
+
+
+# -----------------------------------------------------------------------
+# Then steps — lead-architect Maintain structurizr workspace activity
+# (lead-y8rz scenario 9fac437e075784fe)
+# -----------------------------------------------------------------------
+
+
+def _extract_structurizr_workspace_block(content: str) -> str:
+    """Return the text of the 'Maintain structurizr workspace' section.
+
+    Starts at the heading line and ends at the next same-or-higher-level
+    heading (## or #) or end of document.  Returns empty string if the
+    section is absent.
+    """
+    # The heading may be a subsection under ### Your job or a standalone ##.
+    import re as _re
+    # Match the heading at any depth (##, ###, etc.)
+    pattern = _re.compile(
+        r"((?:#{1,6}\s+)Maintain structurizr workspace.*?)(?=\n#{1,6}\s|\Z)",
+        _re.DOTALL,
+    )
+    m = pattern.search(content)
+    return m.group(1) if m else ""
+
+
+@then(
+    "the Maintain structurizr workspace block names all three view families "
+    "— containers, components, and dynamic views — as in scope of "
+    "the activity, not only the static container view"
+)
+def then_structurizr_block_names_all_three_view_families(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_structurizr_workspace_block(content)
+    assert block, (
+        "lead-architect template must have a 'Maintain structurizr workspace' "
+        "section (lead-y8rz / 9fac437e075784fe)"
+    )
+    lc = block.lower()
+    for family in ("containers", "components", "dynamic views"):
+        assert family in lc, (
+            f"Maintain structurizr workspace block must name view family "
+            f"{family!r} as in scope (lead-y8rz / 9fac437e075784fe)"
+        )
+
+
+@then(
+    "the Maintain structurizr workspace block states the assign-per-structurizr "
+    "coupling: a BC named in an assign_scenarios dispatch must correspond to a "
+    "container or component the workspace models, and assigning to a BC the "
+    "workspace does not model is a structural gap"
+)
+def then_structurizr_block_states_assign_per_structurizr_coupling(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    block = _extract_structurizr_workspace_block(content)
+    assert block, (
+        "lead-architect template must have a 'Maintain structurizr workspace' "
+        "section (lead-y8rz / 9fac437e075784fe)"
+    )
+    lc = block.lower()
+    # The coupling: BC in assign_scenarios must be modelled as container or component.
+    assert "assign_scenarios" in block, (
+        "Maintain structurizr workspace block must name 'assign_scenarios' to "
+        "state the assign-per-structurizr coupling "
+        "(lead-y8rz / 9fac437e075784fe)"
+    )
+    assert "container" in lc or "component" in lc, (
+        "Maintain structurizr workspace block must name 'container' or 'component' "
+        "as the workspace element a BC must correspond to "
+        "(lead-y8rz / 9fac437e075784fe)"
+    )
+    assert "structural gap" in lc, (
+        "Maintain structurizr workspace block must name 'structural gap' as the "
+        "consequence of assigning to a BC the workspace does not model "
+        "(lead-y8rz / 9fac437e075784fe)"
+    )
+
+
+@then(
+    "the Maintain structurizr workspace block states the ADR↔workspace "
+    "traceability gate: every workspace edge traces to an ADR and every "
+    "structural ADR shows up in the workspace"
+)
+def then_structurizr_block_states_adr_traceability_gate(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_structurizr_workspace_block(content)
+    assert block, (
+        "lead-architect template must have a 'Maintain structurizr workspace' "
+        "section (lead-y8rz / 9fac437e075784fe)"
+    )
+    lc = block.lower()
+    # Every workspace edge traces to an ADR.
+    assert "adr" in lc, (
+        "Maintain structurizr workspace block must name 'ADR' in the traceability "
+        "gate (lead-y8rz / 9fac437e075784fe)"
+    )
+    assert "edge" in lc, (
+        "Maintain structurizr workspace block must state that workspace edges "
+        "trace to ADRs (lead-y8rz / 9fac437e075784fe)"
+    )
+    # Every structural ADR shows up in the workspace.
+    assert "structural adr" in lc or ("structural" in lc and "adr" in lc), (
+        "Maintain structurizr workspace block must state that every structural "
+        "ADR shows up in the workspace (lead-y8rz / 9fac437e075784fe)"
+    )
+
+
+@then(
+    'each of these is stated as a sufficiency criterion on the activity OR '
+    'carries an explicit "guidance pending" marker (case-insensitive), not as '
+    "bare advisory prose with no criterion"
+)
+def then_structurizr_criteria_are_stated_as_sufficiency_criteria(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    block = _extract_structurizr_workspace_block(content)
+    assert block, (
+        "lead-architect template must have a 'Maintain structurizr workspace' "
+        "section (lead-y8rz / 9fac437e075784fe)"
+    )
+    lc = block.lower()
+    # A sufficiency criterion is detectable by one of:
+    # - the word "sufficiency" appearing in the block
+    # - "must" used in a binding obligation (not just describing others)
+    # - "criterion" / "criteria" naming the items
+    # - "guidance pending" as the explicit deferral marker
+    # The block must contain at least one of these signals rather than being
+    # purely advisory prose (e.g. "keep it in sync" with no binding language).
+    criterion_signals = (
+        "sufficiency",
+        "criterion",
+        "criteria",
+        "guidance pending",
+    )
+    # Also count binding "must" in context of the block items.
+    has_criterion_signal = any(s in lc for s in criterion_signals)
+    # "must" counts as a sufficiency criterion signal when it appears in the
+    # block (it converts advisory prose into a binding obligation).
+    has_must = "must" in lc
+    assert has_criterion_signal or has_must, (
+        "Maintain structurizr workspace block must state each item as a "
+        "sufficiency criterion (using 'must', 'sufficiency', 'criterion', "
+        "'criteria') or carry a 'guidance pending' marker — bare advisory "
+        "prose alone does not satisfy the scenario "
+        "(lead-y8rz / 9fac437e075784fe)"
+    )

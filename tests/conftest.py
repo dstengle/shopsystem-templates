@@ -2194,6 +2194,177 @@ def then_file_subcommand_composable_without_bd(
 
 
 # -----------------------------------------------------------------------
+# Then steps — lead-po anti-build-trap structural gate
+# (scenario_hash:c96e0d7e37de2079 — lead-y8rz dispatch)
+#
+# The build trap is the structural failure mode the empowered-PM role
+# exists to prevent. These steps verify that the lead-po template:
+#   1. Names the build trap — measuring output or shipping features nobody
+#      needed — as the structural failure mode the role exists to prevent.
+#   2. States that the build trap is MORE dangerous in this system (build
+#      is free / fleet executes exactly what is specified), not less.
+#   3. States a sufficiency criterion: the PM can and does say "no" or
+#      "not yet" with a recorded reason.
+#   4. States that output volume (scenarios authored, features shipped) is
+#      never a success measure.
+#   5. Frames this gate as a sufficiency criterion, not bare advisory prose.
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the content names the build trap — measuring output or shipping "
+    "features nobody needed — as the structural failure mode the "
+    "empowered-PM role exists to prevent"
+)
+def then_content_names_build_trap_as_structural_failure_mode(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # "build trap" must be named.
+    assert "build trap" in lc, (
+        "lead-po template must name the 'build trap' as the structural "
+        "failure mode the empowered-PM role exists to prevent "
+        "(c96e0d7e37de2079)"
+    )
+    # The build trap must be characterized as measuring output or shipping
+    # features nobody needed.
+    output_signals = ("measuring output", "output or shipping", "nobody needed",
+                      "features nobody")
+    assert any(s in lc for s in output_signals), (
+        "lead-po template must characterize the build trap as measuring "
+        "output or shipping features nobody needed (c96e0d7e37de2079); "
+        f"content around 'build trap':\n{lc[max(0, lc.find('build trap') - 100):lc.find('build trap') + 200]!r}"
+    )
+    # The build trap must be the structural failure mode the role exists to
+    # prevent — "prevent" or "exists to prevent" near the build trap.
+    prevent_signals = ("prevent", "exists to prevent", "role exists to prevent",
+                       "failure mode")
+    assert any(s in lc for s in prevent_signals), (
+        "lead-po template must frame the build trap as the structural failure "
+        "mode the empowered-PM role exists to prevent (c96e0d7e37de2079)"
+    )
+
+
+@then(
+    "the content states that because the build is effectively free and the "
+    "fleet executes exactly what is specified, the build trap is more "
+    "dangerous in this system, not less"
+)
+def then_content_states_build_trap_more_dangerous(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must assert the build trap is MORE dangerous, not less.
+    more_dangerous_signals = (
+        "more dangerous",
+        "greater danger",
+        "heightened risk",
+    )
+    assert any(s in lc for s in more_dangerous_signals), (
+        "lead-po template must state the build trap is more dangerous in "
+        "this system, not less (c96e0d7e37de2079)"
+    )
+    # Must explain WHY — the build is free / fleet executes exactly what
+    # is specified.
+    free_signals = ("effectively free", "build is free", "free and the fleet",
+                    "cost of building is", "cost of the build")
+    exact_signals = ("exactly what is specified", "exactly what you specify",
+                     "fleet executes exactly", "executes exactly")
+    # At least one of the two causal signals must be present.
+    assert any(s in lc for s in free_signals) or any(s in lc for s in exact_signals), (
+        "lead-po template must explain the build trap is more dangerous "
+        "because the build is effectively free and/or the fleet executes "
+        "exactly what is specified (c96e0d7e37de2079)"
+    )
+
+
+@then(
+    "the content states a sufficiency criterion that the PM can and does "
+    'say "no" or "not yet" with a recorded reason'
+)
+def then_content_states_no_not_yet_sufficiency_criterion(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must include "no" or "not yet" as a PM action.
+    no_signals = ('"no"', '"not yet"', "say no", "say \"no\"",
+                  "say 'no'", "no or \"not yet\"", "no\" or \"not yet\"",
+                  "\"no\" or \"not yet\"")
+    assert any(s in lc for s in no_signals), (
+        "lead-po template must state the PM can say 'no' or 'not yet' "
+        "(c96e0d7e37de2079)"
+    )
+    # Must require a recorded reason.
+    recorded_signals = ("recorded reason", "with a reason", "record the reason",
+                        "recorded rationale", "documented reason")
+    assert any(s in lc for s in recorded_signals), (
+        "lead-po template must require a recorded reason when the PM says "
+        "no or not yet (c96e0d7e37de2079)"
+    )
+
+
+@then(
+    "the content states that output volume — such as scenarios authored or "
+    "features shipped — is never a success measure"
+)
+def then_content_states_output_volume_never_success_measure(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must state output volume is NOT a success measure.
+    output_volume_signals = (
+        "output volume", "volume of scenarios", "number of scenarios",
+        "scenarios authored", "features shipped",
+    )
+    assert any(s in lc for s in output_volume_signals), (
+        "lead-po template must name output volume (scenarios authored, "
+        "features shipped, or similar) as an excluded success measure "
+        "(c96e0d7e37de2079)"
+    )
+    # Must say it is never / not a success measure.
+    never_signals = (
+        "never a success measure", "not a success measure",
+        "is not a success", "never the measure", "never success",
+    )
+    assert any(s in lc for s in never_signals), (
+        "lead-po template must state output volume is never a success "
+        "measure (c96e0d7e37de2079)"
+    )
+
+
+@then(
+    "this gate is stated as a sufficiency criterion on the role, not as "
+    "bare advisory prose with no criterion"
+)
+def then_gate_is_stated_as_sufficiency_criterion(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # The gate must be framed as a sufficiency criterion — the phrase
+    # "sufficiency criterion" must appear near the build-trap content.
+    assert "sufficiency criterion" in lc, (
+        "lead-po template must frame the anti-build-trap gate as a "
+        "sufficiency criterion, not bare advisory prose (c96e0d7e37de2079)"
+    )
+    # The sufficiency criterion must appear in proximity to the build-trap
+    # language — within the same section. Find the build-trap block and
+    # verify "sufficiency criterion" is nearby.
+    bt_idx = lc.find("build trap")
+    sc_idx = lc.find("sufficiency criterion")
+    assert bt_idx >= 0 and sc_idx >= 0, (
+        "lead-po template must contain both 'build trap' and 'sufficiency "
+        "criterion' (c96e0d7e37de2079)"
+    )
+    # Proximity check: within 2000 characters of each other (same section).
+    proximity = abs(bt_idx - sc_idx)
+    assert proximity <= 2000, (
+        f"'sufficiency criterion' appears too far from 'build trap' "
+        f"({proximity} chars) — the gate must be stated as a sufficiency "
+        "criterion in the same section as the build-trap content "
+        "(c96e0d7e37de2079)"
+    )
+
+
+# -----------------------------------------------------------------------
 # Step definitions — lead-architect "Responding to a BC clarify"
 # per-step CLI naming (scenario e6bdf2f33bfae0d1 / lead-e4g)
 # -----------------------------------------------------------------------
@@ -11407,6 +11578,1210 @@ def then_mtime_unchanged(rel, context):
     assert p.stat().st_mtime_ns == context["mtimes"][rel]
 
 
+# -----------------------------------------------------------------------
+# Step definitions — lead-po empowered-PM identity and durable disciplines
+# (lead-y8rz / scenario_hash:1e49cc3a526d4272)
+# -----------------------------------------------------------------------
+
+
+@given(
+    parsers.parse(
+        'the four durable PM disciplines "{d1}", "{d2}", "{d3}", and "{d4}"'
+    )
+)
+def given_four_durable_pm_disciplines(
+    d1: str, d2: str, d3: str, d4: str, context: dict
+) -> None:
+    """Store the four discipline names for later Then assertions."""
+    context["pm_disciplines"] = [d1, d2, d3, d4]
+
+
+@then(
+    "the content names an empowered Product-Manager identity that owns the "
+    "problem and the outcome, distinct from an order-taker who converts "
+    "requests into scenarios"
+)
+def then_content_names_empowered_pm_identity(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "empowered" in lc, (
+        "lead-po template must name an empowered Product-Manager identity "
+        "(lead-y8rz / 1e49cc3a526d4272)"
+    )
+    # Must name ownership of the problem AND the outcome.
+    assert "problem" in lc and "outcome" in lc, (
+        "lead-po template must state the empowered-PM owns the problem and the "
+        "outcome (lead-y8rz / 1e49cc3a526d4272)"
+    )
+    # Must be distinct from an order-taker.
+    assert "order-taker" in lc or "order taker" in lc, (
+        "lead-po template must distinguish the empowered-PM from an "
+        "order-taker (lead-y8rz / 1e49cc3a526d4272)"
+    )
+
+
+@then(
+    "the content states that this empowered-PM identity sharpens, and does "
+    "not replace, the existing COMMIT TO SPECIFICS posture"
+)
+def then_content_states_sharpens_not_replaces(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "sharpen" in lc, (
+        "lead-po template must state the empowered-PM identity sharpens the "
+        "COMMIT TO SPECIFICS posture (lead-y8rz / 1e49cc3a526d4272)"
+    )
+    assert "does not replace" in lc or "not replace" in lc, (
+        "lead-po template must state the empowered-PM identity does not replace "
+        "the COMMIT TO SPECIFICS posture (lead-y8rz / 1e49cc3a526d4272)"
+    )
+    assert "commit to specifics" in lc, (
+        "lead-po template must name the COMMIT TO SPECIFICS posture in the "
+        "sharpens/not-replaces statement (lead-y8rz / 1e49cc3a526d4272)"
+    )
+
+
+@then("the content names each of the four durable PM disciplines")
+def then_content_names_each_discipline(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    disciplines = context["pm_disciplines"]
+    for discipline in disciplines:
+        assert discipline.lower() in lc, (
+            f"lead-po template must name PM discipline {discipline!r} "
+            "(lead-y8rz / 1e49cc3a526d4272)"
+        )
+
+
+@then(
+    "for each discipline, the content has a contiguous block — either a "
+    "subsection that names the discipline or a line that names the discipline "
+    "— that contains at minimum one sentence of guidance OR an explicit "
+    'marker of the form "guidance pending" (case-insensitive)'
+)
+def then_each_discipline_has_guidance_or_pending(context: dict) -> None:
+    """Assert that each discipline has a contiguous block with guidance or
+    a 'guidance pending' marker.
+
+    A 'contiguous block' is defined as: a subsection header line that names
+    the discipline, OR a line that names the discipline, followed by at least
+    one non-empty line within the same block (before the next heading or end
+    of file) that constitutes guidance, OR the discipline name (or its block)
+    contains the literal phrase 'guidance pending' (case-insensitive).
+    """
+    content = context["template_content"]
+    lines = content.splitlines()
+    disciplines = context["pm_disciplines"]
+
+    for discipline in disciplines:
+        discipline_lc = discipline.lower()
+        # Find the line index where this discipline is named.
+        block_start = None
+        for i, line in enumerate(lines):
+            if discipline_lc in line.lower():
+                block_start = i
+                break
+
+        assert block_start is not None, (
+            f"discipline {discipline!r} not found anywhere in lead-po template"
+        )
+
+        # Collect the contiguous block: from block_start until the next
+        # heading line (## or ###) or end of file, but at least the current
+        # line itself.
+        block_lines = [lines[block_start]]
+        for j in range(block_start + 1, len(lines)):
+            line = lines[j]
+            # A new heading starts a new block.
+            if re.match(r"^#{1,6}\s", line):
+                break
+            block_lines.append(line)
+
+        block_text = "\n".join(block_lines)
+        block_lc = block_text.lower()
+
+        # Satisfied if "guidance pending" appears anywhere in the block.
+        if "guidance pending" in block_lc:
+            continue
+
+        # Satisfied if the block (beyond the discipline-naming line itself)
+        # contains at least one non-empty sentence of guidance — i.e. at least
+        # one non-empty line after the discipline-naming line.
+        guidance_lines = [
+            ln for ln in block_lines[1:]
+            if ln.strip()
+        ]
+        assert len(guidance_lines) >= 1, (
+            f"discipline {discipline!r} has no guidance and no 'guidance "
+            f"pending' marker in its contiguous block. Block was:\n{block_text}"
+        )
+
+
+@then(
+    "no PM discipline appears as a bare list item with neither guidance nor "
+    'a "guidance pending" marker'
+)
+def then_no_bare_list_item(context: dict) -> None:
+    """Assert that no discipline is a bare bullet/list item with nothing after.
+
+    A 'bare list item' is a line that starts with a markdown list marker
+    (* or - or a digit followed by .) that contains the discipline name but
+    has no guidance text on the same line AND no non-empty content on
+    immediately following lines before the next list item or heading.
+    """
+    content = context["template_content"]
+    lines = content.splitlines()
+    disciplines = context["pm_disciplines"]
+
+    for discipline in disciplines:
+        discipline_lc = discipline.lower()
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            # Is this line a list item naming this discipline?
+            is_list_item = re.match(r"^[-*]|\d+\.", stripped)
+            if not is_list_item:
+                continue
+            if discipline_lc not in line.lower():
+                continue
+
+            # It's a list item naming this discipline. Check if it has
+            # inline content beyond the discipline name itself.
+            # Remove the list marker and discipline name and see what's left.
+            after_marker = re.sub(r"^[-*]|\d+\.", "", stripped, count=1).strip()
+            # Remove the discipline name from what remains.
+            remaining_inline = after_marker.lower().replace(discipline_lc, "").strip()
+            # Strip common punctuation to see if there's substantive content.
+            remaining_inline_clean = re.sub(r"[.,;:\"'()\[\]]", "", remaining_inline).strip()
+
+            if "guidance pending" in remaining_inline.lower():
+                continue  # explicit marker present inline — OK
+
+            if remaining_inline_clean:
+                continue  # inline guidance present — OK
+
+            # No inline content. Check next non-empty lines before the next
+            # list item or heading.
+            following_guidance = []
+            for j in range(i + 1, len(lines)):
+                next_line = lines[j]
+                next_stripped = next_line.strip()
+                if not next_stripped:
+                    continue
+                # Another list item or heading terminates this item's block.
+                if re.match(r"^[-*]|\d+\.", next_stripped) or re.match(r"^#{1,6}\s", next_line):
+                    break
+                following_guidance.append(next_stripped)
+
+            if "guidance pending" in " ".join(following_guidance).lower():
+                continue
+
+            assert following_guidance, (
+                f"discipline {discipline!r} appears as a bare list item at "
+                f"line {i + 1} with neither guidance nor a 'guidance pending' "
+                f"marker. Line: {line!r}"
+            )
+
+
 @then(parsers.parse('the target directory contains no file at "{rel}"'))
 def then_no_file(rel, context):
     assert not (Path(context["bootstrap_workspace"]) / rel).exists()
+
+
+# -----------------------------------------------------------------------
+# Then steps — lead-architect Maintain structurizr workspace activity
+# (lead-y8rz scenario 9fac437e075784fe)
+# -----------------------------------------------------------------------
+
+
+def _extract_structurizr_workspace_block(content: str) -> str:
+    """Return the text of the 'Maintain structurizr workspace' section.
+
+    Starts at the heading line and ends at the next same-or-higher-level
+    heading (## or #) or end of document.  Returns empty string if the
+    section is absent.
+    """
+    # The heading may be a subsection under ### Your job or a standalone ##.
+    import re as _re
+    # Match the heading at any depth (##, ###, etc.)
+    pattern = _re.compile(
+        r"((?:#{1,6}\s+)Maintain structurizr workspace.*?)(?=\n#{1,6}\s|\Z)",
+        _re.DOTALL,
+    )
+    m = pattern.search(content)
+    return m.group(1) if m else ""
+
+
+@then(
+    "the Maintain structurizr workspace block names all three view families "
+    "— containers, components, and dynamic views — as in scope of "
+    "the activity, not only the static container view"
+)
+def then_structurizr_block_names_all_three_view_families(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_structurizr_workspace_block(content)
+    assert block, (
+        "lead-architect template must have a 'Maintain structurizr workspace' "
+        "section (lead-y8rz / 9fac437e075784fe)"
+    )
+    lc = block.lower()
+    for family in ("containers", "components", "dynamic views"):
+        assert family in lc, (
+            f"Maintain structurizr workspace block must name view family "
+            f"{family!r} as in scope (lead-y8rz / 9fac437e075784fe)"
+        )
+
+
+@then(
+    "the Maintain structurizr workspace block states the assign-per-structurizr "
+    "coupling: a BC named in an assign_scenarios dispatch must correspond to a "
+    "container or component the workspace models, and assigning to a BC the "
+    "workspace does not model is a structural gap"
+)
+def then_structurizr_block_states_assign_per_structurizr_coupling(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    block = _extract_structurizr_workspace_block(content)
+    assert block, (
+        "lead-architect template must have a 'Maintain structurizr workspace' "
+        "section (lead-y8rz / 9fac437e075784fe)"
+    )
+    lc = block.lower()
+    # The coupling: BC in assign_scenarios must be modelled as container or component.
+    assert "assign_scenarios" in block, (
+        "Maintain structurizr workspace block must name 'assign_scenarios' to "
+        "state the assign-per-structurizr coupling "
+        "(lead-y8rz / 9fac437e075784fe)"
+    )
+    assert "container" in lc or "component" in lc, (
+        "Maintain structurizr workspace block must name 'container' or 'component' "
+        "as the workspace element a BC must correspond to "
+        "(lead-y8rz / 9fac437e075784fe)"
+    )
+    assert "structural gap" in lc, (
+        "Maintain structurizr workspace block must name 'structural gap' as the "
+        "consequence of assigning to a BC the workspace does not model "
+        "(lead-y8rz / 9fac437e075784fe)"
+    )
+
+
+@then(
+    "the Maintain structurizr workspace block states the ADR↔workspace "
+    "traceability gate: every workspace edge traces to an ADR and every "
+    "structural ADR shows up in the workspace"
+)
+def then_structurizr_block_states_adr_traceability_gate(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_structurizr_workspace_block(content)
+    assert block, (
+        "lead-architect template must have a 'Maintain structurizr workspace' "
+        "section (lead-y8rz / 9fac437e075784fe)"
+    )
+    lc = block.lower()
+    # Every workspace edge traces to an ADR.
+    assert "adr" in lc, (
+        "Maintain structurizr workspace block must name 'ADR' in the traceability "
+        "gate (lead-y8rz / 9fac437e075784fe)"
+    )
+    assert "edge" in lc, (
+        "Maintain structurizr workspace block must state that workspace edges "
+        "trace to ADRs (lead-y8rz / 9fac437e075784fe)"
+    )
+    # Every structural ADR shows up in the workspace.
+    assert "structural adr" in lc or ("structural" in lc and "adr" in lc), (
+        "Maintain structurizr workspace block must state that every structural "
+        "ADR shows up in the workspace (lead-y8rz / 9fac437e075784fe)"
+    )
+
+
+@then(
+    'each of these is stated as a sufficiency criterion on the activity OR '
+    'carries an explicit "guidance pending" marker (case-insensitive), not as '
+    "bare advisory prose with no criterion"
+)
+def then_structurizr_criteria_are_stated_as_sufficiency_criteria(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    block = _extract_structurizr_workspace_block(content)
+    assert block, (
+        "lead-architect template must have a 'Maintain structurizr workspace' "
+        "section (lead-y8rz / 9fac437e075784fe)"
+    )
+    lc = block.lower()
+    # A sufficiency criterion is detectable by one of:
+    # - the word "sufficiency" appearing in the block
+    # - "must" used in a binding obligation (not just describing others)
+    # - "criterion" / "criteria" naming the items
+    # - "guidance pending" as the explicit deferral marker
+    # The block must contain at least one of these signals rather than being
+    # purely advisory prose (e.g. "keep it in sync" with no binding language).
+    criterion_signals = (
+        "sufficiency",
+        "criterion",
+        "criteria",
+        "guidance pending",
+    )
+    # Also count binding "must" in context of the block items.
+    has_criterion_signal = any(s in lc for s in criterion_signals)
+    # "must" counts as a sufficiency criterion signal when it appears in the
+    # block (it converts advisory prose into a binding obligation).
+    has_must = "must" in lc
+    assert has_criterion_signal or has_must, (
+        "Maintain structurizr workspace block must state each item as a "
+        "sufficiency criterion (using 'must', 'sufficiency', 'criterion', "
+        "'criteria') or carry a 'guidance pending' marker — bare advisory "
+        "prose alone does not satisfy the scenario "
+        "(lead-y8rz / 9fac437e075784fe)"
+    )
+
+
+# -----------------------------------------------------------------------
+# Then steps — lead-po PM discipline sufficiency criteria
+# (scenario_hash:25038c88fec521ba — lead-y8rz / tmpl-9du)
+# -----------------------------------------------------------------------
+#
+# These steps assert that the "problem discovery & selection" and
+# "outcome ownership" discipline blocks in the lead-po template carry
+# explicit, measurable sufficiency criteria — not mere advisory prose.
+# -----------------------------------------------------------------------
+
+
+def _extract_discipline_block(content: str, discipline_heading: str) -> str:
+    """Return the contiguous text block for a named discipline subsection.
+
+    Searches for a heading line that contains the discipline_heading text
+    (case-insensitive), then collects all lines through the next heading
+    at the same or higher depth (or end of file).
+    """
+    lines = content.splitlines()
+    start_idx = None
+    heading_depth = None
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped.startswith("#"):
+            continue
+        # Determine depth and text of this heading.
+        depth = 0
+        for ch in stripped:
+            if ch == "#":
+                depth += 1
+            else:
+                break
+        heading_text = stripped[depth:].strip().lower()
+        if discipline_heading.lower() in heading_text:
+            start_idx = i
+            heading_depth = depth
+            break
+
+    if start_idx is None:
+        return ""
+
+    # Collect lines until the next heading at the same or higher depth.
+    block_lines = [lines[start_idx]]
+    for line in lines[start_idx + 1 :]:
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            depth = sum(1 for ch in stripped if ch == "#") - len(
+                stripped.lstrip("#")
+            )
+            # Re-count properly
+            d = 0
+            for ch in stripped:
+                if ch == "#":
+                    d += 1
+                else:
+                    break
+            if d <= heading_depth:
+                break
+        block_lines.append(line)
+    return "\n".join(block_lines)
+
+
+@then(
+    "the problem discovery & selection discipline block states a sufficiency "
+    "criterion that requires every committed intent to trace to a validated "
+    "problem or job-to-be-done, not to a stakeholder feature request"
+)
+def then_problem_discovery_block_has_trace_criterion(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "problem discovery")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'problem discovery & selection' "
+        "discipline block (scenario_hash:25038c88fec521ba)"
+    )
+    # Must carry a sufficiency criterion — binding language.
+    assert "must" in lc or "criterion" in lc or "sufficiency" in lc, (
+        "problem discovery & selection block must state a sufficiency criterion "
+        "using binding language ('must', 'criterion', or 'sufficiency') "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must require tracing to a validated problem or JTBD.
+    trace_signals = ("trace", "traces", "tracing", "traced")
+    assert any(s in lc for s in trace_signals), (
+        "problem discovery & selection block must require committed intent to "
+        "trace to a validated problem or job-to-be-done "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    jtbd_signals = (
+        "job-to-be-done",
+        "job to be done",
+        "jtbd",
+        "validated problem",
+    )
+    assert any(s in lc for s in jtbd_signals), (
+        "problem discovery & selection block must name 'job-to-be-done' or "
+        "'validated problem' as the required trace target "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must distinguish from stakeholder feature request.
+    feature_request_signals = (
+        "feature request",
+        "stakeholder request",
+        "stakeholder feature",
+    )
+    assert any(s in lc for s in feature_request_signals), (
+        "problem discovery & selection block must distinguish committed intent "
+        "from a stakeholder feature request "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+
+
+@then(
+    "the problem discovery & selection discipline block names choosing which "
+    "problem to solve as the scarcest good, anchored on a stable "
+    "job-to-be-done before intent is committed"
+)
+def then_problem_discovery_block_names_scarcest_good(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "problem discovery")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'problem discovery & selection' "
+        "discipline block (scenario_hash:25038c88fec521ba)"
+    )
+    # Must name the act of choosing which problem to solve as the scarcest good.
+    assert "scarce" in lc or "scarcest" in lc, (
+        "problem discovery & selection block must name choosing which problem "
+        "to solve as the 'scarcest good' (scenario_hash:25038c88fec521ba)"
+    )
+    # Must anchor on a stable JTBD before intent is committed.
+    jtbd_signals = (
+        "job-to-be-done",
+        "job to be done",
+        "jtbd",
+    )
+    assert any(s in lc for s in jtbd_signals), (
+        "problem discovery & selection block must anchor on a stable "
+        "job-to-be-done (scenario_hash:25038c88fec521ba)"
+    )
+    before_commit_signals = (
+        "before intent is committed",
+        "before committing",
+        "before intent",
+        "before the intent",
+        "before committing intent",
+    )
+    assert any(s in lc for s in before_commit_signals), (
+        "problem discovery & selection block must name the JTBD as the anchor "
+        "before intent is committed (scenario_hash:25038c88fec521ba)"
+    )
+
+
+@then(
+    "the outcome ownership discipline block states a sufficiency criterion "
+    "that requires the intent to name the outcome it targets as an observable "
+    "behavior change rather than an output"
+)
+def then_outcome_ownership_block_has_observable_criterion(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "outcome ownership")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing an 'outcome ownership' discipline block "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must carry a sufficiency criterion — binding language.
+    assert "must" in lc or "criterion" in lc or "sufficiency" in lc, (
+        "outcome ownership block must state a sufficiency criterion using "
+        "binding language ('must', 'criterion', or 'sufficiency') "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must require naming an observable behavior change.
+    assert "observable" in lc, (
+        "outcome ownership block must require the intent to name an 'observable' "
+        "behavior change (scenario_hash:25038c88fec521ba)"
+    )
+    behavior_change_signals = (
+        "behavior change",
+        "behaviour change",
+        "behavioral change",
+    )
+    assert any(s in lc for s in behavior_change_signals), (
+        "outcome ownership block must require the outcome to be framed as a "
+        "behavior change (scenario_hash:25038c88fec521ba)"
+    )
+    # Must contrast with output (not just an output).
+    output_contrast_signals = (
+        "rather than an output",
+        "not an output",
+        "not just an output",
+        "not output",
+        "instead of an output",
+    )
+    assert any(s in lc for s in output_contrast_signals), (
+        "outcome ownership block must contrast an observable behavior change "
+        "with an output (scenario_hash:25038c88fec521ba)"
+    )
+
+
+@then(
+    "the outcome ownership discipline block states that the intent must address "
+    "at least value (will they use it) and viability, naming Cagan's four risks "
+    "with feasibility owned in partnership with the Architect"
+)
+def then_outcome_ownership_block_names_cagan_risks(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "outcome ownership")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing an 'outcome ownership' discipline block "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must name Cagan's four risks.
+    assert "cagan" in lc, (
+        "outcome ownership block must name Cagan's four risks "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must name value risk.
+    value_signals = ("value risk", "value (will they use", "will they use it")
+    assert any(s in lc for s in value_signals), (
+        "outcome ownership block must name value risk (will they use it) "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must name viability.
+    assert "viability" in lc or "viable" in lc, (
+        "outcome ownership block must name viability risk "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must name feasibility with partnership ownership to the Architect.
+    assert "feasibility" in lc or "feasible" in lc, (
+        "outcome ownership block must name feasibility risk "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    partnership_signals = (
+        "partnership",
+        "in partnership",
+        "partner",
+        "architect",
+    )
+    assert any(s in lc for s in partnership_signals), (
+        "outcome ownership block must name feasibility as owned in partnership "
+        "with the Architect (scenario_hash:25038c88fec521ba)"
+    )
+
+
+@then(
+    "neither discipline's sufficiency criterion is expressed as a constraint "
+    '("don\'t crash", "use judgment") rather than a measurable outcome'
+)
+def then_neither_discipline_uses_constraint_language(context: dict) -> None:
+    content = context["template_content"]
+    pd_block = _extract_discipline_block(content, "problem discovery")
+    oo_block = _extract_discipline_block(content, "outcome ownership")
+
+    # Constraint anti-patterns: purely negative prohibitions without an
+    # affirmative measurable criterion.  The scenario names two: "don't crash"
+    # and "use judgment". We check that neither block uses these specific
+    # phrasings AND that each block carries at least one affirmative criterion
+    # signal (something they must achieve, not merely avoid).
+    constraint_phrases = (
+        "don't crash",
+        "dont crash",
+        "use judgment",
+        "use your judgment",
+        "use judgement",
+    )
+    for block_name, block in (
+        ("problem discovery & selection", pd_block),
+        ("outcome ownership", oo_block),
+    ):
+        lc = block.lower()
+        for phrase in constraint_phrases:
+            assert phrase not in lc, (
+                f"{block_name} block must not express its sufficiency criterion "
+                f"as a bare constraint ({phrase!r}); it must state a measurable "
+                f"outcome (scenario_hash:25038c88fec521ba)"
+            )
+        # Each block must carry at least one affirmative measurable criterion
+        # (binding language that names what the artifact must achieve).
+        affirmative_signals = ("must", "criterion", "criteria", "sufficiency")
+        assert any(s in lc for s in affirmative_signals), (
+            f"{block_name} block must carry an affirmative measurable criterion "
+            f"(using 'must', 'criterion', 'criteria', or 'sufficiency') — "
+            f"constraint-only language is not sufficient "
+            f"(scenario_hash:25038c88fec521ba)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Steps for scenario_hash:6773a984439f2a9e
+# lead-po strategy-before-backlog and specification-as-contract sufficiency
+# ---------------------------------------------------------------------------
+
+
+@then(
+    "the strategy before backlog discipline block states a sufficiency criterion "
+    "that requires every PDR or scenario set to trace up to a strategic bet "
+    "recorded in the brief, with no orphan features"
+)
+def then_strategy_before_backlog_block_has_trace_criterion(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "strategy before backlog")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'strategy before backlog' discipline block "
+        "(scenario_hash:6773a984439f2a9e)"
+    )
+    # Must carry a sufficiency criterion — binding language.
+    assert "must" in lc or "criterion" in lc or "sufficiency" in lc, (
+        "strategy before backlog block must state a sufficiency criterion using "
+        "binding language ('must', 'criterion', or 'sufficiency') "
+        "(scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require tracing to a strategic bet.
+    trace_signals = ("trace", "traces", "tracing", "traced")
+    assert any(s in lc for s in trace_signals), (
+        "strategy before backlog block must require every PDR or scenario set to "
+        "trace to a strategic bet (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must reference a strategic bet.
+    bet_signals = ("strategic bet", "strategy bet", "bet")
+    assert any(s in lc for s in bet_signals), (
+        "strategy before backlog block must name 'strategic bet' as the required "
+        "trace target (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must reference the brief.
+    brief_signals = ("brief", "product brief")
+    assert any(s in lc for s in brief_signals), (
+        "strategy before backlog block must reference the 'brief' as where the "
+        "strategic bet is recorded (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must name orphan features as the failure mode.
+    orphan_signals = ("orphan", "orphaned", "no orphan")
+    assert any(s in lc for s in orphan_signals), (
+        "strategy before backlog block must name 'orphan features' as the failure "
+        "mode to guard against (scenario_hash:6773a984439f2a9e)"
+    )
+
+
+@then(
+    "the specification as the contract discipline block states that scenarios are "
+    "the contract and that an AI fleet builds exactly what is specified, so "
+    "ambiguity is the enemy"
+)
+def then_spec_as_contract_block_states_contract_framing(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "specification as the contract")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'specification as the contract' discipline "
+        "block (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must state that scenarios are the contract.
+    contract_signals = ("contract", "the contract")
+    assert any(s in lc for s in contract_signals), (
+        "specification as the contract block must state that scenarios are the "
+        "contract (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must name the AI fleet / AI builds exactly what is specified.
+    ai_signals = ("ai fleet", "ai ", "fleet")
+    assert any(s in lc for s in ai_signals), (
+        "specification as the contract block must name the AI fleet as the entity "
+        "that builds exactly what is specified (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must state that ambiguity is the enemy.
+    ambiguity_signals = ("ambiguity is the enemy", "ambiguity", "enemy")
+    assert any(s in lc for s in ambiguity_signals), (
+        "specification as the contract block must state that ambiguity is the "
+        "enemy (scenario_hash:6773a984439f2a9e)"
+    )
+
+
+@then(
+    "the specification as the contract discipline block states a sufficiency "
+    "criterion that requires scenarios to be behavior-focused and example-driven, "
+    "each tracing back to a problem and forward to a testable behavior"
+)
+def then_spec_as_contract_block_has_sufficiency_criterion(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "specification as the contract")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'specification as the contract' discipline "
+        "block (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must carry a sufficiency criterion — binding language.
+    assert "must" in lc or "criterion" in lc or "sufficiency" in lc, (
+        "specification as the contract block must state a sufficiency criterion "
+        "using binding language ('must', 'criterion', or 'sufficiency') "
+        "(scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require behavior-focused scenarios.
+    behavior_signals = ("behavior-focused", "behaviour-focused", "behavior focused")
+    assert any(s in lc for s in behavior_signals), (
+        "specification as the contract block must require scenarios to be "
+        "'behavior-focused' (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require example-driven scenarios.
+    example_signals = ("example-driven", "example driven")
+    assert any(s in lc for s in example_signals), (
+        "specification as the contract block must require scenarios to be "
+        "'example-driven' (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require tracing back to a problem.
+    back_signals = ("tracing back to a problem", "traces back to a problem", "trace back to a problem")
+    assert any(s in lc for s in back_signals), (
+        "specification as the contract block must require each scenario to trace "
+        "back to a problem (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require tracing forward to a testable behavior.
+    forward_signals = ("forward to a testable", "forward to testable")
+    assert any(s in lc for s in forward_signals), (
+        "specification as the contract block must require each scenario to trace "
+        "forward to a testable behavior (scenario_hash:6773a984439f2a9e)"
+    )
+
+
+@then(
+    "the specification as the contract discipline block does not replace or weaken "
+    'the existing "Sufficiency check — authoring a scenario" section, but feeds '
+    "well-formed scenarios into it"
+)
+def then_spec_as_contract_block_feeds_not_replaces_authoring_check(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "specification as the contract")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'specification as the contract' discipline "
+        "block (scenario_hash:6773a984439f2a9e)"
+    )
+    # The existing "Sufficiency check — authoring a scenario" section must still exist.
+    authoring_check_signals = (
+        "sufficiency check — authoring a scenario",
+        "sufficiency check - authoring a scenario",
+        "sufficiency check—authoring a scenario",
+        "authoring a scenario",
+    )
+    assert any(s in content.lower() for s in authoring_check_signals), (
+        "lead-po template must still contain the 'Sufficiency check — authoring a "
+        "scenario' section; the specification-as-contract block must not replace "
+        "or remove it (scenario_hash:6773a984439f2a9e)"
+    )
+    # The spec-as-contract block must reference feeding into / complementing
+    # the authoring check, not replacing it.
+    feed_signals = (
+        "feeds",
+        "feed",
+        "feeds well-formed",
+        "feeds into",
+        "complement",
+        "well-formed scenarios into",
+    )
+    assert any(s in lc for s in feed_signals), (
+        "specification as the contract block must state that it feeds well-formed "
+        "scenarios into the authoring sufficiency check, not that it replaces it "
+        "(scenario_hash:6773a984439f2a9e)"
+    )
+
+
+# -----------------------------------------------------------------------
+# Step definitions for scenario_hash:32537a54388dd716
+# lead-po PM skill catalogue — experimental adoption framing
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the content states that the external PM skills are adapted to the "
+    "shopsystem process rather than imported wholesale"
+)
+def then_pm_skills_adapted_not_imported_wholesale(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must state that external PM skills are adapted / experimental / not wholesale
+    adapt_signals = (
+        "adapted",
+        "experimentally adopted",
+        "experimental adoption",
+        "adapted to the shopsystem process",
+        "not imported wholesale",
+        "rather than imported wholesale",
+    )
+    assert any(s in lc for s in adapt_signals), (
+        "lead-po template must state that external PM skills are adapted to the "
+        "shopsystem process rather than imported wholesale "
+        "(scenario_hash:32537a54388dd716)"
+    )
+
+
+@then(
+    "the content presents the candidate PM skills mapped onto the four durable "
+    'disciplines rather than onto the retired "four research flavors"'
+)
+def then_pm_skills_mapped_onto_four_durable_disciplines(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must present PM skills as mapped onto the four durable disciplines
+    mapped_signals = (
+        "mapped onto the four durable disciplines",
+        "map onto the four durable disciplines",
+        "four durable disciplines",
+    )
+    assert any(s in lc for s in mapped_signals), (
+        "lead-po template must present PM skills mapped onto the four durable "
+        "disciplines (scenario_hash:32537a54388dd716)"
+    )
+    # Must explicitly reference retiring / not using the old four research flavors
+    retired_signals = (
+        "retired",
+        "four research flavors",
+        "four research flavours",
+        "not onto the retired",
+        "rather than onto the retired",
+    )
+    assert any(s in lc for s in retired_signals), (
+        "lead-po template must reference the retired 'four research flavors' framing "
+        "and contrast it with the four durable disciplines "
+        "(scenario_hash:32537a54388dd716)"
+    )
+
+
+@then(
+    "the content states that the PM artifacts collapse onto the §3.3 artifacts "
+    "the PO already owns — interview notes, brief, PDR, and scenarios — rather "
+    "than introducing new lead-shop artifact types"
+)
+def then_pm_artifacts_collapse_onto_existing(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must state artifacts collapse / map onto §3.3 artifacts
+    collapse_signals = (
+        "collapse onto",
+        "collapses onto",
+        "collapse onto the",
+        "§3.3 artifacts",
+        "3.3 artifacts",
+    )
+    assert any(s in lc for s in collapse_signals), (
+        "lead-po template must state that PM artifacts collapse onto the §3.3 "
+        "artifacts (scenario_hash:32537a54388dd716)"
+    )
+    # Must name the four §3.3 artifacts
+    artifact_signals = ("interview notes", "brief", "pdr", "scenarios")
+    missing = [a for a in artifact_signals if a not in lc]
+    assert not missing, (
+        f"lead-po template must name all four §3.3 artifacts (interview notes, "
+        f"brief, PDR, and scenarios); missing: {missing!r} "
+        f"(scenario_hash:32537a54388dd716)"
+    )
+    # Must state no new artifact types are introduced
+    no_new_signals = (
+        "rather than introducing new",
+        "no new",
+        "not introducing new",
+        "does not introduce new",
+        "without introducing new",
+    )
+    assert any(s in lc for s in no_new_signals), (
+        "lead-po template must state that PM artifacts do not introduce new "
+        "lead-shop artifact types (scenario_hash:32537a54388dd716)"
+    )
+
+
+@then(
+    "the content states that a PM skill's human-checkpoint maps onto the COMMIT "
+    "TO SPECIFICS posture — the PO commits the specific or records explicitly "
+    "that it cannot commit yet, rather than stalling on a stakeholder round-trip "
+    "the shopsystem loop does not already have"
+)
+def then_pm_skill_checkpoint_maps_onto_commit_to_specifics(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must name COMMIT TO SPECIFICS as the mapped posture
+    cts_signals = (
+        "commit to specifics",
+        "commits to specifics",
+    )
+    assert any(s in lc for s in cts_signals), (
+        "lead-po template must name COMMIT TO SPECIFICS as the human-checkpoint "
+        "posture for PM skills (scenario_hash:32537a54388dd716)"
+    )
+    # Must state the PO commits the specific or records cannot commit
+    commit_signals = (
+        "commits the specific",
+        "commit the specific",
+        "cannot commit yet",
+        "records explicitly that it cannot commit",
+        "records explicitly that they cannot commit",
+    )
+    assert any(s in lc for s in commit_signals), (
+        "lead-po template must state that the PO commits the specific or records "
+        "explicitly that it cannot commit yet (scenario_hash:32537a54388dd716)"
+    )
+    # Must state no stalling on stakeholder round-trips
+    no_stall_signals = (
+        "rather than stalling",
+        "not stalling",
+        "stalling on a stakeholder round-trip",
+        "stakeholder round-trip the shopsystem loop does not",
+        "shopsystem loop does not already have",
+    )
+    assert any(s in lc for s in no_stall_signals), (
+        "lead-po template must state that the PM skill's human-checkpoint does not "
+        "stall on a stakeholder round-trip the shopsystem loop does not already have "
+        "(scenario_hash:32537a54388dd716)"
+    )
+
+
+# -----------------------------------------------------------------------
+# Then steps — lead-po product-general PM role with consumer/framework fork
+# (scenario_hash:6465b30fe62fb935, lead-y8rz)
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the content states that the empowered-PM role is product-general — it "
+    "instantiates into every product lead shop — and that market-facing PM "
+    "competencies are load-bearing, not vestigial"
+)
+def then_content_states_product_general_role_load_bearing(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "product-general" in lc, (
+        "lead-po template must state the empowered-PM role is 'product-general' "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "every product lead shop" in lc or "instantiates into every" in lc, (
+        "lead-po template must state the role instantiates into every product lead "
+        "shop (scenario_hash:6465b30fe62fb935)"
+    )
+    assert "load-bearing" in lc, (
+        "lead-po template must state market-facing PM competencies are "
+        "load-bearing (scenario_hash:6465b30fe62fb935)"
+    )
+    assert "vestigial" in lc or "not vestigial" in lc, (
+        "lead-po template must state market-facing PM competencies are not "
+        "vestigial (scenario_hash:6465b30fe62fb935)"
+    )
+
+
+@then(
+    "the content states that the four disciplines are identical across product "
+    "instances and only their inputs fork"
+)
+def then_content_states_disciplines_identical_inputs_fork(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "identical" in lc, (
+        "lead-po template must state the four disciplines are identical across "
+        "product instances (scenario_hash:6465b30fe62fb935)"
+    )
+    assert "inputs fork" in lc or "only their inputs" in lc, (
+        "lead-po template must state that only the inputs fork across product "
+        "instances (scenario_hash:6465b30fe62fb935)"
+    )
+
+
+@then(
+    "the content states the consumer-product fork: full market-facing PM with "
+    "real user, market, and JTBD discovery, competitive analysis, positioning, "
+    "and segmentation, whose outcome is customer behavior change or business metrics"
+)
+def then_content_states_consumer_product_fork(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "consumer" in lc, (
+        "lead-po template must state the consumer-product fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "market-facing" in lc, (
+        "lead-po template must describe full market-facing PM in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "jtbd" in lc or "job-to-be-done" in lc, (
+        "lead-po template must name JTBD discovery in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "competitive analysis" in lc, (
+        "lead-po template must name competitive analysis in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "positioning" in lc, (
+        "lead-po template must name positioning in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "segmentation" in lc, (
+        "lead-po template must name segmentation in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "customer behavior change" in lc or "business metrics" in lc, (
+        "lead-po template must state the consumer fork outcome is customer behavior "
+        "change or business metrics (scenario_hash:6465b30fe62fb935)"
+    )
+
+
+@then(
+    "the content states the framework-as-product fork: platform-as-a-product or "
+    "developer-experience PM whose customers are adopters, operators, and BC shops "
+    "and whose outcome is adoption or developer experience"
+)
+def then_content_states_framework_as_product_fork(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "framework-as-product" in lc or "framework as product" in lc, (
+        "lead-po template must state the framework-as-product fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "platform-as-a-product" in lc or "developer experience" in lc or "developer-experience" in lc, (
+        "lead-po template must name platform-as-a-product or developer-experience "
+        "PM in the framework fork (scenario_hash:6465b30fe62fb935)"
+    )
+    assert "adopters" in lc, (
+        "lead-po template must name adopters as customers in the framework fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "operators" in lc, (
+        "lead-po template must name operators as customers in the framework fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "bc shops" in lc or "bc shop" in lc, (
+        "lead-po template must name BC shops as customers in the framework fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "adoption" in lc, (
+        "lead-po template must name adoption as an outcome in the framework fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+
+
+@then(
+    "the content names the consumer product as the primary case and "
+    "framework-as-product as the bootstrap or meta instance"
+)
+def then_content_names_consumer_primary_framework_bootstrap(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "primary" in lc, (
+        "lead-po template must name the consumer product as the primary case "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "bootstrap" in lc or "meta instance" in lc, (
+        "lead-po template must name framework-as-product as the bootstrap or meta "
+        "instance (scenario_hash:6465b30fe62fb935)"
+    )
+
+
+# -----------------------------------------------------------------------
+# Then steps — identity-precedes-procedure structural integrity
+# (scenario_hash:662c5822dbc6a896 — lead-y8rz)
+#
+# The four durable PM discipline names that headings must not promote
+# above depth ### (3). Any heading whose text contains one of these
+# strings must appear at #### (4) or deeper; appearing at ## (2) or
+# # (1) would violate identity-precedes-procedure.
+# -----------------------------------------------------------------------
+
+_PM_DISCIPLINE_NAMES = (
+    "problem discovery & selection",
+    "outcome ownership",
+    "strategy before backlog",
+    "specification as the contract",
+)
+
+
+@then(
+    "every heading whose text mentions a PM discipline appears at heading depth "
+    "three (###) or deeper, never at depth one (#)"
+)
+def then_pm_discipline_headings_at_depth_three_or_deeper(context: dict) -> None:
+    """Each heading containing a PM discipline name must be at ### or deeper.
+
+    The four durable disciplines — problem discovery & selection, outcome
+    ownership, strategy before backlog, specification as the contract — must
+    not appear as depth-1 (#) headings. Doing so would place procedural PM
+    framework content at the identity level of the document, violating the
+    identity-precedes-procedure ordering.
+    """
+    content = context["template_content"]
+    offenders: list[tuple[int, str, str]] = []
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        stripped = line.lstrip()
+        if not stripped.startswith("#"):
+            continue
+        # Count the leading # characters to determine depth.
+        depth = 0
+        for ch in stripped:
+            if ch == "#":
+                depth += 1
+            else:
+                break
+        if depth >= 3:
+            continue  # depth 3 or deeper is fine
+        heading_text_lower = stripped.lstrip("#").strip().lower()
+        for discipline in _PM_DISCIPLINE_NAMES:
+            if discipline.lower() in heading_text_lower:
+                offenders.append((lineno, line.rstrip(), discipline))
+    assert not offenders, (
+        f"template {context.get('shown_template_name')!r} has PM discipline "
+        f"headings at depth < 3 (violates identity-precedes-procedure, "
+        f"scenario_hash:662c5822dbc6a896):\n"
+        + "\n".join(
+            f"  line {n}: {l!r} (mentions discipline {d!r})"
+            for n, l, d in offenders
+        )
+    )
+
+
+@then(
+    "the first occurrence of the substring \"shop-msg\" in the content appears "
+    "after every PM discipline name has appeared at least once"
+)
+def then_shop_msg_after_all_pm_discipline_names(context: dict) -> None:
+    """First 'shop-msg' must follow all four PM discipline names.
+
+    All four durable PM discipline names must appear in the content before
+    the first occurrence of 'shop-msg'. This enforces that the PM identity
+    content (who the PM is and what disciplines they hold) precedes the
+    procedural CLI mechanics.
+    """
+    content = context["template_content"]
+    shop_msg_idx = content.find("shop-msg")
+    assert shop_msg_idx >= 0, (
+        f"premise of Then violated: template "
+        f"{context.get('shown_template_name')!r} has no 'shop-msg' substring"
+    )
+    missing: list[str] = []
+    too_late: list[tuple[str, int, int]] = []
+    for discipline in _PM_DISCIPLINE_NAMES:
+        idx = content.lower().find(discipline.lower())
+        if idx < 0:
+            missing.append(discipline)
+            continue
+        if idx >= shop_msg_idx:
+            too_late.append((discipline, idx, shop_msg_idx))
+    assert not missing, (
+        f"premise of Then violated: template "
+        f"{context.get('shown_template_name')!r} is missing PM discipline "
+        f"name(s): {missing!r} (scenario_hash:662c5822dbc6a896)"
+    )
+    assert not too_late, (
+        f"first 'shop-msg' at byte {shop_msg_idx} in template "
+        f"{context.get('shown_template_name')!r} precedes PM discipline "
+        f"name(s) (each must appear at least once before 'shop-msg'):\n"
+        + "\n".join(
+            f"  - {d!r} first appears at byte {di} (>= {smi})"
+            for d, di, smi in too_late
+        )
+        + f"\n(scenario_hash:662c5822dbc6a896)"
+    )

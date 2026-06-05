@@ -12223,3 +12223,151 @@ def then_spec_as_contract_block_feeds_not_replaces_authoring_check(context: dict
         "scenarios into the authoring sufficiency check, not that it replaces it "
         "(scenario_hash:6773a984439f2a9e)"
     )
+
+
+# -----------------------------------------------------------------------
+# Step definitions for scenario_hash:32537a54388dd716
+# lead-po PM skill catalogue — experimental adoption framing
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the content states that the external PM skills are adapted to the "
+    "shopsystem process rather than imported wholesale"
+)
+def then_pm_skills_adapted_not_imported_wholesale(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must state that external PM skills are adapted / experimental / not wholesale
+    adapt_signals = (
+        "adapted",
+        "experimentally adopted",
+        "experimental adoption",
+        "adapted to the shopsystem process",
+        "not imported wholesale",
+        "rather than imported wholesale",
+    )
+    assert any(s in lc for s in adapt_signals), (
+        "lead-po template must state that external PM skills are adapted to the "
+        "shopsystem process rather than imported wholesale "
+        "(scenario_hash:32537a54388dd716)"
+    )
+
+
+@then(
+    "the content presents the candidate PM skills mapped onto the four durable "
+    'disciplines rather than onto the retired "four research flavors"'
+)
+def then_pm_skills_mapped_onto_four_durable_disciplines(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must present PM skills as mapped onto the four durable disciplines
+    mapped_signals = (
+        "mapped onto the four durable disciplines",
+        "map onto the four durable disciplines",
+        "four durable disciplines",
+    )
+    assert any(s in lc for s in mapped_signals), (
+        "lead-po template must present PM skills mapped onto the four durable "
+        "disciplines (scenario_hash:32537a54388dd716)"
+    )
+    # Must explicitly reference retiring / not using the old four research flavors
+    retired_signals = (
+        "retired",
+        "four research flavors",
+        "four research flavours",
+        "not onto the retired",
+        "rather than onto the retired",
+    )
+    assert any(s in lc for s in retired_signals), (
+        "lead-po template must reference the retired 'four research flavors' framing "
+        "and contrast it with the four durable disciplines "
+        "(scenario_hash:32537a54388dd716)"
+    )
+
+
+@then(
+    "the content states that the PM artifacts collapse onto the §3.3 artifacts "
+    "the PO already owns — interview notes, brief, PDR, and scenarios — rather "
+    "than introducing new lead-shop artifact types"
+)
+def then_pm_artifacts_collapse_onto_existing(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must state artifacts collapse / map onto §3.3 artifacts
+    collapse_signals = (
+        "collapse onto",
+        "collapses onto",
+        "collapse onto the",
+        "§3.3 artifacts",
+        "3.3 artifacts",
+    )
+    assert any(s in lc for s in collapse_signals), (
+        "lead-po template must state that PM artifacts collapse onto the §3.3 "
+        "artifacts (scenario_hash:32537a54388dd716)"
+    )
+    # Must name the four §3.3 artifacts
+    artifact_signals = ("interview notes", "brief", "pdr", "scenarios")
+    missing = [a for a in artifact_signals if a not in lc]
+    assert not missing, (
+        f"lead-po template must name all four §3.3 artifacts (interview notes, "
+        f"brief, PDR, and scenarios); missing: {missing!r} "
+        f"(scenario_hash:32537a54388dd716)"
+    )
+    # Must state no new artifact types are introduced
+    no_new_signals = (
+        "rather than introducing new",
+        "no new",
+        "not introducing new",
+        "does not introduce new",
+        "without introducing new",
+    )
+    assert any(s in lc for s in no_new_signals), (
+        "lead-po template must state that PM artifacts do not introduce new "
+        "lead-shop artifact types (scenario_hash:32537a54388dd716)"
+    )
+
+
+@then(
+    "the content states that a PM skill's human-checkpoint maps onto the COMMIT "
+    "TO SPECIFICS posture — the PO commits the specific or records explicitly "
+    "that it cannot commit yet, rather than stalling on a stakeholder round-trip "
+    "the shopsystem loop does not already have"
+)
+def then_pm_skill_checkpoint_maps_onto_commit_to_specifics(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must name COMMIT TO SPECIFICS as the mapped posture
+    cts_signals = (
+        "commit to specifics",
+        "commits to specifics",
+    )
+    assert any(s in lc for s in cts_signals), (
+        "lead-po template must name COMMIT TO SPECIFICS as the human-checkpoint "
+        "posture for PM skills (scenario_hash:32537a54388dd716)"
+    )
+    # Must state the PO commits the specific or records cannot commit
+    commit_signals = (
+        "commits the specific",
+        "commit the specific",
+        "cannot commit yet",
+        "records explicitly that it cannot commit",
+        "records explicitly that they cannot commit",
+    )
+    assert any(s in lc for s in commit_signals), (
+        "lead-po template must state that the PO commits the specific or records "
+        "explicitly that it cannot commit yet (scenario_hash:32537a54388dd716)"
+    )
+    # Must state no stalling on stakeholder round-trips
+    no_stall_signals = (
+        "rather than stalling",
+        "not stalling",
+        "stalling on a stakeholder round-trip",
+        "stakeholder round-trip the shopsystem loop does not",
+        "shopsystem loop does not already have",
+    )
+    assert any(s in lc for s in no_stall_signals), (
+        "lead-po template must state that the PM skill's human-checkpoint does not "
+        "stall on a stakeholder round-trip the shopsystem loop does not already have "
+        "(scenario_hash:32537a54388dd716)"
+    )

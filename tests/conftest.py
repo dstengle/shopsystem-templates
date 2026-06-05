@@ -12052,3 +12052,174 @@ def then_neither_discipline_uses_constraint_language(context: dict) -> None:
             f"constraint-only language is not sufficient "
             f"(scenario_hash:25038c88fec521ba)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Steps for scenario_hash:6773a984439f2a9e
+# lead-po strategy-before-backlog and specification-as-contract sufficiency
+# ---------------------------------------------------------------------------
+
+
+@then(
+    "the strategy before backlog discipline block states a sufficiency criterion "
+    "that requires every PDR or scenario set to trace up to a strategic bet "
+    "recorded in the brief, with no orphan features"
+)
+def then_strategy_before_backlog_block_has_trace_criterion(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "strategy before backlog")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'strategy before backlog' discipline block "
+        "(scenario_hash:6773a984439f2a9e)"
+    )
+    # Must carry a sufficiency criterion — binding language.
+    assert "must" in lc or "criterion" in lc or "sufficiency" in lc, (
+        "strategy before backlog block must state a sufficiency criterion using "
+        "binding language ('must', 'criterion', or 'sufficiency') "
+        "(scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require tracing to a strategic bet.
+    trace_signals = ("trace", "traces", "tracing", "traced")
+    assert any(s in lc for s in trace_signals), (
+        "strategy before backlog block must require every PDR or scenario set to "
+        "trace to a strategic bet (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must reference a strategic bet.
+    bet_signals = ("strategic bet", "strategy bet", "bet")
+    assert any(s in lc for s in bet_signals), (
+        "strategy before backlog block must name 'strategic bet' as the required "
+        "trace target (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must reference the brief.
+    brief_signals = ("brief", "product brief")
+    assert any(s in lc for s in brief_signals), (
+        "strategy before backlog block must reference the 'brief' as where the "
+        "strategic bet is recorded (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must name orphan features as the failure mode.
+    orphan_signals = ("orphan", "orphaned", "no orphan")
+    assert any(s in lc for s in orphan_signals), (
+        "strategy before backlog block must name 'orphan features' as the failure "
+        "mode to guard against (scenario_hash:6773a984439f2a9e)"
+    )
+
+
+@then(
+    "the specification as the contract discipline block states that scenarios are "
+    "the contract and that an AI fleet builds exactly what is specified, so "
+    "ambiguity is the enemy"
+)
+def then_spec_as_contract_block_states_contract_framing(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "specification as the contract")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'specification as the contract' discipline "
+        "block (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must state that scenarios are the contract.
+    contract_signals = ("contract", "the contract")
+    assert any(s in lc for s in contract_signals), (
+        "specification as the contract block must state that scenarios are the "
+        "contract (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must name the AI fleet / AI builds exactly what is specified.
+    ai_signals = ("ai fleet", "ai ", "fleet")
+    assert any(s in lc for s in ai_signals), (
+        "specification as the contract block must name the AI fleet as the entity "
+        "that builds exactly what is specified (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must state that ambiguity is the enemy.
+    ambiguity_signals = ("ambiguity is the enemy", "ambiguity", "enemy")
+    assert any(s in lc for s in ambiguity_signals), (
+        "specification as the contract block must state that ambiguity is the "
+        "enemy (scenario_hash:6773a984439f2a9e)"
+    )
+
+
+@then(
+    "the specification as the contract discipline block states a sufficiency "
+    "criterion that requires scenarios to be behavior-focused and example-driven, "
+    "each tracing back to a problem and forward to a testable behavior"
+)
+def then_spec_as_contract_block_has_sufficiency_criterion(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "specification as the contract")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'specification as the contract' discipline "
+        "block (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must carry a sufficiency criterion — binding language.
+    assert "must" in lc or "criterion" in lc or "sufficiency" in lc, (
+        "specification as the contract block must state a sufficiency criterion "
+        "using binding language ('must', 'criterion', or 'sufficiency') "
+        "(scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require behavior-focused scenarios.
+    behavior_signals = ("behavior-focused", "behaviour-focused", "behavior focused")
+    assert any(s in lc for s in behavior_signals), (
+        "specification as the contract block must require scenarios to be "
+        "'behavior-focused' (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require example-driven scenarios.
+    example_signals = ("example-driven", "example driven")
+    assert any(s in lc for s in example_signals), (
+        "specification as the contract block must require scenarios to be "
+        "'example-driven' (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require tracing back to a problem.
+    back_signals = ("tracing back to a problem", "traces back to a problem", "trace back to a problem")
+    assert any(s in lc for s in back_signals), (
+        "specification as the contract block must require each scenario to trace "
+        "back to a problem (scenario_hash:6773a984439f2a9e)"
+    )
+    # Must require tracing forward to a testable behavior.
+    forward_signals = ("forward to a testable", "forward to testable")
+    assert any(s in lc for s in forward_signals), (
+        "specification as the contract block must require each scenario to trace "
+        "forward to a testable behavior (scenario_hash:6773a984439f2a9e)"
+    )
+
+
+@then(
+    "the specification as the contract discipline block does not replace or weaken "
+    'the existing "Sufficiency check — authoring a scenario" section, but feeds '
+    "well-formed scenarios into it"
+)
+def then_spec_as_contract_block_feeds_not_replaces_authoring_check(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "specification as the contract")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'specification as the contract' discipline "
+        "block (scenario_hash:6773a984439f2a9e)"
+    )
+    # The existing "Sufficiency check — authoring a scenario" section must still exist.
+    authoring_check_signals = (
+        "sufficiency check — authoring a scenario",
+        "sufficiency check - authoring a scenario",
+        "sufficiency check—authoring a scenario",
+        "authoring a scenario",
+    )
+    assert any(s in content.lower() for s in authoring_check_signals), (
+        "lead-po template must still contain the 'Sufficiency check — authoring a "
+        "scenario' section; the specification-as-contract block must not replace "
+        "or remove it (scenario_hash:6773a984439f2a9e)"
+    )
+    # The spec-as-contract block must reference feeding into / complementing
+    # the authoring check, not replacing it.
+    feed_signals = (
+        "feeds",
+        "feed",
+        "feeds well-formed",
+        "feeds into",
+        "complement",
+        "well-formed scenarios into",
+    )
+    assert any(s in lc for s in feed_signals), (
+        "specification as the contract block must state that it feeds well-formed "
+        "scenarios into the authoring sufficiency check, not that it replaces it "
+        "(scenario_hash:6773a984439f2a9e)"
+    )

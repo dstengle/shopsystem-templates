@@ -11763,3 +11763,292 @@ def then_structurizr_criteria_are_stated_as_sufficiency_criteria(
         "prose alone does not satisfy the scenario "
         "(lead-y8rz / 9fac437e075784fe)"
     )
+
+
+# -----------------------------------------------------------------------
+# Then steps — lead-po PM discipline sufficiency criteria
+# (scenario_hash:25038c88fec521ba — lead-y8rz / tmpl-9du)
+# -----------------------------------------------------------------------
+#
+# These steps assert that the "problem discovery & selection" and
+# "outcome ownership" discipline blocks in the lead-po template carry
+# explicit, measurable sufficiency criteria — not mere advisory prose.
+# -----------------------------------------------------------------------
+
+
+def _extract_discipline_block(content: str, discipline_heading: str) -> str:
+    """Return the contiguous text block for a named discipline subsection.
+
+    Searches for a heading line that contains the discipline_heading text
+    (case-insensitive), then collects all lines through the next heading
+    at the same or higher depth (or end of file).
+    """
+    lines = content.splitlines()
+    start_idx = None
+    heading_depth = None
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped.startswith("#"):
+            continue
+        # Determine depth and text of this heading.
+        depth = 0
+        for ch in stripped:
+            if ch == "#":
+                depth += 1
+            else:
+                break
+        heading_text = stripped[depth:].strip().lower()
+        if discipline_heading.lower() in heading_text:
+            start_idx = i
+            heading_depth = depth
+            break
+
+    if start_idx is None:
+        return ""
+
+    # Collect lines until the next heading at the same or higher depth.
+    block_lines = [lines[start_idx]]
+    for line in lines[start_idx + 1 :]:
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            depth = sum(1 for ch in stripped if ch == "#") - len(
+                stripped.lstrip("#")
+            )
+            # Re-count properly
+            d = 0
+            for ch in stripped:
+                if ch == "#":
+                    d += 1
+                else:
+                    break
+            if d <= heading_depth:
+                break
+        block_lines.append(line)
+    return "\n".join(block_lines)
+
+
+@then(
+    "the problem discovery & selection discipline block states a sufficiency "
+    "criterion that requires every committed intent to trace to a validated "
+    "problem or job-to-be-done, not to a stakeholder feature request"
+)
+def then_problem_discovery_block_has_trace_criterion(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "problem discovery")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'problem discovery & selection' "
+        "discipline block (scenario_hash:25038c88fec521ba)"
+    )
+    # Must carry a sufficiency criterion — binding language.
+    assert "must" in lc or "criterion" in lc or "sufficiency" in lc, (
+        "problem discovery & selection block must state a sufficiency criterion "
+        "using binding language ('must', 'criterion', or 'sufficiency') "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must require tracing to a validated problem or JTBD.
+    trace_signals = ("trace", "traces", "tracing", "traced")
+    assert any(s in lc for s in trace_signals), (
+        "problem discovery & selection block must require committed intent to "
+        "trace to a validated problem or job-to-be-done "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    jtbd_signals = (
+        "job-to-be-done",
+        "job to be done",
+        "jtbd",
+        "validated problem",
+    )
+    assert any(s in lc for s in jtbd_signals), (
+        "problem discovery & selection block must name 'job-to-be-done' or "
+        "'validated problem' as the required trace target "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must distinguish from stakeholder feature request.
+    feature_request_signals = (
+        "feature request",
+        "stakeholder request",
+        "stakeholder feature",
+    )
+    assert any(s in lc for s in feature_request_signals), (
+        "problem discovery & selection block must distinguish committed intent "
+        "from a stakeholder feature request "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+
+
+@then(
+    "the problem discovery & selection discipline block names choosing which "
+    "problem to solve as the scarcest good, anchored on a stable "
+    "job-to-be-done before intent is committed"
+)
+def then_problem_discovery_block_names_scarcest_good(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "problem discovery")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing a 'problem discovery & selection' "
+        "discipline block (scenario_hash:25038c88fec521ba)"
+    )
+    # Must name the act of choosing which problem to solve as the scarcest good.
+    assert "scarce" in lc or "scarcest" in lc, (
+        "problem discovery & selection block must name choosing which problem "
+        "to solve as the 'scarcest good' (scenario_hash:25038c88fec521ba)"
+    )
+    # Must anchor on a stable JTBD before intent is committed.
+    jtbd_signals = (
+        "job-to-be-done",
+        "job to be done",
+        "jtbd",
+    )
+    assert any(s in lc for s in jtbd_signals), (
+        "problem discovery & selection block must anchor on a stable "
+        "job-to-be-done (scenario_hash:25038c88fec521ba)"
+    )
+    before_commit_signals = (
+        "before intent is committed",
+        "before committing",
+        "before intent",
+        "before the intent",
+        "before committing intent",
+    )
+    assert any(s in lc for s in before_commit_signals), (
+        "problem discovery & selection block must name the JTBD as the anchor "
+        "before intent is committed (scenario_hash:25038c88fec521ba)"
+    )
+
+
+@then(
+    "the outcome ownership discipline block states a sufficiency criterion "
+    "that requires the intent to name the outcome it targets as an observable "
+    "behavior change rather than an output"
+)
+def then_outcome_ownership_block_has_observable_criterion(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "outcome ownership")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing an 'outcome ownership' discipline block "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must carry a sufficiency criterion — binding language.
+    assert "must" in lc or "criterion" in lc or "sufficiency" in lc, (
+        "outcome ownership block must state a sufficiency criterion using "
+        "binding language ('must', 'criterion', or 'sufficiency') "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must require naming an observable behavior change.
+    assert "observable" in lc, (
+        "outcome ownership block must require the intent to name an 'observable' "
+        "behavior change (scenario_hash:25038c88fec521ba)"
+    )
+    behavior_change_signals = (
+        "behavior change",
+        "behaviour change",
+        "behavioral change",
+    )
+    assert any(s in lc for s in behavior_change_signals), (
+        "outcome ownership block must require the outcome to be framed as a "
+        "behavior change (scenario_hash:25038c88fec521ba)"
+    )
+    # Must contrast with output (not just an output).
+    output_contrast_signals = (
+        "rather than an output",
+        "not an output",
+        "not just an output",
+        "not output",
+        "instead of an output",
+    )
+    assert any(s in lc for s in output_contrast_signals), (
+        "outcome ownership block must contrast an observable behavior change "
+        "with an output (scenario_hash:25038c88fec521ba)"
+    )
+
+
+@then(
+    "the outcome ownership discipline block states that the intent must address "
+    "at least value (will they use it) and viability, naming Cagan's four risks "
+    "with feasibility owned in partnership with the Architect"
+)
+def then_outcome_ownership_block_names_cagan_risks(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "outcome ownership")
+    lc = block.lower()
+    assert block, (
+        "lead-po template is missing an 'outcome ownership' discipline block "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must name Cagan's four risks.
+    assert "cagan" in lc, (
+        "outcome ownership block must name Cagan's four risks "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must name value risk.
+    value_signals = ("value risk", "value (will they use", "will they use it")
+    assert any(s in lc for s in value_signals), (
+        "outcome ownership block must name value risk (will they use it) "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must name viability.
+    assert "viability" in lc or "viable" in lc, (
+        "outcome ownership block must name viability risk "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    # Must name feasibility with partnership ownership to the Architect.
+    assert "feasibility" in lc or "feasible" in lc, (
+        "outcome ownership block must name feasibility risk "
+        "(scenario_hash:25038c88fec521ba)"
+    )
+    partnership_signals = (
+        "partnership",
+        "in partnership",
+        "partner",
+        "architect",
+    )
+    assert any(s in lc for s in partnership_signals), (
+        "outcome ownership block must name feasibility as owned in partnership "
+        "with the Architect (scenario_hash:25038c88fec521ba)"
+    )
+
+
+@then(
+    "neither discipline's sufficiency criterion is expressed as a constraint "
+    '("don\'t crash", "use judgment") rather than a measurable outcome'
+)
+def then_neither_discipline_uses_constraint_language(context: dict) -> None:
+    content = context["template_content"]
+    pd_block = _extract_discipline_block(content, "problem discovery")
+    oo_block = _extract_discipline_block(content, "outcome ownership")
+
+    # Constraint anti-patterns: purely negative prohibitions without an
+    # affirmative measurable criterion.  The scenario names two: "don't crash"
+    # and "use judgment". We check that neither block uses these specific
+    # phrasings AND that each block carries at least one affirmative criterion
+    # signal (something they must achieve, not merely avoid).
+    constraint_phrases = (
+        "don't crash",
+        "dont crash",
+        "use judgment",
+        "use your judgment",
+        "use judgement",
+    )
+    for block_name, block in (
+        ("problem discovery & selection", pd_block),
+        ("outcome ownership", oo_block),
+    ):
+        lc = block.lower()
+        for phrase in constraint_phrases:
+            assert phrase not in lc, (
+                f"{block_name} block must not express its sufficiency criterion "
+                f"as a bare constraint ({phrase!r}); it must state a measurable "
+                f"outcome (scenario_hash:25038c88fec521ba)"
+            )
+        # Each block must carry at least one affirmative measurable criterion
+        # (binding language that names what the artifact must achieve).
+        affirmative_signals = ("must", "criterion", "criteria", "sufficiency")
+        assert any(s in lc for s in affirmative_signals), (
+            f"{block_name} block must carry an affirmative measurable criterion "
+            f"(using 'must', 'criterion', 'criteria', or 'sufficiency') — "
+            f"constraint-only language is not sufficient "
+            f"(scenario_hash:25038c88fec521ba)"
+        )

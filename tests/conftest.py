@@ -12542,3 +12542,141 @@ def then_pm_skill_checkpoint_maps_onto_commit_to_specifics(context: dict) -> Non
         "stall on a stakeholder round-trip the shopsystem loop does not already have "
         "(scenario_hash:32537a54388dd716)"
     )
+
+
+# -----------------------------------------------------------------------
+# Then steps — lead-po product-general PM role with consumer/framework fork
+# (scenario_hash:6465b30fe62fb935, lead-y8rz)
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the content states that the empowered-PM role is product-general — it "
+    "instantiates into every product lead shop — and that market-facing PM "
+    "competencies are load-bearing, not vestigial"
+)
+def then_content_states_product_general_role_load_bearing(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "product-general" in lc, (
+        "lead-po template must state the empowered-PM role is 'product-general' "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "every product lead shop" in lc or "instantiates into every" in lc, (
+        "lead-po template must state the role instantiates into every product lead "
+        "shop (scenario_hash:6465b30fe62fb935)"
+    )
+    assert "load-bearing" in lc, (
+        "lead-po template must state market-facing PM competencies are "
+        "load-bearing (scenario_hash:6465b30fe62fb935)"
+    )
+    assert "vestigial" in lc or "not vestigial" in lc, (
+        "lead-po template must state market-facing PM competencies are not "
+        "vestigial (scenario_hash:6465b30fe62fb935)"
+    )
+
+
+@then(
+    "the content states that the four disciplines are identical across product "
+    "instances and only their inputs fork"
+)
+def then_content_states_disciplines_identical_inputs_fork(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "identical" in lc, (
+        "lead-po template must state the four disciplines are identical across "
+        "product instances (scenario_hash:6465b30fe62fb935)"
+    )
+    assert "inputs fork" in lc or "only their inputs" in lc, (
+        "lead-po template must state that only the inputs fork across product "
+        "instances (scenario_hash:6465b30fe62fb935)"
+    )
+
+
+@then(
+    "the content states the consumer-product fork: full market-facing PM with "
+    "real user, market, and JTBD discovery, competitive analysis, positioning, "
+    "and segmentation, whose outcome is customer behavior change or business metrics"
+)
+def then_content_states_consumer_product_fork(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "consumer" in lc, (
+        "lead-po template must state the consumer-product fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "market-facing" in lc, (
+        "lead-po template must describe full market-facing PM in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "jtbd" in lc or "job-to-be-done" in lc, (
+        "lead-po template must name JTBD discovery in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "competitive analysis" in lc, (
+        "lead-po template must name competitive analysis in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "positioning" in lc, (
+        "lead-po template must name positioning in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "segmentation" in lc, (
+        "lead-po template must name segmentation in the consumer fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "customer behavior change" in lc or "business metrics" in lc, (
+        "lead-po template must state the consumer fork outcome is customer behavior "
+        "change or business metrics (scenario_hash:6465b30fe62fb935)"
+    )
+
+
+@then(
+    "the content states the framework-as-product fork: platform-as-a-product or "
+    "developer-experience PM whose customers are adopters, operators, and BC shops "
+    "and whose outcome is adoption or developer experience"
+)
+def then_content_states_framework_as_product_fork(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "framework-as-product" in lc or "framework as product" in lc, (
+        "lead-po template must state the framework-as-product fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "platform-as-a-product" in lc or "developer experience" in lc or "developer-experience" in lc, (
+        "lead-po template must name platform-as-a-product or developer-experience "
+        "PM in the framework fork (scenario_hash:6465b30fe62fb935)"
+    )
+    assert "adopters" in lc, (
+        "lead-po template must name adopters as customers in the framework fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "operators" in lc, (
+        "lead-po template must name operators as customers in the framework fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "bc shops" in lc or "bc shop" in lc, (
+        "lead-po template must name BC shops as customers in the framework fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "adoption" in lc, (
+        "lead-po template must name adoption as an outcome in the framework fork "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+
+
+@then(
+    "the content names the consumer product as the primary case and "
+    "framework-as-product as the bootstrap or meta instance"
+)
+def then_content_names_consumer_primary_framework_bootstrap(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "primary" in lc, (
+        "lead-po template must name the consumer product as the primary case "
+        "(scenario_hash:6465b30fe62fb935)"
+    )
+    assert "bootstrap" in lc or "meta instance" in lc, (
+        "lead-po template must name framework-as-product as the bootstrap or meta "
+        "instance (scenario_hash:6465b30fe62fb935)"
+    )

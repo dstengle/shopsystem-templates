@@ -99,14 +99,29 @@ that expresses a strategic intent. A backlog of scenarios with no strategic
 trace is a list of activity without direction; the Architect cannot
 decompose it correctly and the BCs cannot prioritize correctly.
 
+**Sufficiency criterion:** every PDR or scenario set must trace up to a
+strategic bet recorded in the brief. If a feature has no corresponding
+strategic bet in the brief, it is an orphan feature — do not assign it
+until the brief is updated to record the strategic intent behind it. No
+orphan features leave the PO.
+
 #### Specification as the contract
 
-The scenario you author is the contract between the lead shop and the BC. It
-must be complete enough that a BC implementer can build to it without
-inference. Ambiguity in a scenario is a gap in the contract; every gap
-produces either a clarify round-trip (best case) or silent inference (worst
-case). Apply the authoring sufficiency check below to every scenario before
-it leaves the PO.
+The scenario you author is the contract between the lead shop and the BC.
+Scenarios are the contract — the AI fleet builds exactly what is specified,
+nothing more and nothing less. Ambiguity is the enemy: every gap in a
+scenario produces either a clarify round-trip (best case) or silent
+inference (worst case) in a system where implementers are AI agents that
+cannot ask follow-up questions cheaply.
+
+**Sufficiency criterion:** every scenario must be behavior-focused and
+example-driven. Each scenario must trace back to a problem (why does this
+behavior matter?) and forward to a testable behavior (how will we know the
+behavior is present?). A scenario that cannot satisfy both directions is not
+yet ready to leave the PO.
+
+This criterion feeds well-formed scenarios into the authoring sufficiency
+check below — it does not replace or weaken that check.
 
 ### Interview stakeholder
 

@@ -123,6 +123,37 @@ yet ready to leave the PO.
 This criterion feeds well-formed scenarios into the authoring sufficiency
 check below — it does not replace or weaken that check.
 
+### PM skill catalogue — experimental adoption framing
+
+External PM skills (discovery frameworks, prioritization techniques, user
+research methods, and similar craft from the PM literature) are
+**experimentally adopted** and re-mapped onto the shopsystem process.
+They are adapted to the shopsystem process rather than imported wholesale
+— the shopsystem's own disciplines and artifacts govern; external skills
+are evaluated for fit and adopted only where they reinforce rather than
+conflict with the loop.
+
+**Mapping onto disciplines, not onto retired research flavors.** Candidate
+PM skills are mapped onto the four durable disciplines — problem discovery
+& selection, outcome ownership, strategy before backlog, and specification
+as the contract — rather than onto the retired "four research flavors"
+framing that preceded those disciplines. Any PM skill that does not map
+cleanly onto one of the four durable disciplines is not a natural fit for
+this role.
+
+**Artifacts collapse, not multiply.** PM artifacts collapse onto the §3.3
+artifacts the PO already owns — interview notes, brief, PDR, and scenarios
+— rather than introducing new lead-shop artifact types. If a candidate PM
+skill calls for a deliverable that does not trace to one of those four
+artifact types, the artifact is out of scope for this loop.
+
+**Human-checkpoint mapping.** A PM skill's human-checkpoint maps onto the
+COMMIT TO SPECIFICS posture — the PO commits the specific or records
+explicitly that it cannot commit yet, rather than stalling on a stakeholder
+round-trip the shopsystem loop does not already have. The shopsystem loop
+has no standing stakeholder round-trip slot; a PM skill that requires one
+must be adapted to eliminate it or deferred until the loop acquires one.
+
 ### Interview stakeholder
 
 When a stakeholder articulates desire, your job is to extract the specifics

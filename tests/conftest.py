@@ -2194,6 +2194,177 @@ def then_file_subcommand_composable_without_bd(
 
 
 # -----------------------------------------------------------------------
+# Then steps — lead-po anti-build-trap structural gate
+# (scenario_hash:c96e0d7e37de2079 — lead-y8rz dispatch)
+#
+# The build trap is the structural failure mode the empowered-PM role
+# exists to prevent. These steps verify that the lead-po template:
+#   1. Names the build trap — measuring output or shipping features nobody
+#      needed — as the structural failure mode the role exists to prevent.
+#   2. States that the build trap is MORE dangerous in this system (build
+#      is free / fleet executes exactly what is specified), not less.
+#   3. States a sufficiency criterion: the PM can and does say "no" or
+#      "not yet" with a recorded reason.
+#   4. States that output volume (scenarios authored, features shipped) is
+#      never a success measure.
+#   5. Frames this gate as a sufficiency criterion, not bare advisory prose.
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the content names the build trap — measuring output or shipping "
+    "features nobody needed — as the structural failure mode the "
+    "empowered-PM role exists to prevent"
+)
+def then_content_names_build_trap_as_structural_failure_mode(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # "build trap" must be named.
+    assert "build trap" in lc, (
+        "lead-po template must name the 'build trap' as the structural "
+        "failure mode the empowered-PM role exists to prevent "
+        "(c96e0d7e37de2079)"
+    )
+    # The build trap must be characterized as measuring output or shipping
+    # features nobody needed.
+    output_signals = ("measuring output", "output or shipping", "nobody needed",
+                      "features nobody")
+    assert any(s in lc for s in output_signals), (
+        "lead-po template must characterize the build trap as measuring "
+        "output or shipping features nobody needed (c96e0d7e37de2079); "
+        f"content around 'build trap':\n{lc[max(0, lc.find('build trap') - 100):lc.find('build trap') + 200]!r}"
+    )
+    # The build trap must be the structural failure mode the role exists to
+    # prevent — "prevent" or "exists to prevent" near the build trap.
+    prevent_signals = ("prevent", "exists to prevent", "role exists to prevent",
+                       "failure mode")
+    assert any(s in lc for s in prevent_signals), (
+        "lead-po template must frame the build trap as the structural failure "
+        "mode the empowered-PM role exists to prevent (c96e0d7e37de2079)"
+    )
+
+
+@then(
+    "the content states that because the build is effectively free and the "
+    "fleet executes exactly what is specified, the build trap is more "
+    "dangerous in this system, not less"
+)
+def then_content_states_build_trap_more_dangerous(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must assert the build trap is MORE dangerous, not less.
+    more_dangerous_signals = (
+        "more dangerous",
+        "greater danger",
+        "heightened risk",
+    )
+    assert any(s in lc for s in more_dangerous_signals), (
+        "lead-po template must state the build trap is more dangerous in "
+        "this system, not less (c96e0d7e37de2079)"
+    )
+    # Must explain WHY — the build is free / fleet executes exactly what
+    # is specified.
+    free_signals = ("effectively free", "build is free", "free and the fleet",
+                    "cost of building is", "cost of the build")
+    exact_signals = ("exactly what is specified", "exactly what you specify",
+                     "fleet executes exactly", "executes exactly")
+    # At least one of the two causal signals must be present.
+    assert any(s in lc for s in free_signals) or any(s in lc for s in exact_signals), (
+        "lead-po template must explain the build trap is more dangerous "
+        "because the build is effectively free and/or the fleet executes "
+        "exactly what is specified (c96e0d7e37de2079)"
+    )
+
+
+@then(
+    "the content states a sufficiency criterion that the PM can and does "
+    'say "no" or "not yet" with a recorded reason'
+)
+def then_content_states_no_not_yet_sufficiency_criterion(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must include "no" or "not yet" as a PM action.
+    no_signals = ('"no"', '"not yet"', "say no", "say \"no\"",
+                  "say 'no'", "no or \"not yet\"", "no\" or \"not yet\"",
+                  "\"no\" or \"not yet\"")
+    assert any(s in lc for s in no_signals), (
+        "lead-po template must state the PM can say 'no' or 'not yet' "
+        "(c96e0d7e37de2079)"
+    )
+    # Must require a recorded reason.
+    recorded_signals = ("recorded reason", "with a reason", "record the reason",
+                        "recorded rationale", "documented reason")
+    assert any(s in lc for s in recorded_signals), (
+        "lead-po template must require a recorded reason when the PM says "
+        "no or not yet (c96e0d7e37de2079)"
+    )
+
+
+@then(
+    "the content states that output volume — such as scenarios authored or "
+    "features shipped — is never a success measure"
+)
+def then_content_states_output_volume_never_success_measure(
+    context: dict,
+) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Must state output volume is NOT a success measure.
+    output_volume_signals = (
+        "output volume", "volume of scenarios", "number of scenarios",
+        "scenarios authored", "features shipped",
+    )
+    assert any(s in lc for s in output_volume_signals), (
+        "lead-po template must name output volume (scenarios authored, "
+        "features shipped, or similar) as an excluded success measure "
+        "(c96e0d7e37de2079)"
+    )
+    # Must say it is never / not a success measure.
+    never_signals = (
+        "never a success measure", "not a success measure",
+        "is not a success", "never the measure", "never success",
+    )
+    assert any(s in lc for s in never_signals), (
+        "lead-po template must state output volume is never a success "
+        "measure (c96e0d7e37de2079)"
+    )
+
+
+@then(
+    "this gate is stated as a sufficiency criterion on the role, not as "
+    "bare advisory prose with no criterion"
+)
+def then_gate_is_stated_as_sufficiency_criterion(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # The gate must be framed as a sufficiency criterion — the phrase
+    # "sufficiency criterion" must appear near the build-trap content.
+    assert "sufficiency criterion" in lc, (
+        "lead-po template must frame the anti-build-trap gate as a "
+        "sufficiency criterion, not bare advisory prose (c96e0d7e37de2079)"
+    )
+    # The sufficiency criterion must appear in proximity to the build-trap
+    # language — within the same section. Find the build-trap block and
+    # verify "sufficiency criterion" is nearby.
+    bt_idx = lc.find("build trap")
+    sc_idx = lc.find("sufficiency criterion")
+    assert bt_idx >= 0 and sc_idx >= 0, (
+        "lead-po template must contain both 'build trap' and 'sufficiency "
+        "criterion' (c96e0d7e37de2079)"
+    )
+    # Proximity check: within 2000 characters of each other (same section).
+    proximity = abs(bt_idx - sc_idx)
+    assert proximity <= 2000, (
+        f"'sufficiency criterion' appears too far from 'build trap' "
+        f"({proximity} chars) — the gate must be stated as a sufficiency "
+        "criterion in the same section as the build-trap content "
+        "(c96e0d7e37de2079)"
+    )
+
+
+# -----------------------------------------------------------------------
 # Step definitions — lead-architect "Responding to a BC clarify"
 # per-step CLI naming (scenario e6bdf2f33bfae0d1 / lead-e4g)
 # -----------------------------------------------------------------------

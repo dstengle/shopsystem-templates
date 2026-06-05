@@ -12680,3 +12680,108 @@ def then_content_names_consumer_primary_framework_bootstrap(context: dict) -> No
         "lead-po template must name framework-as-product as the bootstrap or meta "
         "instance (scenario_hash:6465b30fe62fb935)"
     )
+
+
+# -----------------------------------------------------------------------
+# Then steps — identity-precedes-procedure structural integrity
+# (scenario_hash:662c5822dbc6a896 — lead-y8rz)
+#
+# The four durable PM discipline names that headings must not promote
+# above depth ### (3). Any heading whose text contains one of these
+# strings must appear at #### (4) or deeper; appearing at ## (2) or
+# # (1) would violate identity-precedes-procedure.
+# -----------------------------------------------------------------------
+
+_PM_DISCIPLINE_NAMES = (
+    "problem discovery & selection",
+    "outcome ownership",
+    "strategy before backlog",
+    "specification as the contract",
+)
+
+
+@then(
+    "every heading whose text mentions a PM discipline appears at heading depth "
+    "three (###) or deeper, never at depth one (#)"
+)
+def then_pm_discipline_headings_at_depth_three_or_deeper(context: dict) -> None:
+    """Each heading containing a PM discipline name must be at ### or deeper.
+
+    The four durable disciplines — problem discovery & selection, outcome
+    ownership, strategy before backlog, specification as the contract — must
+    not appear as depth-1 (#) headings. Doing so would place procedural PM
+    framework content at the identity level of the document, violating the
+    identity-precedes-procedure ordering.
+    """
+    content = context["template_content"]
+    offenders: list[tuple[int, str, str]] = []
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        stripped = line.lstrip()
+        if not stripped.startswith("#"):
+            continue
+        # Count the leading # characters to determine depth.
+        depth = 0
+        for ch in stripped:
+            if ch == "#":
+                depth += 1
+            else:
+                break
+        if depth >= 3:
+            continue  # depth 3 or deeper is fine
+        heading_text_lower = stripped.lstrip("#").strip().lower()
+        for discipline in _PM_DISCIPLINE_NAMES:
+            if discipline.lower() in heading_text_lower:
+                offenders.append((lineno, line.rstrip(), discipline))
+    assert not offenders, (
+        f"template {context.get('shown_template_name')!r} has PM discipline "
+        f"headings at depth < 3 (violates identity-precedes-procedure, "
+        f"scenario_hash:662c5822dbc6a896):\n"
+        + "\n".join(
+            f"  line {n}: {l!r} (mentions discipline {d!r})"
+            for n, l, d in offenders
+        )
+    )
+
+
+@then(
+    "the first occurrence of the substring \"shop-msg\" in the content appears "
+    "after every PM discipline name has appeared at least once"
+)
+def then_shop_msg_after_all_pm_discipline_names(context: dict) -> None:
+    """First 'shop-msg' must follow all four PM discipline names.
+
+    All four durable PM discipline names must appear in the content before
+    the first occurrence of 'shop-msg'. This enforces that the PM identity
+    content (who the PM is and what disciplines they hold) precedes the
+    procedural CLI mechanics.
+    """
+    content = context["template_content"]
+    shop_msg_idx = content.find("shop-msg")
+    assert shop_msg_idx >= 0, (
+        f"premise of Then violated: template "
+        f"{context.get('shown_template_name')!r} has no 'shop-msg' substring"
+    )
+    missing: list[str] = []
+    too_late: list[tuple[str, int, int]] = []
+    for discipline in _PM_DISCIPLINE_NAMES:
+        idx = content.lower().find(discipline.lower())
+        if idx < 0:
+            missing.append(discipline)
+            continue
+        if idx >= shop_msg_idx:
+            too_late.append((discipline, idx, shop_msg_idx))
+    assert not missing, (
+        f"premise of Then violated: template "
+        f"{context.get('shown_template_name')!r} is missing PM discipline "
+        f"name(s): {missing!r} (scenario_hash:662c5822dbc6a896)"
+    )
+    assert not too_late, (
+        f"first 'shop-msg' at byte {shop_msg_idx} in template "
+        f"{context.get('shown_template_name')!r} precedes PM discipline "
+        f"name(s) (each must appear at least once before 'shop-msg'):\n"
+        + "\n".join(
+            f"  - {d!r} first appears at byte {di} (>= {smi})"
+            for d, di, smi in too_late
+        )
+        + f"\n(scenario_hash:662c5822dbc6a896)"
+    )

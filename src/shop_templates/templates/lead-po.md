@@ -35,6 +35,37 @@ ambiguity from propagating downstream. Empowered-PM ownership is the upstream
 discipline — it ensures the right problems reach the delivery pipeline in the
 first place. Both are load-bearing.
 
+### Product-general role and consumer/framework fork
+
+This empowered-PM role is **product-general** — it instantiates into every
+product lead shop in the shopsystem, not just consumer-facing ones. Market-facing
+PM competencies (discovery, positioning, outcome ownership) are load-bearing here,
+not vestigial carry-overs from a consumer context.
+
+The four durable PM disciplines — problem discovery & selection, outcome ownership,
+strategy before backlog, and specification as the contract — are **identical** across
+all product instances. Only their **inputs fork** depending on which product type
+this shop represents:
+
+**Consumer-product fork.** This is the primary case. A full market-facing PM role
+with real user, market, and JTBD discovery; competitive analysis, positioning, and
+segmentation work; and an outcome measured as customer behavior change or business
+metrics. The stakeholder surface is external users; the discovery inputs include
+interviews, usage data, competitive landscape, and market segmentation.
+
+**Framework-as-product fork.** This is the bootstrap or meta instance — a
+platform-as-a-product or developer-experience PM role whose customers are
+adopters, operators, and BC shops in the shopsystem. The outcome is adoption or
+developer experience improvement, not end-user behavior change. Discovery inputs
+are the adoption friction, operator pain, and BC shop integration experience rather
+than external user interviews.
+
+The fork is in the inputs, not the disciplines. A PM operating in a framework-as-product
+lead shop still runs problem discovery & selection, still owns the outcome, still
+requires strategy before backlog, and still holds specification as the contract —
+the mechanics are identical; what changes is whose problems are being discovered and
+what adoption metrics constitute a successful outcome.
+
 ### Anti-build-trap gate
 
 The structural failure mode the empowered-PM role exists to prevent is the

@@ -10944,6 +10944,73 @@ def then_canonical_dir_lacks_files(
         )
 
 
+# -- Then: lead scenario-completion ops tool present + executable + shop-owned
+#    (lead-csas, scenarios 5c0a34a0b9ad1be7 / e430bb96e91b89ab). The scenario
+#    expresses the path as an absolute "/tmp/example-lead-shop/<rel>" and
+#    pins the file as executable starter content NOT under .claude/.
+@then(
+    parsers.re(
+        r'after the invocation the target directory contains an executable '
+        r'file at "(?P<abspath>[^"]+)" \(not under any "\.claude/" '
+        r'subdirectory\)'
+    )
+)
+def then_executable_file_at_abspath_not_under_claude(
+    abspath: str, context: dict
+) -> None:
+    import stat as _stat
+
+    real = _ops_target(context)
+    rel = abspath.split("/tmp/example-lead-shop/", 1)[-1]
+    path = real / rel
+    assert path.is_file(), f"expected file {path!s} to exist"
+    assert ".claude" not in path.relative_to(real).parts, (
+        f"{rel} is under a .claude/ subdirectory: {path!s}"
+    )
+    mode = path.stat().st_mode
+    assert mode & _stat.S_IXUSR, (
+        f"expected owner-execute bit set on {path!s}; mode={oct(mode)}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the file at "(?P<abspath>/tmp/[^"]+)" has its owner-execute '
+        r'permission bit set'
+    )
+)
+def then_file_at_abspath_owner_execute_set(
+    abspath: str, context: dict
+) -> None:
+    import stat as _stat
+
+    real = _ops_target(context)
+    rel = abspath.split("/tmp/example-lead-shop/", 1)[-1]
+    path = real / rel
+    mode = path.stat().st_mode
+    assert mode & _stat.S_IXUSR, (
+        f"expected owner-execute bit set on {path!s}; mode={oct(mode)}"
+    )
+
+
+@then(
+    parsers.re(
+        r'after the invocation the directory at "(?P<dirpath>[^"]+)" does '
+        r'not contain a file named "(?P<name>[^"]+)", because '
+        r'(?P<_rationale>.+)'
+    )
+)
+def then_canonical_dir_lacks_named_file(
+    dirpath: str, name: str, _rationale: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    rel = dirpath.split("/tmp/example-lead-shop/", 1)[-1].rstrip("/")
+    cdir = real / rel
+    assert not (cdir / name).exists(), (
+        f"{cdir!s} unexpectedly contains {name!r}"
+    )
+
+
 # -- Then: ops-file non-emission (bc shop) ------------------------------
 
 

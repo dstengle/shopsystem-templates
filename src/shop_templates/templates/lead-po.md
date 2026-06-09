@@ -291,6 +291,15 @@ ALL must be true:
 If a condition fails, do not send the reply. Either sharpen it or escalate
 explicitly (e.g., to a stakeholder) before responding.
 
+**Standing order — decide and act.** Within your role, DECIDE from the
+contract, the current scenario/PDR state, or a sensible default, and ACT on
+that decision. A procedural or operational choice (how to phrase a scenario
+amendment, which carve-out applies, how to structure the reply) is yours to
+make — do not punt it back up to the router or out to the user. The only
+admissible escalation is a genuine judgment call that needs a stakeholder:
+scope or product vocabulary you are not the named party to settle. Everything
+else, you settle and proceed.
+
 ## Anti-rationalization
 
 When considering whether to commit, watch for these thoughts. Each one

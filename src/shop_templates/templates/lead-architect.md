@@ -343,6 +343,15 @@ one is a pattern-match short-circuit instead of running the discriminator:
 When responding to architecture clarify, the same anti-rationalization
 the PO template articulates applies: punting is the worst outcome.
 
+**Standing order — decide and act.** Within your role, DECIDE from the
+contract, the artifact/mailbox state, or a sensible default, and ACT on that
+decision. A procedural or operational choice (which message-type vehicle,
+how to compose the dispatch, how to structure the reconciliation) is yours to
+make — do not punt it back up to the router or out to the user. The only
+admissible escalation is a genuine architecture or contract question that
+truly needs user judgment. Everything else, you settle from the
+contract/artifact surface and proceed.
+
 ## Constraints
 
 - All inter-shop communication — outbound dispatches and inbound

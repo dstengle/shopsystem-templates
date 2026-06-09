@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+#
+# shop-scenario-completion — lead-side cross-BC scenario-completion
+# reconciliation view (shop-owned starter content; PDR-003 path F).
+#
+# This file is bootstrap-poured into every "lead" shop under bin/ as
+# starter scaffolding (precedent: bin/shop-shell). It is SHOP-OWNED:
+# it does not live under .claude/canonical/ and is therefore outside
+# the canonical-managed re-pour contract — the operator may freely
+# customize it.
+#
+# WHAT IT IS: a SIMPLE reconciliation tool that composes two sources
+# into a system-wide "is-X-done" / "outstanding" view:
+#   (a) the journal half  — `scenarios journal-query` (the canonical
+#       scenario journal across BCs), and
+#   (b) the ledger half   — the lead's own bead ledger (the
+#       scenario_hashes_pinned recorded on reconciled dispatches),
+#       which a BC running inside a bc-launcher container cannot see
+#       (ADR-018), so this aggregate is necessarily lead-side.
+#
+# It is deliberately THIN: trustworthy runtime COUNTS are out of scope
+# (separately gated on hash-drift debt). This is starter scaffolding —
+# extend it in-shop as the reconciliation contract firms up.
+#
+# Subcommands (sc04-07):
+#   snapshot     sc04 — produce a system-wide scenario-completion snapshot
+#   reconcile    sc05 — reconcile canonical scenarios against what is done
+#   outstanding  sc06 — list what is outstanding across all BCs
+#   orphan       sc07 — surface orphans (done-without-canonical /
+#                       canonical-without-owner)
+#
+set -euo pipefail
+
+PROG="$(basename "$0")"
+
+usage() {
+  cat <<USAGE
+${PROG} — lead-side cross-BC scenario-completion reconciliation view
+
+Usage:
+  ${PROG} snapshot      produce a system-wide scenario-completion snapshot (sc04)
+  ${PROG} reconcile     reconcile canonical scenarios against what is done (sc05)
+  ${PROG} outstanding   list what is outstanding across all BCs (sc06)
+  ${PROG} orphan        surface orphans done/canonical mismatches (sc07)
+  ${PROG} help          show this help
+
+Composes two sources:
+  journal half  -> 'scenarios journal-query'
+  ledger half   -> the lead bead ledger (scenario_hashes_pinned)
+
+NOTE: starter scaffolding. Trustworthy runtime counts are out of scope.
+USAGE
+}
+
+# --- journal half -------------------------------------------------------
+# Query the canonical scenario journal across BCs. Thin pass-through to
+# the scenarios-BC CLI; the caller selects the slice it needs.
+journal_query() {
+  scenarios journal-query "$@"
+}
+
+# --- ledger half --------------------------------------------------------
+# Read the lead's own bead ledger for scenario_hashes_pinned on
+# reconciled dispatches. A BC cannot see this (ADR-018), which is why
+# the aggregate is lead-side. Thin pass-through to `bd`.
+ledger_query() {
+  bd list "$@"
+}
+
+cmd_snapshot() {
+  echo "# scenario-completion snapshot (sc04)"
+  echo "## journal half (scenarios journal-query)"
+  journal_query || true
+  echo "## ledger half (lead bead ledger)"
+  ledger_query || true
+}
+
+cmd_reconcile() {
+  echo "# scenario-completion reconcile (sc05): canonical vs done"
+  echo "## canonical scenarios (journal)"
+  journal_query || true
+  echo "## reconciled dispatches (ledger)"
+  ledger_query || true
+}
+
+cmd_outstanding() {
+  echo "# scenario-completion outstanding (sc06): not-yet-done across all BCs"
+  journal_query || true
+}
+
+cmd_orphan() {
+  echo "# scenario-completion orphans (sc07): done-without-canonical / canonical-without-owner"
+  echo "## journal half"
+  journal_query || true
+  echo "## ledger half"
+  ledger_query || true
+}
+
+main() {
+  local sub="${1:-help}"
+  shift || true
+  case "${sub}" in
+    snapshot)    cmd_snapshot "$@" ;;
+    reconcile)   cmd_reconcile "$@" ;;
+    outstanding) cmd_outstanding "$@" ;;
+    orphan)      cmd_orphan "$@" ;;
+    help|-h|--help) usage ;;
+    *)
+      echo "${PROG}: unknown subcommand '${sub}'" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"

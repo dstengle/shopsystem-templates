@@ -250,6 +250,13 @@ _LEAD_OPS_FILES: tuple[tuple[str, str, bool], ...] = (
     ("compose.yaml", "compose.yaml", False),
     ("shop-shell", "bin/shop-shell", True),
     ("Dockerfile.shopsystem-shell", "Dockerfile.shopsystem-shell", False),
+    # lead-csas (scenarios 5c0a34a0b9ad1be7 / e430bb96e91b89ab): the
+    # cross-BC scenario-completion reconciliation view. Poured executable
+    # under bin/ for "lead" shops only; a "bc" shop never renders it (the
+    # aggregate composes the lead's own bead ledger, invisible inside a
+    # bc-launcher container — ADR-018). Shop-owned starter content, never
+    # under .claude/canonical/.
+    ("shop-scenario-completion", "bin/shop-scenario-completion", True),
 )
 
 

@@ -18,3 +18,6 @@ dist/
 
 # git worktrees created by BC role subagents
 .worktrees/
+
+# pre-sync beads Dolt backup (recovery snapshot, kept per request)
+.beads-dolt-backup-presync/

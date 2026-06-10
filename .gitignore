@@ -15,3 +15,6 @@ dist/
 /inbox/
 /outbox/
 .claude/
+
+# git worktrees created by BC role subagents
+.worktrees/

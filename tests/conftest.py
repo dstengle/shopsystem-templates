@@ -10520,6 +10520,22 @@ def then_body_contains_literal(rel: str, needle: str, context: dict) -> None:
 
 
 @then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" does not contain the literal '
+        r'substring "(?P<needle>[^"]+)"$'
+    )
+)
+def then_body_does_not_contain_literal(
+    rel: str, needle: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert needle not in body, (
+        f"{rel}: expected NOT to contain literal substring {needle!r}"
+    )
+
+
+@then(
     parsers.parse(
         'the body of "{rel}" references the environment variable '
         '"{var}" with a default of "{default}"'

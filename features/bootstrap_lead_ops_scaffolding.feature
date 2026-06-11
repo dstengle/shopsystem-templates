@@ -27,6 +27,8 @@ Feature: bootstrap renders ops scaffolding (lead-shop only): compose.yaml, bin/s
   And the body of "bin/shop-shell" references the environment variable "SHOPSYSTEM_DATA" with a default of "$HOME/.local/share/shopsystem"
   And the body of "bin/shop-shell" references the environment variable "SHOPSYSTEM_SHELL_IMAGE" for the shell image tag
   And the body of "bin/shop-shell" contains the literal substring "/var/run/docker.sock:/var/run/docker.sock"
+  And the body of "bin/shop-shell" contains the literal substring "--user vscode"
+  And the body of "bin/shop-shell" does not contain the literal substring "--user $(id -u):$(id -g)"
 
   @scenario_hash:9bc85eced7685a40 @bc:shopsystem-templates
   Scenario: bootstrap of a "lead" shop writes a top-level "Dockerfile.shopsystem-shell" containing the recipe for the daily-driver shell image referenced by "bin/shop-shell", so an operator without a published shopsystem-shell image can build it locally with "docker build -t shopsystem-shell:dev -f Dockerfile.shopsystem-shell ."

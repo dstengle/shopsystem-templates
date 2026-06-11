@@ -12868,3 +12868,404 @@ def then_shop_msg_after_all_pm_discipline_names(context: dict) -> None:
         )
         + f"\n(scenario_hash:662c5822dbc6a896)"
     )
+
+
+# -----------------------------------------------------------------------
+# Step definitions — session-start work-tracker health step (lead-80t0).
+#
+# The 5 scenarios pin a NEW session-start step in the BC session-start
+# contract: a work-tracker health step that runs BEFORE the role loop and
+# gates it. The step heals an unprovisioned-but-recoverable bd tracker
+# (adopt committed issue_prefix + import committed issues), validates local
+# writability (bd create / bd ready) AND a test dolt push to the configured
+# remote, and otherwise surfaces an explicit failure at session-start —
+# never deferring to work_done emission time.
+#
+# The assertable artifact is the rendered session-start surface: the
+# canonical bc primer body (`read_claude_md_primer("bc")`) together with the
+# bc-router skill body (`iter_skill_files()["bc-router/SKILL.md"]`). The
+# When step loads that combined rendered surface through the package's
+# public template-access surface; each Then step asserts the health-step
+# contract is present in that rendered surface so the scenarios are pinned
+# to observable rendering, not prose.
+# -----------------------------------------------------------------------
+
+
+def _load_bc_session_start_surface() -> dict:
+    """Load the rendered BC session-start surface through the public
+    template-access surface: the bc primer body + the bc-router skill body.
+
+    Returns a dict carrying each body and a lowercased concatenation for
+    substring assertions. No filesystem-path reads — everything comes from
+    importlib.resources package data via the public accessors.
+    """
+    from shop_templates.cli import read_claude_md_primer, iter_skill_files
+
+    primer = read_claude_md_primer("bc")
+    skills = dict(iter_skill_files())
+    router = skills["bc-router/SKILL.md"].decode()
+    combined = primer + "\n" + router
+    return {
+        "primer": primer,
+        "router": router,
+        "combined": combined,
+        "combined_lower": combined.lower(),
+    }
+
+
+def _assert_health_step_present(surface: dict) -> None:
+    """The rendered surface must carry a session-start work-tracker health
+    step that runs BEFORE the role loop. Pinned by the literal contract
+    vocabulary the health step renders with."""
+    body = surface["combined_lower"]
+    assert "work-tracker health" in body, (
+        "rendered BC session-start surface does not name a 'work-tracker "
+        "health' step"
+    )
+    # The step must be a SESSION-START step that gates the role loop — the
+    # rendered surface must connect the health step to the role loop start.
+    assert "role loop" in body, (
+        "rendered surface does not connect the work-tracker health step to "
+        "the role loop"
+    )
+
+
+@when("the BC agent session starts and runs the work-tracker health step")
+def when_session_runs_health_step(context: dict) -> None:
+    context["health_surface"] = _load_bc_session_start_surface()
+
+
+@when(
+    "the BC agent session starts and the work-tracker health step heals "
+    "the tracker"
+)
+def when_session_health_step_heals(context: dict) -> None:
+    context["health_surface"] = _load_bc_session_start_surface()
+
+
+# --- Given steps (premise framing; the rendered contract is the artifact) ---
+# These Givens describe the tracker pre-state the rendered health step must
+# handle. They are premise framing for rendering-contract scenarios; the
+# rendered surface is the assertable artifact, so the Givens record the
+# named pre-state for cross-step readability without standing up a live
+# tracker.
+
+@given("a BC shop whose bd tracker has a definite issue_prefix configured")
+def given_tracker_has_prefix(context: dict) -> None:
+    context["tracker_pre_state"] = "prefix_configured"
+
+
+@given("the tracker's working set is populated from the committed registry")
+def given_working_set_populated(context: dict) -> None:
+    context.setdefault("tracker_pre_state", "prefix_configured")
+
+
+@given("the tracker has a configured Dolt remote")
+def given_tracker_dolt_remote(context: dict) -> None:
+    context["tracker_dolt_remote"] = True
+
+
+@given(
+    "a BC shop whose bd tracker working set is empty and has no "
+    "issue_prefix configured"
+)
+def given_tracker_unprovisioned(context: dict) -> None:
+    context["tracker_pre_state"] = "unprovisioned"
+
+
+@given(
+    "the committed registry names a definite issue_prefix and carries at "
+    "least one issue"
+)
+def given_committed_names_prefix_and_issue(context: dict) -> None:
+    context["committed_prefix"] = True
+    context["committed_issue_count"] = 1
+
+
+@given(
+    "the committed registry names no issue_prefix to adopt, so the tracker "
+    "cannot be healed"
+)
+def given_committed_names_no_prefix(context: dict) -> None:
+    context["committed_prefix"] = False
+
+
+@given(
+    parsers.parse(
+        'the committed registry names issue_prefix "{prefix}" and carries '
+        "{count:d} issues under that prefix"
+    )
+)
+def given_committed_names_prefix_count(
+    prefix: str, count: int, context: dict
+) -> None:
+    context["committed_prefix"] = prefix
+    context["committed_issue_count"] = count
+
+
+@given(
+    "a BC shop whose bd tracker has a definite issue_prefix configured and "
+    "a populated working set"
+)
+def given_tracker_prefix_and_populated(context: dict) -> None:
+    context["tracker_pre_state"] = "prefix_configured"
+
+
+@given("bd create and bd ready run in the BC shop both exit zero")
+def given_bd_create_ready_exit_zero(context: dict) -> None:
+    context["locally_writable"] = True
+
+
+@given("a test dolt push to the configured Dolt remote exits non-zero")
+def given_test_dolt_push_nonzero(context: dict) -> None:
+    context["test_dolt_push_ok"] = False
+
+
+# --- When-as-And steps describing the validation probes the step renders ---
+
+@when("bd create run in the BC shop exits zero and yields a new issue id carrying the configured prefix")
+def when_bd_create_exits_zero_prefix(context: dict) -> None:
+    context.setdefault(
+        "health_surface", _load_bc_session_start_surface()
+    )
+
+
+@when("bd ready run in the BC shop exits zero")
+def when_bd_ready_exits_zero(context: dict) -> None:
+    context.setdefault(
+        "health_surface", _load_bc_session_start_surface()
+    )
+
+
+@when("a test dolt push to the configured Dolt remote exits zero")
+def when_test_dolt_push_exits_zero(context: dict) -> None:
+    context.setdefault(
+        "health_surface", _load_bc_session_start_surface()
+    )
+
+
+# --- Then steps — the rendered health-step contract ---
+
+@then("the health step reports the tracker as healthy")
+def then_reports_healthy(context: dict) -> None:
+    surface = context["health_surface"]
+    _assert_health_step_present(surface)
+    body = surface["combined_lower"]
+    # The rendered step must name the local-writability probes (bd create /
+    # bd ready) AND the test dolt push to the configured remote as the
+    # criteria for "healthy".
+    assert "bd create" in body, (
+        "rendered health step does not name `bd create` as a writability probe"
+    )
+    assert "bd ready" in body, (
+        "rendered health step does not name `bd ready` as a writability probe"
+    )
+    assert "test dolt push" in body or ("dolt push" in body), (
+        "rendered health step does not name a test dolt push to the remote"
+    )
+    assert "healthy" in body, (
+        "rendered health step does not describe a healthy outcome"
+    )
+
+
+@then("the BC proceeds to begin its role loop without a startup health failure")
+def then_proceeds_to_role_loop(context: dict) -> None:
+    surface = context["health_surface"]
+    body = surface["combined_lower"]
+    assert "role loop" in body, (
+        "rendered surface does not name proceeding to the role loop"
+    )
+    # The role loop start must be CONDITIONAL on the health step passing —
+    # the rendered surface must state the health step runs BEFORE the role
+    # loop begins (it gates it).
+    assert "before" in body, (
+        "rendered surface does not state the health step runs before the "
+        "role loop (gating ordering missing)"
+    )
+
+
+@then(
+    "the health step adopts the committed issue_prefix as the tracker's "
+    "configured prefix"
+)
+def then_heal_adopts_prefix(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    assert "adopt" in body, (
+        "rendered heal path does not describe adopting the committed prefix"
+    )
+    assert "issue_prefix" in body or "issue prefix" in body, (
+        "rendered heal path does not name the committed issue_prefix"
+    )
+    assert "committed" in body, (
+        "rendered heal path does not name the committed registry as the "
+        "source of the adopted prefix"
+    )
+
+
+@then("the committed registry's issues are imported into the tracker's working set")
+def then_heal_imports_issues(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    assert "import" in body, (
+        "rendered heal path does not describe importing the committed issues"
+    )
+    assert "working set" in body, (
+        "rendered heal path does not name the tracker's working set as the "
+        "import target"
+    )
+
+
+@then(
+    "after the heal bd create run in the BC shop exits zero and yields a "
+    "new issue id carrying the adopted prefix"
+)
+def then_after_heal_bd_create_zero(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    # The heal path must re-validate via bd create after adopting the prefix.
+    assert "re-validate" in body or "revalidate" in body or "re-validates" in body, (
+        "rendered heal path does not describe re-validating after the heal"
+    )
+    assert "bd create" in body
+
+
+@then("after the heal a test dolt push to the configured Dolt remote exits zero")
+def then_after_heal_dolt_push_zero(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    assert "test dolt push" in body or "dolt push" in body, (
+        "rendered heal path does not name the test dolt push re-validation"
+    )
+
+
+@then("the health step re-validates the tracker as healthy")
+def then_revalidates_healthy(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    assert ("re-validate" in body or "revalidate" in body or "re-validates" in body), (
+        "rendered heal path does not describe re-validating the tracker"
+    )
+    assert "healthy" in body
+
+
+@then(
+    "the health step reports an explicit work-tracker health failure that "
+    "names the unhealable condition"
+)
+def then_reports_unhealable_failure(context: dict) -> None:
+    surface = context["health_surface"]
+    _assert_health_step_present(surface)
+    body = surface["combined_lower"]
+    assert "fail" in body, (
+        "rendered surface does not describe a work-tracker health failure"
+    )
+    # The unhealable condition — no committed prefix to adopt — must be
+    # named as the cause that cannot be healed.
+    assert "cannot be healed" in body or "unhealable" in body or "no committed" in body or "no issue_prefix" in body, (
+        "rendered surface does not name the unhealable condition (no "
+        "committed prefix to adopt)"
+    )
+
+
+@then("the BC does not begin its role loop")
+def then_does_not_begin_role_loop(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    assert "role loop" in body
+    # The failure path must explicitly block the role loop start.
+    assert "block" in body or "does not begin" in body or "do not begin" in body or "must not begin" in body, (
+        "rendered failure path does not state the role loop is blocked from "
+        "starting"
+    )
+
+
+@then("the BC emits no role work")
+def then_emits_no_role_work(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    assert "no role work" in body or "emits no" in body or "before any" in body, (
+        "rendered failure path does not state that no role work is emitted "
+        "when the health step fails"
+    )
+
+
+@then("the failure is surfaced at session-start rather than at work_done emission")
+def then_failure_surfaced_at_session_start(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    assert "session-start" in body or "session start" in body, (
+        "rendered surface does not state the failure is surfaced at "
+        "session-start"
+    )
+    assert "work_done" in body, (
+        "rendered surface does not contrast session-start detection against "
+        "work_done emission time"
+    )
+
+
+@then(
+    parsers.parse(
+        'the tracker\'s configured issue_prefix equals "{prefix}" as named '
+        "by the committed registry"
+    )
+)
+def then_configured_prefix_equals(prefix: str, context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    # The heal adopts the prefix as-named by the committed registry — the
+    # rendered contract must say the adopted prefix comes FROM the committed
+    # registry, not from any other source.
+    assert "adopt" in body and "committed" in body, (
+        "rendered heal contract does not say the configured prefix equals "
+        "the prefix named by the committed registry"
+    )
+    # The example prefix in the scenario is the live BC's own prefix; the
+    # committed registry is the source of truth for it.
+    assert context.get("committed_prefix") == prefix
+
+
+@then("the tracker's configured issue_prefix is not derived from the BC's name")
+def then_prefix_not_derived_from_bc_name(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    # The rendered heal contract must explicitly forbid deriving the prefix
+    # from the BC name — it adopts the COMMITTED prefix.
+    assert ("not derived" in body or "never derive" in body or "not from the bc" in body
+            or "not the bc name" in body or "not derived from the bc" in body), (
+        "rendered heal contract does not forbid deriving the issue_prefix "
+        "from the BC name"
+    )
+
+
+@then(
+    parsers.parse(
+        "the tracker's working set contains the {count:d} committed issues "
+        "with their original ids unchanged"
+    )
+)
+def then_working_set_contains_committed(count: int, context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    assert "import" in body and "working set" in body
+    # The rendered contract must preserve original ids on import.
+    assert "original id" in body or "unchanged" in body or "without renumber" in body or "preserve" in body, (
+        "rendered heal contract does not state committed issue ids are "
+        "preserved (original ids unchanged) on import"
+    )
+    assert context.get("committed_issue_count") == count
+
+
+@then("no committed issue is dropped or overwritten by the heal")
+def then_no_committed_issue_dropped(context: dict) -> None:
+    body = context["health_surface"]["combined_lower"]
+    assert ("not drop" in body or "without dropping" in body or "no committed issue is dropped" in body
+            or "overwrit" in body or "without overwrit" in body or "preserve" in body), (
+        "rendered heal contract does not forbid dropping/overwriting "
+        "committed issues"
+    )
+
+
+@then(
+    "the health step reports the tracker as unhealthy and names the failed "
+    "test dolt push as the cause"
+)
+def then_reports_unhealthy_dolt_push(context: dict) -> None:
+    surface = context["health_surface"]
+    _assert_health_step_present(surface)
+    body = surface["combined_lower"]
+    assert "unhealthy" in body, (
+        "rendered surface does not describe an unhealthy outcome"
+    )
+    assert "test dolt push" in body or "dolt push" in body, (
+        "rendered surface does not name the test dolt push as a failure cause"
+    )

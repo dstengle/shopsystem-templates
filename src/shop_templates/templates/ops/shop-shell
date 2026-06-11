@@ -32,9 +32,16 @@ SOCKET_GID="$(stat -L -c '%g' /var/run/docker.sock)"
 # Drop into the shell image on the shopsystem network, with the project
 # mounted and the docker socket forwarded so in-shell tooling can drive
 # docker. --group-add grants the non-root shell user membership in the
-# socket-owning group so the forwarded socket is reachable.
+# socket-owning group so the forwarded socket is reachable. --user pins the
+# agent to the NAMED vscode user (matching the bc-launcher
+# "docker exec --user vscode" convention) so the shell stays non-root even
+# when SHOPSYSTEM_SHELL_IMAGE is overridden to a root-default image —
+# Claude Code refuses --dangerously-skip-permissions at EUID==0. Named (not
+# numeric $(id -u):$(id -g)) ensures $HOME=/home/vscode and a passwd entry
+# resolve; host and image vscode are both uid 1000.
 exec docker run --rm -it \
   --network shopsystem \
+  --user vscode \
   -e SHOPSYSTEM_DATA \
   -v "$REPO_ROOT:$REPO_ROOT" \
   -v /var/run/docker.sock:/var/run/docker.sock \

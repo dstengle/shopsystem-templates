@@ -24,6 +24,7 @@ Homepage = "https://github.com/dstengle/shopsystem-product"
 
 [project.scripts]
 shop-templates = "shop_templates.cli:main"
+bc-emit = "shop_templates.bc_emit:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

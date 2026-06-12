@@ -78,7 +78,11 @@ services:
       - "${{{OPS_SLUG_UPPER}}_VAULT_API_PORT:-{{OPS_VAULT_API_PORT}}}:14321"
       - "${{{OPS_SLUG_UPPER}}_VAULT_PROXY_PORT:-{{OPS_VAULT_PROXY_PORT}}}:14322"
     healthcheck:
-      test: ["CMD-SHELL", "{ exec 3<>/dev/tcp/127.0.0.1/14321; } >/dev/null 2>&1 || exit 1"]
+      # sh-compatible TCP-liveness probe on the broker API port. The
+      # infisical/agent-vault image runs sh (no bash), so the bash-only
+      # device-file redirect probe can never work here; nc is shipped at
+      # /usr/bin/nc.
+      test: ["CMD", "nc", "-z", "127.0.0.1", "14321"]
       interval: 10s
       timeout: 5s
       retries: 5

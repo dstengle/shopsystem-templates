@@ -3445,6 +3445,15 @@ def when_invoke_bootstrap(
     context: dict,
     tmp_path: Path,
 ) -> None:
+    # lead-llc1 scenarios 568e33d4 / d8b53704 carry the literal "<slug>"
+    # placeholder as the shop name, standing for "any slug". Fan the single
+    # invocation out into a default (shopsystem) and a non-default (dummyco)
+    # bootstrap so the broker-render / .env.example Then steps can assert
+    # across both. (No real scenario passes a literal "<slug>" to bootstrap;
+    # this branch is inert for every other When.)
+    if shop_name == "<slug>":
+        _llc1_bootstrap_both_slugs(shop_type, alias, context, tmp_path)
+        return
     real = _real_target_for_alias(alias, context)
     result = _run_shop_templates_with_bd_shim(
         [
@@ -14843,3 +14852,443 @@ def then_force_independent_of_wrapper(context: dict) -> None:
         "the bc-emit wrapper unexpectedly couples a --force flag to itself; "
         f"--force must stay independent in shop-msg: {wrapper_help!r}"
     )
+
+
+# =======================================================================
+# lead-llc1 — P0 agent-vault broker render fix: the rendered compose.yaml
+# agent-vault service names the real broker image (infisical/agent-vault),
+# wires AGENT_VAULT_MASTER_PASSWORD, and publishes slug-derived broker
+# ports (container 14321/14322); bootstrap renders a top-level .env.example
+# with the broker credential placeholders, additive to the six-file ops set.
+# Scenarios 568e33d4d441069b, d8b53704ce2e6584.
+#
+# Both scenarios carry the literal "<slug>" token as the shop name (a
+# placeholder for "any slug"). The When below bootstraps BOTH a default
+# (shopsystem) and a non-default (dummyco) lead shop so the Then steps can
+# assert the broker render for an arbitrary slug AND the "non-default slug
+# such as dummyco introduces zero new shopsystem literal" clause.
+# =======================================================================
+
+
+_LLC1_SLUGS = ("shopsystem", "dummyco")
+
+
+def _llc1_bootstrap_both_slugs(
+    shop_type: str, alias: str, context: dict, tmp_path: Path
+) -> None:
+    """Bootstrap a lead shop for each concrete slug the "<slug>" placeholder
+    stands for (a default and a non-default product), recording each rendered
+    target so the Then steps can assert across both.
+
+    Invoked by the shared bootstrap When step when the scenario's shop-name is
+    the literal "<slug>" placeholder (lead-llc1 scenarios 568e33d4 / d8b53704).
+    """
+    renders: dict[str, Path] = {}
+    last_rc = 0
+    for slug in _LLC1_SLUGS:
+        # Allocate a per-slug real target under the scenario workspace; reuse
+        # the alias-mapping mechanism so the path is git-initialized.
+        slug_alias = f"{alias}/{slug}"
+        real = _real_target_for_alias(slug_alias, context)
+        result = _run_shop_templates_with_bd_shim(
+            [
+                "bootstrap",
+                "--shop-type",
+                shop_type,
+                "--shop-name",
+                f"{slug}-product",
+                "--target",
+                str(real),
+            ],
+            context,
+            tmp_path,
+        )
+        last_rc = result.returncode
+        renders[slug] = real
+        # Surface the first failure immediately so the exit-code Then is
+        # meaningful per slug.
+        if result.returncode != 0:
+            context["cli_returncode"] = result.returncode
+            context["cli_stdout"] = result.stdout
+            context["cli_stderr"] = result.stderr
+            return
+    context["llc1_renders"] = renders
+    # Default the single-target hooks at the first (default) slug so any
+    # shared Then that reads last_invocation_target stays coherent.
+    context["last_invocation_target"] = renders[_LLC1_SLUGS[0]]
+    context["cli_returncode"] = last_rc
+
+
+def _llc1_renders(context: dict) -> dict:
+    renders = context.get("llc1_renders")
+    assert renders, "When step for the <slug> placeholder bootstrap did not run"
+    return renders
+
+
+def _llc1_compose_text(context: dict, slug: str) -> str:
+    return (_llc1_renders(context)[slug] / "compose.yaml").read_text()
+
+
+def _llc1_agent_vault_service(context: dict, slug: str) -> dict:
+    data = _parse_yaml_via_subprocess(_llc1_renders(context)[slug] / "compose.yaml")
+    assert isinstance(data, dict), f"{slug} compose.yaml did not parse to a mapping"
+    services = data.get("services")
+    assert isinstance(services, dict), f"{slug} compose.yaml has no 'services'"
+    av = services.get("agent-vault")
+    assert isinstance(av, dict), f"{slug} compose.yaml has no 'agent-vault' service"
+    return av
+
+
+# -- Scenario 568e33d4d441069b (agent-vault real broker render) ---------
+
+
+@then(
+    parsers.re(
+        r'the rendered "compose\.yaml" "agent-vault" service image is the '
+        r'broker image the live fleet references, namely "(?P<img>[^"]+)", '
+        r'and is NOT "(?P<bad>[^"]+)"'
+    )
+)
+def then_agent_vault_image_is_real_broker(img: str, bad: str, context: dict) -> None:
+    for slug in _LLC1_SLUGS:
+        av = _llc1_agent_vault_service(context, slug)
+        assert av.get("image") == img, (
+            f"{slug} agent-vault image is {av.get('image')!r}, expected {img!r}"
+        )
+        assert av.get("image") != bad, (
+            f"{slug} agent-vault image is still the wrong {bad!r}"
+        )
+
+
+@then(
+    parsers.parse(
+        'the rendered "compose.yaml" contains no case-insensitive occurrence '
+        'of the literal "{needle}"'
+    )
+)
+def then_compose_no_ci_literal(needle: str, context: dict) -> None:
+    low = needle.lower()
+    for slug in _LLC1_SLUGS:
+        text = _llc1_compose_text(context, slug).lower()
+        assert low not in text, (
+            f"{slug} compose.yaml contains a case-insensitive {needle!r}"
+        )
+
+
+@then(
+    parsers.re(
+        r'the rendered "agent-vault" service environment carries an '
+        r'"(?P<key>[^"]+)" entry sourced from the instance environment '
+        r'\(e\.g\. "(?P<form>[^"]+)"\), so the broker can auto-unseal per '
+        r'ADR-028 D1'
+    )
+)
+def then_agent_vault_env_master_password(key: str, form: str, context: dict) -> None:
+    for slug in _LLC1_SLUGS:
+        av = _llc1_agent_vault_service(context, slug)
+        env = av.get("environment")
+        # Accept both mapping and list forms of compose `environment`.
+        if isinstance(env, dict):
+            assert key in env, (
+                f"{slug} agent-vault environment lacks {key!r}: {env!r}"
+            )
+            val = str(env[key])
+        elif isinstance(env, list):
+            entries = {
+                e.split("=", 1)[0]: (e.split("=", 1)[1] if "=" in e else "")
+                for e in (str(x) for x in env)
+            }
+            assert key in entries, (
+                f"{slug} agent-vault environment lacks {key!r}: {env!r}"
+            )
+            val = entries[key]
+        else:
+            raise AssertionError(
+                f"{slug} agent-vault service has no 'environment': {av!r}"
+            )
+        # Sourced from the instance environment: an env-substitution of the
+        # same key (e.g. "${AGENT_VAULT_MASTER_PASSWORD}").
+        assert key in val and "$" in val, (
+            f"{slug} agent-vault {key} value {val!r} is not sourced from the "
+            f"instance environment (expected a form like {form!r})"
+        )
+
+
+@then(
+    parsers.re(
+        r'the rendered "agent-vault" service publishes the broker API port '
+        r'and the broker proxy port, slug-derived and override-able, '
+        r'mirroring the existing postgres host-port derivation \(default '
+        r'fleet exposes (?P<api>\d+) and (?P<proxy>\d+)\)'
+    )
+)
+def then_agent_vault_publishes_broker_ports(
+    api: str, proxy: str, context: dict
+) -> None:
+    host_api = {}
+    host_proxy = {}
+    for slug in _LLC1_SLUGS:
+        av = _llc1_agent_vault_service(context, slug)
+        ports = av.get("ports")
+        assert ports, f"{slug} agent-vault declares no 'ports'"
+        specs = [str(p) for p in ports]
+        # The proxy CONTAINER port must stay 14322 (shop-shell HTTPS_PROXY
+        # target, scenario 5335c39e) and the API CONTAINER port 14321.
+        container_ports = {s.rsplit(":", 1)[-1] for s in specs}
+        assert proxy in container_ports, (
+            f"{slug} agent-vault does not bind container proxy port {proxy}: "
+            f"{specs!r}"
+        )
+        assert api in container_ports, (
+            f"{slug} agent-vault does not bind container API port {api}: "
+            f"{specs!r}"
+        )
+        # HOST side is slug-derived AND override-able: each published port's
+        # host side is an env-override default ("${<SLUG>_..._PORT:-<n>}").
+        for s in specs:
+            host = s.rsplit(":", 1)[0]
+            cont = s.rsplit(":", 1)[-1]
+            assert "${" in host and ":-" in host, (
+                f"{slug} agent-vault port {s!r} host side is not an "
+                f"env-overridable default"
+            )
+            # capture the numeric default keyed by container port
+            default = host.split(":-", 1)[1].rstrip("}")
+            if cont == api:
+                host_api[slug] = default
+            elif cont == proxy:
+                host_proxy[slug] = default
+    # slug-derived: the default host ports differ across distinct slugs, so
+    # concurrent products do not collide (mirrors the postgres derivation).
+    assert len(set(host_api.values())) == len(host_api), (
+        f"agent-vault API host ports collide across slugs: {host_api!r}"
+    )
+    assert len(set(host_proxy.values())) == len(host_proxy), (
+        f"agent-vault proxy host ports collide across slugs: {host_proxy!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the broker image reference is product-neutral / parameterized as '
+        r'the live fleet references it, not a "<slug>"-baked literal'
+    )
+)
+def then_broker_image_product_neutral(context: dict) -> None:
+    images = set()
+    for slug in _LLC1_SLUGS:
+        av = _llc1_agent_vault_service(context, slug)
+        img = av.get("image")
+        images.add(img)
+        # The image must NOT bake the product slug into itself.
+        assert slug not in img, (
+            f"{slug} agent-vault image {img!r} bakes the slug into the "
+            f"broker image reference"
+        )
+    # product-neutral: the SAME image reference renders for every slug.
+    assert len(images) == 1, (
+        f"agent-vault image is not product-neutral across slugs: {images!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'for a non-default slug such as "(?P<slug>[^"]+)" the rendered '
+        r'"compose\.yaml" agent-vault block introduces zero new "(?P<lit>[^"]+)" '
+        r'literal, leaving any prior slug-genericity pins non-regressing and '
+        r'the change additive'
+    )
+)
+def then_dummyco_agent_vault_no_new_literal(
+    slug: str, lit: str, context: dict
+) -> None:
+    # The non-default-slug render's compose.yaml must carry no occurrence of
+    # the default-product literal (e.g. "shopsystem") — confirming the
+    # agent-vault block changes introduce none.
+    text = _llc1_compose_text(context, slug).lower()
+    assert lit.lower() not in text, (
+        f"{slug} compose.yaml leaks a {lit!r} literal:\n{text}"
+    )
+
+
+# -- Scenario d8b53704ce2e6584 (top-level .env.example) -----------------
+
+
+def _llc1_env_example_text(context: dict, slug: str) -> str:
+    path = _llc1_renders(context)[slug] / ".env.example"
+    assert path.is_file(), f"{slug} bootstrap rendered no top-level .env.example"
+    return path.read_text()
+
+
+@then(
+    parsers.re(
+        r'the target directory contains a top-level file named '
+        r'"(?P<name>\.env\.example)" not under any "\.claude/" subdirectory'
+    )
+)
+def then_env_example_top_level(name: str, context: dict) -> None:
+    for slug in _LLC1_SLUGS:
+        target = _llc1_renders(context)[slug]
+        path = target / name
+        assert path.is_file(), (
+            f"{slug} bootstrap did not render a top-level {name}"
+        )
+        assert ".claude" not in path.relative_to(target).parts, (
+            f"{slug} {name} is under a .claude/ subdirectory: {path!s}"
+        )
+
+
+@then(
+    parsers.re(
+        r'the rendered "\.env\.example" carries an "(?P<key>[^"]+)" '
+        r'placeholder line that supplies the env the rendered "compose\.yaml" '
+        r'agent-vault service reads'
+    )
+)
+def then_env_example_has_master_password(key: str, context: dict) -> None:
+    for slug in _LLC1_SLUGS:
+        text = _llc1_env_example_text(context, slug)
+        lines = [
+            ln for ln in text.splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")
+        ]
+        assert any(ln.split("=", 1)[0].strip() == key for ln in lines), (
+            f"{slug} .env.example has no {key} assignment line:\n{text}"
+        )
+        # And the agent-vault service actually reads that env key (closing the
+        # loop the scenario names).
+        av = _llc1_agent_vault_service(context, slug)
+        assert key in _llc1_compose_text(context, slug), (
+            f"{slug} compose.yaml agent-vault does not read {key}"
+        )
+        assert av is not None
+
+
+@then(
+    parsers.re(
+        r'the rendered "\.env\.example" carries broker-coordinate '
+        r'placeholders the shop-shell sources \(a broker address placeholder '
+        r'and a broker token placeholder\)'
+    )
+)
+def then_env_example_has_broker_coordinates(context: dict) -> None:
+    for slug in _LLC1_SLUGS:
+        text = _llc1_env_example_text(context, slug)
+        keys = {
+            ln.split("=", 1)[0].strip()
+            for ln in text.splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#") and "=" in ln
+        }
+        # Broker ADDRESS placeholder: shop-shell sources AGENT_VAULT_ADDR.
+        assert "AGENT_VAULT_ADDR" in keys, (
+            f"{slug} .env.example lacks a broker ADDRESS placeholder "
+            f"(AGENT_VAULT_ADDR); keys={sorted(keys)}"
+        )
+        # Broker TOKEN placeholder: shop-shell sources AGENT_VAULT_TOKEN.
+        assert "AGENT_VAULT_TOKEN" in keys, (
+            f"{slug} .env.example lacks a broker TOKEN placeholder "
+            f"(AGENT_VAULT_TOKEN); keys={sorted(keys)}"
+        )
+        # The shop-shell actually sources both (closing the loop).
+        shell = (_llc1_renders(context)[slug] / "bin" / "shop-shell").read_text()
+        assert "AGENT_VAULT_ADDR" in shell and "AGENT_VAULT_TOKEN" in shell, (
+            f"{slug} bin/shop-shell does not source the broker coordinates"
+        )
+
+
+@then(
+    parsers.re(
+        r'every value in the rendered "\.env\.example" is a placeholder, '
+        r'carrying no real secret material'
+    )
+)
+def then_env_example_values_are_placeholders(context: dict) -> None:
+    import re as _re
+
+    for slug in _LLC1_SLUGS:
+        text = _llc1_env_example_text(context, slug)
+        for ln in text.splitlines():
+            stripped = ln.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, _, value = stripped.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if value == "":
+                # An empty value is a placeholder (operator fills it in).
+                continue
+            # A placeholder value: angle-bracketed/CHANGEME/changeme-style or
+            # the key name echoed — never opaque high-entropy secret material.
+            low = value.lower()
+            looks_placeholder = (
+                value.startswith("<")
+                or value.endswith(">")
+                or "changeme" in low
+                or "placeholder" in low
+                or "example" in low
+                or "your-" in low
+                or "your_" in low
+                or "..." in value
+                or "paste" in low
+                or "fill" in low
+                or "replace" in low
+                or value == key
+                or value.startswith("${")
+                or all(c in "x-_" for c in low)
+            )
+            assert looks_placeholder, (
+                f"{slug} .env.example value for {key!r} looks like real "
+                f"secret material, not a placeholder: {value!r}"
+            )
+            # Defensive: no long opaque base64/hex token slipped in.
+            assert not _re.fullmatch(r"[A-Za-z0-9+/=]{24,}", value), (
+                f"{slug} .env.example {key!r} carries opaque secret-looking "
+                f"material: {value!r}"
+            )
+
+
+@then(
+    parsers.re(
+        r'the "\.env\.example" file is additive: it does not appear in and '
+        r'does not alter the existing six shop-owned ops-tool files '
+        r'\("compose\.yaml", "bin/shop-shell", "Dockerfile\.<slug>-shell", '
+        r'"bin/shop-scenario-completion", "bin/agent-vault-provision", '
+        r'"bin/agent-vault-check"\), so the existing six-file ops-tool '
+        r'enumeration stays non-regressing'
+    )
+)
+def then_env_example_is_additive(context: dict) -> None:
+    from shop_templates.cli import _LEAD_OPS_FILES
+
+    # .env.example is NOT one of the six enumerated ops-tool files.
+    ops_rel = {rel for _tn, rel, _exe in _LEAD_OPS_FILES}
+    ops_tmpl = {tn for tn, _rel, _exe in _LEAD_OPS_FILES}
+    assert ".env.example" not in ops_rel, (
+        ".env.example must not be enumerated in the six-file ops-tool set"
+    )
+    assert ".env.example" not in ops_tmpl
+    assert len(_LEAD_OPS_FILES) == 6, (
+        f"the ops-tool set must stay exactly six files; got {len(_LEAD_OPS_FILES)}"
+    )
+    for slug in _LLC1_SLUGS:
+        target = _llc1_renders(context)[slug]
+        # The six ops-tool files all still render at their pinned paths.
+        for _tn, rel, _exe in _LEAD_OPS_FILES:
+            on_disk = rel
+            if rel == "Dockerfile.shopsystem-shell":
+                on_disk = f"Dockerfile.{slug}-shell"
+            assert (target / on_disk).is_file(), (
+                f"{slug} bootstrap is missing ops-tool file {on_disk}"
+            )
+        # And .env.example is a distinct top-level file, not one of those six.
+        env_path = target / ".env.example"
+        assert env_path.is_file()
+        six_paths = set()
+        for _tn, rel, _exe in _LEAD_OPS_FILES:
+            on_disk = rel
+            if rel == "Dockerfile.shopsystem-shell":
+                on_disk = f"Dockerfile.{slug}-shell"
+            six_paths.add((target / on_disk).resolve())
+        assert env_path.resolve() not in six_paths, (
+            ".env.example must be a distinct file outside the six-file set"
+        )

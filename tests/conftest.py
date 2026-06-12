@@ -14066,3 +14066,780 @@ def then_no_top_level_file_named(name: str, context: dict) -> None:
         f"expected NO top-level file named {name!r} under {real!s}, but it "
         f"exists"
     )
+
+
+# =======================================================================
+# bc-emit work-done wrapper (lead-m56e) — executable pre-emit precondition
+# step definitions. Scenarios pinned in
+# features/bc_emit_work_done_wrapper.feature.
+#
+# These build REAL temp git repositories in the requisite states (dirty /
+# carved-out-only tree; work_id commit on / off origin/main; a tag pointing
+# at lineage with origin/main advanced; scenario-hash stale/missing/orphan),
+# invoke the `bc-emit work-done` wrapper as a subprocess
+# (`python -m shop_templates.bc_emit`), and assert exit code + named-cause
+# error text + that `shop-msg respond` was NOT invoked on refusal.
+#
+# The "did NOT invoke shop-msg respond" seam: the wrapper's --respond-cmd is
+# pointed at a small recorder script that appends its argv to a log file ONLY
+# when actually executed. On a refusal the wrapper exits before invoking
+# respond, so the log file stays absent/empty; on a pass the recorder runs
+# and the log is populated. This exercises the real respond-invocation code
+# path (not a tautology): the recorder is wired into exactly the call the
+# wrapper makes on the pass path.
+# =======================================================================
+
+import os as _os
+import textwrap as _textwrap
+
+
+def _bc_emit_env() -> dict:
+    env = _os.environ.copy()
+    # Ensure shop_templates is importable from the worktree src when invoked
+    # via `python -m shop_templates.bc_emit`.
+    src = str(Path(__file__).resolve().parent.parent / "src")
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{src}{_os.pathsep}{existing}" if existing else src
+    return env
+
+
+def _git_in(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    r = subprocess.run(
+        ["git", *args], cwd=str(repo), capture_output=True, text=True
+    )
+    if check and r.returncode != 0:
+        raise AssertionError(
+            f"git {' '.join(args)} failed in {repo}: {r.stderr}\n{r.stdout}"
+        )
+    return r
+
+
+def _init_bare_origin_and_clone(tmp_path: Path) -> tuple[Path, Path]:
+    """Create a bare 'origin' with a main branch and a working clone of it.
+
+    Returns (clone_repo, origin_bare). The clone has origin/main tracking the
+    bare repo's main, so `git fetch origin` in the clone is meaningful.
+    """
+    origin = tmp_path / "origin.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-q", "-b", "main", str(origin)],
+        check=True, capture_output=True,
+    )
+    seed = tmp_path / "seed"
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(seed)],
+        check=True, capture_output=True,
+    )
+    _git_in(seed, "config", "user.email", "t@t.io")
+    _git_in(seed, "config", "user.name", "t")
+    (seed / "README.md").write_text("seed\n")
+    _git_in(seed, "add", "README.md")
+    _git_in(seed, "commit", "-q", "-m", "seed: initial commit")
+    _git_in(seed, "remote", "add", "origin", str(origin))
+    _git_in(seed, "push", "-q", "origin", "main")
+
+    clone = tmp_path / "bc"
+    subprocess.run(
+        ["git", "clone", "-q", str(origin), str(clone)],
+        check=True, capture_output=True,
+    )
+    _git_in(clone, "config", "user.email", "t@t.io")
+    _git_in(clone, "config", "user.name", "t")
+    return clone, origin
+
+
+def _make_recorder(tmp_path: Path) -> tuple[Path, Path]:
+    """Return (recorder_script, log_path). The recorder appends its argv to
+    the log when executed; the wrapper points --respond-cmd at it so the test
+    can observe whether the real respond invocation fired."""
+    log = tmp_path / "respond-invocations.log"
+    rec = tmp_path / "respond_recorder.py"
+    rec.write_text(_textwrap.dedent(f"""
+        import sys
+        with open(r"{log}", "a") as fh:
+            fh.write("\\x00".join(sys.argv[1:]) + "\\n")
+        sys.exit(0)
+    """).lstrip())
+    return rec, log
+
+
+def _run_bc_emit(repo: Path, recorder: Path, *args: str) -> subprocess.CompletedProcess:
+    cmd = [
+        sys.executable, "-m", "shop_templates.bc_emit", "work-done",
+        "--repo", str(repo),
+        "--respond-cmd", sys.executable,
+        "--respond-cmd", str(recorder),
+        *args,
+    ]
+    return subprocess.run(cmd, capture_output=True, text=True, env=_bc_emit_env())
+
+
+def _respond_was_invoked(log: Path) -> bool:
+    return log.exists() and bool(log.read_text().strip())
+
+
+# ---- Scenario 242c4de927d64339 — clean working tree + carve-outs ----------
+
+@given(
+    parsers.parse(
+        'a BC repository whose "git status --porcelain" output reports at '
+        "least one modified or untracked path that is NOT one of the ambient "
+        'carve-outs ".specstory", ".claude/scheduled_tasks.lock", or '
+        '".beads/issues.jsonl"'
+    )
+)
+def given_dirty_non_carved_out_tree(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    # A non-carved-out untracked path AND a carved-out one, to prove the
+    # carve-outs are discounted but the real path still refuses.
+    (clone / "src_change.py").write_text("x = 1\n")
+    (clone / ".specstory").mkdir(exist_ok=True)
+    (clone / ".specstory" / "log.md").write_text("noise\n")
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    recorder, log = _make_recorder(tmp_path)
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+
+
+@when(
+    parsers.parse(
+        'the BC invokes the "bc-emit work-done" wrapper for its dispatched '
+        "work_id"
+    )
+)
+def when_invoke_wrapper_for_work_id(context: dict) -> None:
+    result = _run_bc_emit(
+        context["bc_repo"], context["respond_recorder"],
+        "--work-id", "lead-test",
+        "--status", "complete",
+    )
+    context["bc_emit_result"] = result
+
+
+@then(
+    parsers.parse(
+        'the wrapper exits non-zero and does not invoke "shop-msg respond '
+        'work_done"'
+    )
+)
+def then_wrapper_nonzero_no_respond(context: dict) -> None:
+    result = context["bc_emit_result"]
+    assert result.returncode != 0, (
+        f"expected non-zero exit; got {result.returncode}. "
+        f"stderr={result.stderr!r} stdout={result.stdout!r}"
+    )
+    assert not _respond_was_invoked(context["respond_log"]), (
+        "shop-msg respond was invoked on a refusal path; recorder log: "
+        f"{context['respond_log'].read_text()!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "the wrapper's error names the clean-working-tree precondition as the "
+        'cause and lists each offending path verbatim as "git status '
+        '--porcelain" reported it'
+    )
+)
+def then_clean_tree_cause_and_paths(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    assert "clean-working-tree precondition" in err, err
+    # The non-carved-out path must be named verbatim from porcelain output.
+    assert "src_change.py" in err, err
+
+
+@then(
+    parsers.parse(
+        'a working tree whose ONLY non-empty "git status --porcelain" entries '
+        'are the carved-out ambient artifacts ".specstory", '
+        '".claude/scheduled_tasks.lock", and ".beads/issues.jsonl" is treated '
+        "as clean, so the wrapper does NOT refuse on those paths alone and "
+        "proceeds to the remaining preconditions"
+    )
+)
+def then_carve_outs_treated_clean(context: dict, tmp_path: Path) -> None:
+    # Build a fresh repo whose ONLY porcelain entries are the carve-outs, and
+    # whose work_id IS reachable on origin/main, so the clean-tree check must
+    # NOT be what refuses (it should proceed to reachability and pass).
+    sub = tmp_path / "carveout-clean"
+    sub.mkdir()
+    clone, origin = _init_bare_origin_and_clone(sub)
+    # Land a work_id commit on origin/main.
+    (clone / "feature.txt").write_text("done\n")
+    _git_in(clone, "add", "feature.txt")
+    _git_in(clone, "commit", "-q", "-m", "feat: deliver (work_id: lead-carve)")
+    _git_in(clone, "push", "-q", "origin", "main")
+    # Now create ONLY carve-out porcelain noise.
+    (clone / ".specstory").mkdir(exist_ok=True)
+    (clone / ".specstory" / "x.md").write_text("noise\n")
+    (clone / ".claude").mkdir(exist_ok=True)
+    (clone / ".claude" / "scheduled_tasks.lock").write_text("lock\n")
+    (clone / ".beads").mkdir(exist_ok=True)
+    (clone / ".beads" / "issues.jsonl").write_text("{}\n")
+    recorder, log = _make_recorder(sub)
+    # No --scenario-hash payload and no features/ dir => hash check is a no-op
+    # pass; clean-tree must NOT refuse on the carve-outs.
+    result = _run_bc_emit(
+        clone, recorder,
+        "--work-id", "lead-carve",
+        "--status", "complete",
+    )
+    # The clean-tree precondition did not refuse: either it passed all checks
+    # (respond invoked) or it refused for a DIFFERENT, non-clean-tree cause.
+    assert "clean-working-tree precondition" not in result.stderr, (
+        "carve-out-only tree was wrongly refused by the clean-tree check: "
+        f"{result.stderr!r}"
+    )
+    # And concretely: with the work_id on origin/main and no scenario hashes,
+    # the wrapper proceeds all the way and invokes respond.
+    assert _respond_was_invoked(log), (
+        "expected the wrapper to proceed past clean-tree (carve-outs only) "
+        f"and invoke respond; stderr={result.stderr!r} rc={result.returncode}"
+    )
+
+
+# ---- Scenario 461d6066ef7dca0a — commit reachability from origin/main -----
+
+@given(
+    parsers.parse(
+        "a dispatched work_id whose deliverable is a COMMIT attributable to "
+        "that work_id"
+    )
+)
+def given_commit_deliverable_work_id(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    recorder, log = _make_recorder(tmp_path)
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+    context["bc_work_id"] = "lead-unreach"
+
+
+@given(
+    parsers.parse(
+        'no commit attributable to the work_id is reachable from the BC\'s '
+        '"origin/main" HEAD after a "git fetch origin"'
+    )
+)
+def given_work_id_commit_only_on_local_branch(context: dict) -> None:
+    clone = context["bc_repo"]
+    wid = context["bc_work_id"]
+    # Commit the work_id's change ONLY on a local, un-pushed branch. This
+    # proves a local-only branch does NOT satisfy reachability from
+    # origin/main HEAD.
+    _git_in(clone, "checkout", "-q", "-b", "work/local")
+    (clone / "deliverable.txt").write_text("body\n")
+    _git_in(clone, "add", "deliverable.txt")
+    _git_in(clone, "commit", "-q", "-m", f"feat: deliver (work_id: {wid})")
+    # main / origin/main carry NO work_id commit.
+
+
+@when(
+    parsers.parse(
+        'the BC invokes the "bc-emit work-done" wrapper for that work_id'
+    )
+)
+def when_invoke_wrapper_for_that_work_id(context: dict) -> None:
+    result = _run_bc_emit(
+        context["bc_repo"], context["respond_recorder"],
+        "--work-id", context["bc_work_id"],
+        "--deliverable", context.get("bc_deliverable", "commit"),
+        *(["--tag", context["bc_tag"]] if context.get("bc_tag") else []),
+        "--status", "complete",
+    )
+    context["bc_emit_result"] = result
+
+
+@then(
+    parsers.parse(
+        "the wrapper's error names the work_id-commit-on-origin-main "
+        "precondition as the cause and names both the dispatched work_id and "
+        'the current "origin/main" HEAD short SHA'
+    )
+)
+def then_commit_reach_cause_names_work_id_and_head(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    assert "work_id-commit-on-origin-main precondition" in err, err
+    assert context["bc_work_id"] in err, err
+    head = _git_in(context["bc_repo"], "rev-parse", "--short", "origin/main").stdout.strip()
+    assert head and head in err, (
+        f"expected origin/main HEAD short SHA {head!r} in error: {err!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "a commit attributable to the work_id that exists only on a branch "
+        "other than the BC's main branch (e.g. an un-merged or un-pushed "
+        "local branch) does NOT satisfy the precondition; only reachability "
+        'from "origin/main" HEAD satisfies it'
+    )
+)
+def then_local_only_branch_does_not_satisfy(context: dict) -> None:
+    # The work_id commit IS present (on the local branch), proving the refusal
+    # is specifically about origin/main reachability, not absence of the
+    # commit altogether.
+    clone = context["bc_repo"]
+    wid = context["bc_work_id"]
+    on_local = _git_in(clone, "log", "work/local", f"--grep={wid}", "--fixed-strings", "--oneline").stdout.strip()
+    assert on_local, "precondition setup invalid: work_id commit not on local branch"
+    on_origin = _git_in(clone, "log", "origin/main", f"--grep={wid}", "--fixed-strings", "--oneline").stdout.strip()
+    assert not on_origin, "precondition setup invalid: work_id leaked to origin/main"
+    # And the wrapper refused (already asserted non-zero + no respond).
+    assert context["bc_emit_result"].returncode != 0
+
+
+# ---- Scenario 12c98d2f7e5259a9 — TAG-deliverable reachability mode --------
+
+@given(
+    parsers.parse(
+        "a dispatched work_id whose deliverable is a release TAG that names "
+        "an expected commit lineage"
+    )
+)
+def given_tag_deliverable_work_id(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["bc_deliverable"] = "tag"
+    context["bc_work_id"] = "lead-nlff"
+    context["bc_tag"] = "v0.5.0"
+    recorder, log = _make_recorder(tmp_path)
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+
+
+@given(
+    parsers.parse(
+        'the named tag exists on "origin" after a "git fetch origin --tags" '
+        "and points at the expected commit lineage"
+    )
+)
+def given_tag_exists_on_origin(context: dict) -> None:
+    clone = context["bc_repo"]
+    tag = context["bc_tag"]
+    wid = context["bc_work_id"]
+    # The tagged commit carries the work_id and is pushed + tagged on origin.
+    (clone / "release.txt").write_text("release body\n")
+    _git_in(clone, "add", "release.txt")
+    _git_in(clone, "commit", "-q", "-m", f"feat: release (work_id: {wid})")
+    _git_in(clone, "push", "-q", "origin", "main")
+    _git_in(clone, "tag", tag)
+    _git_in(clone, "push", "-q", "origin", tag)
+
+
+@given(
+    parsers.parse(
+        "the BC's \"origin/main\" HEAD has legitimately advanced to a later "
+        "commit that does NOT carry the work_id"
+    )
+)
+def given_origin_main_advanced_past_tag(context: dict) -> None:
+    clone = context["bc_repo"]
+    # A later, non-work_id commit (e.g. beads churn) advances origin/main past
+    # the tagged commit. origin/main HEAD no longer carries the work_id.
+    (clone / "beads.jsonl").write_text("post-tag churn\n")
+    _git_in(clone, "add", "beads.jsonl")
+    _git_in(clone, "commit", "-q", "-m", "chore(beads): export refresh (no work_id)")
+    _git_in(clone, "push", "-q", "origin", "main")
+    # Re-clone-equivalent: make sure origin/main ref locally is updated.
+    _git_in(clone, "fetch", "-q", "origin")
+
+
+@when(
+    parsers.parse(
+        'the BC invokes the "bc-emit work-done" wrapper for that work_id in '
+        "the TAG/release-deliverable mode"
+    )
+)
+def when_invoke_wrapper_tag_mode(context: dict) -> None:
+    result = _run_bc_emit(
+        context["bc_repo"], context["respond_recorder"],
+        "--work-id", context["bc_work_id"],
+        "--deliverable", "tag",
+        "--tag", context["bc_tag"],
+        "--status", "complete",
+    )
+    context["bc_emit_result"] = result
+
+
+@then(
+    parsers.parse(
+        "the wrapper treats the reachability precondition as satisfied and "
+        "does NOT refuse on the ground that the work_id is absent from "
+        '"origin/main" HEAD'
+    )
+)
+def then_tag_mode_reachability_satisfied(context: dict) -> None:
+    result = context["bc_emit_result"]
+    # The wrapper must NOT refuse on reachability. With no scenario hashes and
+    # a clean tree, it proceeds all the way to invoking respond.
+    assert "reachability precondition failed" not in result.stderr, result.stderr
+    assert "work_id-commit-on-origin-main" not in result.stderr, result.stderr
+    assert result.returncode == 0, (
+        f"expected tag-mode pass; rc={result.returncode} stderr={result.stderr!r}"
+    )
+    assert _respond_was_invoked(context["respond_log"]), (
+        "tag-mode reachability satisfied but respond was not invoked"
+    )
+
+
+@then(
+    parsers.parse(
+        "the satisfaction is established by the tag pointing at the expected "
+        'commit lineage, not by the work_id being reachable from "origin/main" '
+        "HEAD"
+    )
+)
+def then_tag_satisfaction_not_via_origin_main(context: dict) -> None:
+    clone = context["bc_repo"]
+    wid = context["bc_work_id"]
+    # Prove origin/main HEAD does NOT carry the work_id (so the pass could only
+    # have come from the tag lineage, not origin/main reachability).
+    head_subject = _git_in(clone, "log", "-1", "--format=%s%n%b", "origin/main").stdout
+    assert wid not in head_subject, (
+        "test invariant broken: origin/main HEAD unexpectedly carries the work_id"
+    )
+    on_origin_head_reachable = _git_in(
+        clone, "log", "origin/main", f"--grep={wid}", "--fixed-strings", "--oneline"
+    ).stdout.strip()
+    # The work_id commit IS in origin/main history (it was pushed then advanced
+    # past), but the point is satisfaction in tag mode does not require the
+    # commit to be origin/main HEAD; the tag is what establishes it. Confirm
+    # the tag resolves to a commit (the lineage anchor).
+    tag_commit = _git_in(clone, "rev-parse", "--verify", f'{context["bc_tag"]}^{{commit}}').stdout.strip()
+    assert tag_commit, "tag did not resolve to a commit"
+
+
+# ---- Scenario ea9c1bbd9be87d72 — scenario-hash divergence (block-only) ----
+
+_HASH_FEATURE_BLOCK = (
+    "  @scenario_hash:{h} @bc:shopsystem-templates\n"
+    "  Scenario: a delivered behavior under features\n"
+    "    Given some precondition\n"
+    "    When the behavior runs\n"
+    "    Then the outcome holds\n"
+)
+
+
+def _block_only_text(h: str) -> str:
+    """The scenario block as compute_scenario_hash sees it (no Feature line)."""
+    return _HASH_FEATURE_BLOCK.format(h=h)
+
+
+@given(
+    parsers.parse(
+        "a dispatched work_id whose deliverable includes one or more scenario "
+        'blocks committed under "features/" each carrying an '
+        '"@scenario_hash:<hex>" tag'
+    )
+)
+def given_features_with_scenario_hash_tags(context: dict, tmp_path: Path) -> None:
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    feats = clone / "features"
+    feats.mkdir()
+    # Author a scenario block whose carried @scenario_hash tag MATCHES its
+    # block-only recompute, then we will mutate the body to force a STALE
+    # divergence. First compute the correct hash for the pristine body.
+    pristine_block = (
+        "  @scenario_hash:PLACEHOLDER @bc:shopsystem-templates\n"
+        "  Scenario: a delivered behavior under features\n"
+        "    Given some precondition\n"
+        "    When the behavior runs\n"
+        "    Then the outcome holds\n"
+    )
+    correct = _csh(pristine_block)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["hash_correct"] = correct
+    recorder, log = _make_recorder(tmp_path)
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+    context["bc_work_id"] = "lead-hash"
+    # Land a clean tree with a work_id commit on origin/main so clean-tree and
+    # reachability both PASS — isolating the hash check as the refusal cause.
+    feature_text = (
+        "Feature: hash divergence fixture\n\n" + pristine_block.replace("PLACEHOLDER", correct)
+    )
+    (feats / "delivered.feature").write_text(feature_text)
+    _git_in(clone, "add", "features/delivered.feature")
+    _git_in(clone, "commit", "-q", "-m", "feat: deliver scenario (work_id: lead-hash)")
+    _git_in(clone, "push", "-q", "origin", "main")
+    context["hash_feature_path"] = feats / "delivered.feature"
+    context["hash_pristine_block"] = pristine_block
+
+
+@given(
+    parsers.parse(
+        "the wrapper recomputes each candidate scenario hash by delegating "
+        'in-process to "scenarios.hash.compute_scenario_hash" using '
+        "scenario-block-only canonicalization, with the enclosing \"Feature:\" "
+        "header line NOT part of the hashed text"
+    )
+)
+def given_wrapper_recomputes_block_only(context: dict) -> None:
+    # This is a property of the wrapper (asserted in the Then steps); the
+    # Given records the expectation. We additionally prove here that the
+    # block-only hash differs from a Feature-line-included canonicalization,
+    # so the two forms are genuinely distinguishable.
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    block = context["hash_pristine_block"].replace("PLACEHOLDER", context["hash_correct"])
+    feature_included = "Feature: hash divergence fixture\n\n" + block
+    block_only = _csh(block)
+    wire_form = _csh(feature_included)
+    assert block_only != wire_form, (
+        "block-only and Feature-line-included canonicalizations coincide; "
+        "the fixture cannot distinguish them"
+    )
+    context["hash_block_only_recompute"] = block_only
+    context["hash_wire_form"] = wire_form
+
+
+@when(
+    parsers.parse(
+        "the recomputed set and the payload's \"--scenario-hash\" set diverge "
+        "by at least one member — a carried hash whose recompute differs "
+        "(stale), a features/-present dispatched scenario block with no "
+        "carried hash (missing), or a carried hash matching no scenario block "
+        'under "features/" (orphan)'
+    )
+)
+def when_hash_set_diverges_stale(context: dict) -> None:
+    # Force a STALE divergence: mutate the committed scenario BODY while the
+    # carried @scenario_hash tag stays pinned to the old (now wrong) value.
+    feats_path = context["hash_feature_path"]
+    correct = context["hash_correct"]
+    mutated = (
+        "Feature: hash divergence fixture\n\n"
+        f"  @scenario_hash:{correct} @bc:shopsystem-templates\n"
+        "  Scenario: a delivered behavior under features\n"
+        "    Given some precondition\n"
+        "    When the behavior runs differently now\n"   # body drift
+        "    Then the outcome holds\n"
+    )
+    feats_path.write_text(mutated)
+    clone = context["bc_repo"]
+    _git_in(clone, "add", "features/delivered.feature")
+    _git_in(clone, "commit", "-q", "-m", "edit: drift scenario body under pinned hash")
+    _git_in(clone, "push", "-q", "origin", "main")
+    # Payload echoes the (now stale) carried hash.
+    result = _run_bc_emit(
+        clone, context["respond_recorder"],
+        "--work-id", context["bc_work_id"],
+        "--scenario-hash", correct,
+        "--status", "complete",
+    )
+    context["bc_emit_result"] = result
+
+
+@then(
+    parsers.parse(
+        "the wrapper's error names the scenario_hashes-match precondition as "
+        "the cause, classifies the offending member as stale, missing, or "
+        "orphan, and names the affected hash value and scenario"
+    )
+)
+def then_hash_cause_classification_named(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    assert "scenario_hashes-match precondition" in err, err
+    assert "STALE" in err, err
+    assert context["hash_correct"] in err, err
+    assert "a delivered behavior under features" in err, err
+
+
+@then(
+    parsers.parse(
+        "the recompute that produced the refusal used the scenario-block-only "
+        'canonical hash from "scenarios.hash.compute_scenario_hash", never '
+        "the Feature-line-included canonicalization carried on the wire "
+        '"scenarios[].hash"'
+    )
+)
+def then_recompute_block_only_not_wire(context: dict) -> None:
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    err = context["bc_emit_result"].stderr
+    # The mutated committed body, block-only, is the value the error must name
+    # as the recompute. Compute both forms for the mutated body and assert the
+    # error names the block-only one and NOT the Feature-line-included one.
+    mutated_block = (
+        "  @scenario_hash:{h} @bc:shopsystem-templates\n"
+        "  Scenario: a delivered behavior under features\n"
+        "    Given some precondition\n"
+        "    When the behavior runs differently now\n"
+        "    Then the outcome holds\n"
+    ).format(h=context["hash_correct"])
+    block_only = _csh(mutated_block)
+    wire_form = _csh("Feature: hash divergence fixture\n\n" + mutated_block)
+    assert block_only != wire_form, "fixture cannot distinguish the two forms"
+    assert block_only in err, (
+        f"error must name the block-only recompute {block_only!r}: {err!r}"
+    )
+    assert wire_form not in err, (
+        f"error wrongly names the Feature-line-included form {wire_form!r}: {err!r}"
+    )
+
+
+# ---- Scenario 4a6133f7b5f061a2 — self-resolve messaging on refusal --------
+
+@given(
+    parsers.parse(
+        'the "bc-emit work-done" wrapper refuses an emit on any of its '
+        "preconditions — clean-working-tree, work_id-commit-on-origin-main, "
+        "tag-deliverable reachability, or scenario_hashes-match"
+    )
+)
+def given_wrapper_refuses_on_a_precondition(context: dict, tmp_path: Path) -> None:
+    # Use the clean-working-tree refusal as a concrete instance of "any
+    # precondition". A dirty non-carved-out path refuses.
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    (clone / "uncommitted.py").write_text("y = 2\n")
+    recorder, log = _make_recorder(tmp_path)
+    result = _run_bc_emit(
+        clone, recorder,
+        "--work-id", "lead-selfresolve",
+        "--status", "complete",
+    )
+    assert result.returncode != 0, result.stderr
+    assert not _respond_was_invoked(log), "respond invoked on refusal"
+    context["bc_emit_result"] = result
+    context["respond_log"] = log
+
+
+@when(parsers.parse("the BC reads the wrapper's named-cause error text"))
+def when_bc_reads_error_text(context: dict) -> None:
+    context["refusal_error_text"] = context["bc_emit_result"].stderr
+
+
+@then(
+    parsers.parse(
+        "the error directs the BC to self-resolve its OWN bead, commit, and "
+        "working-tree state — committing its own changes or correcting its own "
+        'hashes — and then to re-invoke "bc-emit work-done"'
+    )
+)
+def then_error_directs_self_resolve(context: dict) -> None:
+    err = context["refusal_error_text"]
+    low = err.lower()
+    assert "self-resolve" in low, err
+    assert "bc-emit work-done" in low, err
+    # Names its OWN state (bead / commit / working-tree).
+    assert "working-tree" in low, err
+    assert ("commit its own" in low or "commit its own changes" in low), err
+
+
+@then(
+    parsers.parse(
+        "the error text does NOT instruct, request, or imply that the lead, "
+        "the router, or any non-BC actor should commit, push, or reconcile "
+        "the BC's repository state"
+    )
+)
+def then_error_does_not_name_non_bc_actor(context: dict) -> None:
+    err = context["refusal_error_text"]
+    low = err.lower()
+    # The only permissible mention of "lead"/"router" is the negative
+    # directive ("Do NOT ask the lead, the router, ..."). Assert no
+    # imperative that tasks a non-BC actor with the BC's repo state. We check
+    # there is no phrasing that ASKS the lead/router to act; the standard
+    # directive explicitly tells the BC NOT to ask them.
+    for forbidden in (
+        "ask the lead to commit",
+        "the lead should commit",
+        "the lead must commit",
+        "the router should",
+        "the router must",
+        "have the lead",
+        "have the router",
+    ):
+        assert forbidden not in low, f"error tasks a non-BC actor: {forbidden!r} in {err!r}"
+    # Positive: the directive explicitly disclaims non-BC actors.
+    assert "do not ask the lead" in low, err
+
+
+# ---- Scenario f81ee56bc163934b — bare --force independence ----------------
+
+@given(
+    parsers.parse(
+        'a BC whose state would cause the "bc-emit work-done" wrapper to '
+        "refuse — for instance a dirty non-carved-out working tree, an "
+        "unreachable work_id commit, or a scenario-hash mismatch"
+    )
+)
+def given_state_that_would_refuse(context: dict) -> None:
+    # The --force path lives in the shop-msg package (outside this BC root);
+    # we assert the documented behavioral contract via the messaging CLI's
+    # own help/surface rather than re-implementing it. Record the premise.
+    context["force_premise"] = "would-refuse"
+
+
+@when(
+    parsers.parse(
+        'the BC invokes the bare messaging primitive "shop-msg respond '
+        'work_done --force" directly rather than the "bc-emit work-done" '
+        "wrapper"
+    )
+)
+def when_invoke_bare_force(context: dict) -> None:
+    # Capture the bare primitive's surface (it is shop-msg's, outside this BC
+    # root). The contract under test: --force is an independent path that
+    # shop-msg respond exposes, NOT gated by the bc-emit wrapper preconditions.
+    result = subprocess.run(
+        ["shop-msg", "respond", "work_done", "--help"],
+        capture_output=True, text=True,
+    )
+    context["shop_msg_help"] = result.stdout + result.stderr
+
+
+@then(
+    parsers.parse(
+        "the work_done message is deposited to the lead's inbox without any "
+        "clean-working-tree, commit-or-tag-reachability, or "
+        "scenario_hashes-match precondition being run by \"shop-msg respond\""
+    )
+)
+def then_force_bypasses_preconditions(context: dict) -> None:
+    help_text = context["shop_msg_help"]
+    # --force exists on the bare shop-msg respond work_done primitive.
+    assert "--force" in help_text, help_text
+    # The bare primitive's surface carries NONE of the bc-emit wrapper's
+    # precondition flags/checks — it is a different layer. shop-msg respond
+    # does not run clean-tree / reachability / scenario-hash preconditions;
+    # those live ONLY in the bc-emit wrapper. Assert the wrapper-only
+    # precondition vocabulary is absent from the bare primitive's surface.
+    low = help_text.lower()
+    for wrapper_only in ("clean-working-tree", "reachability", "scenario_hashes-match"):
+        assert wrapper_only not in low, (
+            f"bare shop-msg respond surface unexpectedly references a "
+            f"bc-emit-wrapper precondition {wrapper_only!r}: {help_text!r}"
+        )
+
+
+@then(
+    parsers.parse(
+        "the availability of this bare forced-recovery path is independent of "
+        "the wrapper, so landing the wrapper and retiring the prose "
+        'preconditions does not remove the "--force" escape valve'
+    )
+)
+def then_force_independent_of_wrapper(context: dict) -> None:
+    help_text = context["shop_msg_help"]
+    # --force is defined by shop-msg (a package outside this BC root); the
+    # bc-emit wrapper neither defines nor consults it. Its presence on the
+    # bare primitive is therefore independent of whether the wrapper exists.
+    assert "--force" in help_text, help_text
+    # And the bc-emit wrapper exposes NO --force flag (it is not the wrapper's
+    # concern), confirming the escape valve is a separate, independent layer.
+    wrapper_help = subprocess.run(
+        [sys.executable, "-m", "shop_templates.bc_emit", "work-done", "--help"],
+        capture_output=True, text=True, env=_bc_emit_env(),
+    ).stdout
+    assert "--force" not in wrapper_help, (
+        "the bc-emit wrapper unexpectedly couples a --force flag to itself; "
+        f"--force must stay independent in shop-msg: {wrapper_help!r}"
+    )

@@ -9,7 +9,16 @@ description = "Validated role-prompt templates for shops in the shop-system. Dis
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "David Stenglein"}]
-dependencies = []
+dependencies = [
+    # bc-emit's work-done hash-check path recomputes scenario hashes via
+    # scenarios.hash.compute_scenario_hash. Declared VCS-pinned per the
+    # ADR-018 install convention (the same form shopsystem-messaging uses) so
+    # a clean `pip install shop-templates` into a launched BC resolves it.
+    # The import is lazy (see bc_emit.py), so --help and other subcommands
+    # work even before this resolves; this guarantees resolution for the
+    # work-done hash path in real launched-BC installs.
+    "scenarios @ git+https://github.com/dstengle/shopsystem-scenarios@v0.2.0",
+]
 
 [project.optional-dependencies]
 dev = [

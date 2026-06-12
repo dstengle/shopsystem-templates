@@ -31,6 +31,7 @@ import argparse
 import re
 import subprocess
 import sys
+import zlib
 from importlib.resources import files
 from pathlib import Path
 
@@ -265,10 +266,74 @@ def read_ops_template(name: str) -> str:
 
     Loaded via importlib.resources from templates/ops/; never read from a
     filesystem path under the product working directory. The returned
-    string is the source of truth from which bootstrap renders a lead
-    shop's compose.yaml / bin/shop-shell / Dockerfile.shopsystem-shell.
+    string is the RAW (placeholder-bearing) source of truth from which
+    bootstrap renders a lead shop's compose.yaml / bin/shop-shell /
+    Dockerfile.<slug>-shell. To obtain the rendered, product-scoped body
+    use `render_ops_template(name, slug)`.
     """
     return (files(_TEMPLATES_PKG) / "ops" / name).read_text()
+
+
+def _ops_slug(shop_name: str) -> str:
+    """Return the product slug the ops scaffolding is scoped to.
+
+    The ops slug is the bootstrap `--shop-name` (already the canonical
+    shop-identity slug) with a single trailing `-product` suffix stripped,
+    so `shopsystem-product` -> `shopsystem` and `dummyco-product` ->
+    `dummyco`. A name without that suffix is used verbatim. This is the
+    SAME slug source the rest of bootstrap reads (`.claude/shop/name.md`,
+    scenario 4e99a6abbc57b884 / ADR-018): name.md is the single source of
+    truth for shop identity, and the ops generification derives every
+    `<product>-*` literal from it — it introduces no new identity source.
+    """
+    suffix = "-product"
+    if shop_name.endswith(suffix) and len(shop_name) > len(suffix):
+        return shop_name[: -len(suffix)]
+    return shop_name
+
+
+def _ops_postgres_host_port(slug: str) -> int:
+    """Return a deterministic, product-distinct default postgres HOST port
+    for a slug.
+
+    Derivation: 5432 + crc32(slug) % 1000, giving each product a stable
+    host port in [5432, 6431] so a second product does not collide on the
+    published port with a running fleet. The rendered compose makes this an
+    env-overridable default (`${<SLUG_UPPER>_POSTGRES_PORT:-<derived>}`),
+    so an operator can still pin it explicitly.
+    """
+    return 5432 + (zlib.crc32(slug.encode("utf-8")) % 1000)
+
+
+def render_ops_template(name: str, slug: str) -> str:
+    """Return the named ops template body rendered for a product slug.
+
+    Substitutes the ops placeholders ({{OPS_SLUG}}, {{OPS_SLUG_UPPER}},
+    {{OPS_POSTGRES_PORT}}) using the same plain placeholder-substitution
+    mechanism the rest of bootstrap uses — every `<product>-*` literal in
+    the rendered ops/ derives from `slug`. Only the literal `{{OPS_*}}`
+    tokens are replaced, so docker `{{...}}` Go-template format strings in
+    the template body are left intact.
+    """
+    body = read_ops_template(name)
+    upper = slug.upper().replace("-", "_")
+    body = body.replace("{{OPS_SLUG_UPPER}}", upper)
+    body = body.replace("{{OPS_SLUG}}", slug)
+    body = body.replace("{{OPS_POSTGRES_PORT}}", str(_ops_postgres_host_port(slug)))
+    return body
+
+
+def _ops_target_rel(rel_path: str, slug: str) -> str:
+    """Return the on-disk relative target for an ops file, product-scoped.
+
+    The Dockerfile recipe filename is scoped to the slug
+    (Dockerfile.<slug>-shell) so a second product does not write a
+    `Dockerfile.shopsystem-shell` literal; all other ops targets keep their
+    fixed path.
+    """
+    if rel_path == "Dockerfile.shopsystem-shell":
+        return f"Dockerfile.{slug}-shell"
+    return rel_path
 
 
 def _pour_skills(target: Path) -> None:
@@ -302,16 +367,18 @@ def _mirror_skills(target: Path) -> None:
                 path.rmdir()
 
 
-def _render_lead_ops_scaffolding(target: Path) -> None:
-    """Render the three lead-shop ops files into the target directory.
+def _render_lead_ops_scaffolding(target: Path, slug: str) -> None:
+    """Render the lead-shop ops files into the target directory, scoped to
+    the product `slug`.
 
-    Writes compose.yaml and Dockerfile.shopsystem-shell at the top level
-    and bin/shop-shell (with its owner-execute bit set) — all shop-owned,
-    none under .claude/. Caller gates this on shop_type == "lead".
+    Writes compose.yaml and Dockerfile.<slug>-shell at the top level and
+    bin/shop-shell (with its owner-execute bit set) — all shop-owned, none
+    under .claude/, every `<product>-*` literal derived from `slug`. Caller
+    gates this on shop_type == "lead".
     """
     for template_name, rel_path, executable in _LEAD_OPS_FILES:
-        body = read_ops_template(template_name)
-        dest = target / rel_path
+        body = render_ops_template(template_name, slug)
+        dest = target / _ops_target_rel(rel_path, slug)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(body)
         if executable:
@@ -627,7 +694,7 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     # 3d94639d5af360d7, 314d4485b8197f2a, 82c069bd3fb3b1d4,
     # 8cf5656c55b466e7, 43e085e8627c7756).
     if shop_type == "lead":
-        _render_lead_ops_scaffolding(target)
+        _render_lead_ops_scaffolding(target, _ops_slug(shop_name))
 
     # Initialize .beads/ via a `bd init` subprocess. shop-templates MUST
     # NOT import bd / beads internals and MUST NOT write to .beads/
@@ -971,24 +1038,30 @@ def _advise_ops_scaffolding_drift(target: Path) -> None:
     scaffolding file whose on-disk content differs from canonical.
 
     The ops scaffolding files (compose.yaml, bin/shop-shell,
-    Dockerfile.shopsystem-shell) are shop-owned: this function NEVER writes
-    to them. It only inspects on-disk content against the current canonical
-    ops template body and, on drift, prints an advisory to stderr that
-    mirrors the name.md advisory pattern (scenario 132). Files that match
-    canonical, or that are absent, produce no advisory.
+    Dockerfile.<slug>-shell) are shop-owned: this function NEVER writes to
+    them. It only inspects on-disk content against the current canonical
+    ops template body RENDERED for this shop's product slug (read from
+    .claude/shop/name.md — the single identity source) and, on drift,
+    prints an advisory to stderr that mirrors the name.md advisory pattern
+    (scenario 132). Files that match canonical, or that are absent, produce
+    no advisory.
     """
+    name_file = target / ".claude" / "shop" / "name.md"
+    shop_name = name_file.read_text().rstrip("\n") if name_file.exists() else ""
+    slug = _ops_slug(shop_name)
     for template_name, rel_path, _executable in _LEAD_OPS_FILES:
-        dest = target / rel_path
+        on_disk_rel = _ops_target_rel(rel_path, slug)
+        dest = target / on_disk_rel
         if not dest.exists():
             continue
-        canonical_body = read_ops_template(template_name)
+        canonical_body = render_ops_template(template_name, slug)
         if dest.read_text() == canonical_body:
             continue
         print(
             f"shop-templates update: advisory — the shop-owned ops "
-            f"scaffolding file {rel_path} has drifted from the current "
+            f"scaffolding file {on_disk_rel} has drifted from the current "
             f"canonical template body. shop-templates update did NOT modify "
-            f"the shop-owned file {rel_path}. To view the current canonical "
+            f"the shop-owned file {on_disk_rel}. To view the current canonical "
             f"body, run `shop-templates show {template_name}` and reconcile "
             f"the file by hand if you intend to adopt the canonical update.",
             file=sys.stderr,

@@ -2,50 +2,127 @@
 # bin/shop-shell — lead-shop daily-driver shell (shop-owned, PDR-003 path F).
 #
 # Brings up the compose-defined postgres if it is not already running, then
-# drops the operator into the shopsystem shell image with the project mounted
+# drops the operator into the product shell image with the project mounted
 # and the docker socket forwarded. A fresh operator can run ./bin/shop-shell
 # with no further configuration.
+#
+# PRODUCT-SCOPED: the data root, docker network, and the container-name
+# greps all derive from the bootstrap product slug ({{OPS_SLUG}}) so this
+# script never collides with a second product running alongside it.
+#
+# ZERO-HOST-COUPLING (ADR-028): credentials are sourced exclusively through
+# the agent-vault broker — there are NO host ~/.claude / ~/.gitconfig mounts.
+# Outbound traffic routes through the broker proxy (HTTPS_PROXY at
+# agent-vault:14322), which injects the real secrets on the wire. Only the
+# git IDENTITY (author/committer name+email — not a secret) is forwarded from
+# the host git config. If no broker token can be obtained, this script ERRORS
+# OUT rather than falling back to host credentials.
 set -euo pipefail
 
 # Resolve the repo root (this script lives at <repo>/bin/shop-shell).
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Persistent data root lives OUTSIDE the repo so the shop tree stays clean.
-SHOPSYSTEM_DATA="${SHOPSYSTEM_DATA:-$HOME/.local/share/shopsystem}"
-export SHOPSYSTEM_DATA
-mkdir -p "$SHOPSYSTEM_DATA/pgdata"
+{{OPS_SLUG_UPPER}}_DATA="${{{OPS_SLUG_UPPER}}_DATA:-$HOME/.local/share/{{OPS_SLUG}}}"
+export {{OPS_SLUG_UPPER}}_DATA
+mkdir -p "${{OPS_SLUG_UPPER}}_DATA/pgdata"
 
-# The daily-driver shell image tag. Override with SHOPSYSTEM_SHELL_IMAGE to
-# point at a published image; defaults to the locally-built recipe in
-# Dockerfile.shopsystem-shell (docker build -t shopsystem-shell:dev -f
-# Dockerfile.shopsystem-shell .).
-SHOPSYSTEM_SHELL_IMAGE="${SHOPSYSTEM_SHELL_IMAGE:-shopsystem-shell:dev}"
+# The daily-driver shell image tag. Override with {{OPS_SLUG_UPPER}}_SHELL_IMAGE
+# to point at a published image; defaults to the locally-built recipe in
+# Dockerfile.{{OPS_SLUG}}-shell (docker build -t {{OPS_SLUG}}-shell:dev -f
+# Dockerfile.{{OPS_SLUG}}-shell .).
+{{OPS_SLUG_UPPER}}_SHELL_IMAGE="${{{OPS_SLUG_UPPER}}_SHELL_IMAGE:-{{OPS_SLUG}}-shell:dev}"
 
-# Bring up postgres if it is not already running.
-docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres
+# Bring up postgres (and the agent-vault broker) if not already running.
+docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres agent-vault
+
+# -----------------------------------------------------------------------
+# Broker credential acquisition (ADR-028 zero-host-coupling).
+#
+# Source the agent-vault broker coordinates from one of two places, in
+# order:
+#   (1) a repo-local .env carrying AGENT_VAULT_* keys; else
+#   (2) recovered from a running bc-* container's environment via
+#       `docker inspect` (the bc-launcher containers already hold them).
+# If neither yields a broker TOKEN, ERROR OUT — there is no host-cred
+# fallback.
+# -----------------------------------------------------------------------
+AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-}"
+AGENT_VAULT_TOKEN="${AGENT_VAULT_TOKEN:-}"
+AGENT_VAULT_VAULT="${AGENT_VAULT_VAULT:-}"
+AGENT_VAULT_CA_PEM="${AGENT_VAULT_CA_PEM:-}"
+
+# (1) repo-local .env
+if [[ -f "$REPO_ROOT/.env" ]]; then
+  # shellcheck disable=SC1090
+  set -a; source "$REPO_ROOT/.env"; set +a
+fi
+
+# (2) recover from a running bc-* container (slug-derived grep) if still unset.
+if [[ -z "${AGENT_VAULT_TOKEN:-}" ]]; then
+  BC_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '^{{OPS_SLUG}}-bc-|^bc-' | head -n1 || true)"
+  if [[ -n "$BC_CONTAINER" ]]; then
+    while IFS= read -r kv; do
+      case "$kv" in
+        AGENT_VAULT_ADDR=*)   AGENT_VAULT_ADDR="${kv#AGENT_VAULT_ADDR=}";;
+        AGENT_VAULT_TOKEN=*)  AGENT_VAULT_TOKEN="${kv#AGENT_VAULT_TOKEN=}";;
+        AGENT_VAULT_VAULT=*)  AGENT_VAULT_VAULT="${kv#AGENT_VAULT_VAULT=}";;
+        AGENT_VAULT_CA_PEM=*) AGENT_VAULT_CA_PEM="${kv#AGENT_VAULT_CA_PEM=}";;
+      esac
+    done < <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$BC_CONTAINER" 2>/dev/null || true)
+  fi
+fi
+
+if [[ -z "${AGENT_VAULT_TOKEN:-}" ]]; then
+  echo "bin/shop-shell: no agent-vault broker token available (checked .env and running bc-* containers)." >&2
+  echo "  Zero-host-coupling (ADR-028) forbids a host-credential fallback. Aborting." >&2
+  exit 1
+fi
+export AGENT_VAULT_ADDR AGENT_VAULT_TOKEN AGENT_VAULT_VAULT AGENT_VAULT_CA_PEM
+
+# Route outbound traffic through the broker proxy so it can inject the real
+# secrets on the wire.
+HTTPS_PROXY="${HTTPS_PROXY:-http://agent-vault:14322}"
+HTTP_PROXY="${HTTP_PROXY:-http://agent-vault:14322}"
+export HTTPS_PROXY HTTP_PROXY
+
+# Forward the git IDENTITY (name+email — not a secret) from the host git
+# config so in-shell commits are attributed correctly.
+GIT_AUTHOR_NAME="$(git config --get user.name || true)"
+GIT_AUTHOR_EMAIL="$(git config --get user.email || true)"
+GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+export GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+
+# Surface impending broker-token expiry to the operator at startup
+# (non-fatal — the check itself decides whether to warn).
+"$REPO_ROOT/bin/agent-vault-check" || true
 
 # Resolve the GID that owns the mounted docker socket so the non-root
 # shell user can be granted access to it via --group-add. stat -L follows
 # the devcontainer-installed symlink to the real socket.
 SOCKET_GID="$(stat -L -c '%g' /var/run/docker.sock)"
 
-# Drop into the shell image on the shopsystem network, with the project
+# Drop into the shell image on the product network, with the project
 # mounted and the docker socket forwarded so in-shell tooling can drive
 # docker. --group-add grants the non-root shell user membership in the
 # socket-owning group so the forwarded socket is reachable. --user pins the
 # agent to the NAMED vscode user (matching the bc-launcher
 # "docker exec --user vscode" convention) so the shell stays non-root even
-# when SHOPSYSTEM_SHELL_IMAGE is overridden to a root-default image —
+# when {{OPS_SLUG_UPPER}}_SHELL_IMAGE is overridden to a root-default image —
 # Claude Code refuses --dangerously-skip-permissions at EUID==0. Named (not
 # numeric $(id -u):$(id -g)) ensures $HOME=/home/vscode and a passwd entry
 # resolve; host and image vscode are both uid 1000.
 exec docker run --rm -it \
-  --network shopsystem \
+  --network {{OPS_SLUG}} \
   --user vscode \
-  -e SHOPSYSTEM_DATA \
+  -e {{OPS_SLUG_UPPER}}_DATA \
+  -e AGENT_VAULT_ADDR -e AGENT_VAULT_TOKEN -e AGENT_VAULT_VAULT -e AGENT_VAULT_CA_PEM \
+  -e HTTPS_PROXY -e HTTP_PROXY \
+  -e GIT_AUTHOR_NAME -e GIT_AUTHOR_EMAIL -e GIT_COMMITTER_NAME -e GIT_COMMITTER_EMAIL \
   -v "$REPO_ROOT:$REPO_ROOT" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --group-add "$SOCKET_GID" \
   -w "$REPO_ROOT" \
-  "$SHOPSYSTEM_SHELL_IMAGE" \
+  "${{OPS_SLUG_UPPER}}_SHELL_IMAGE" \
   /bin/bash "$@"

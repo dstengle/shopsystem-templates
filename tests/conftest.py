@@ -11130,10 +11130,20 @@ _OPS_PATH_TO_TEMPLATE_NAME: dict[str, str] = {
 
 
 def _canonical_ops_body(path: str) -> str:
-    from shop_templates.cli import read_ops_template
+    """Return the canonical ops body as bootstrap RENDERS it for the
+    ops-coverage scenarios' shop (always "shopsystem-product" -> slug
+    "shopsystem").
+
+    The ops templates are placeholder-bearing and bootstrap routes them
+    through render_ops_template(name, slug) (lead-faua / WS-2). The drift
+    advisory compares on-disk content against that SAME rendered body, so
+    the "equals canonical" / "differs from canonical" premises here must
+    use the rendered (not raw) body to stay faithful to what update sees.
+    """
+    from shop_templates.cli import render_ops_template
 
     template_name = _OPS_PATH_TO_TEMPLATE_NAME[path]
-    return read_ops_template(template_name)
+    return render_ops_template(template_name, "shopsystem")
 
 
 # -- Given: an ops scaffolding file has been hand-edited so its byte

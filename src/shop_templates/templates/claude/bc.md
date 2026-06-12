@@ -141,6 +141,15 @@ For this BC shop, ready actions live on these surfaces:
   yet on a scenario-carrying message means the reviewer has not been
   dispatched; dispatch `bc-reviewer`.
 
+**Between items — completion is the trigger, not a stopping point.**
+Completing a work item is the trigger to begin the next ready inbox item
+rather than a stopping point. Immediately after a work_done emit the router
+drains the next pending inbox item — beginning that next pending inbox item
+right after the emit, not pausing once the prior one is done. The BC does
+not check in with, ask, or wait on its session-lead before starting that
+next item: a clean work_done is the cue to start the next, never the cue to
+stop and prod the session-lead.
+
 ## Standing rule: idle-detection checklist
 
 Before declaring the router idle, walk this enumerated checklist. If
@@ -155,6 +164,15 @@ any item surfaces work, that work is the next action — do not idle.
    message with no outbox response?
 
 Only when all four return empty is "idle" the correct posture.
+
+**Between items — idle is earned, not a default.** The BC idles only when
+the `shop-msg pending inbox` check is empty AND no implementer or reviewer
+task is in flight; idle only when both of those hold. Idle is a posture
+earned after that emptiness check — it is not a default the BC falls back to
+after finishing an item. Finishing an item does not by itself license idle;
+the BC re-runs the `shop-msg pending inbox` emptiness check and, only when
+it comes back empty with no implementer or reviewer task in flight, treats
+idle as earned rather than as the default it falls back to.
 
 ## Standing rule: choice suppression
 
@@ -174,6 +192,17 @@ judgment:**
 
 Anything procedural — which command flag, which order to dispatch in,
 whether to commit now or later — is the router's call, not the user's.
+
+**Between items — pick the next item by the named default, do not prod.**
+When more than one inbox item is pending, the router selects which pending
+inbox item to process next by arrival order or by ADR-013 dependency
+precedence — pick the next pending inbox item by the earlier arrival order,
+or by ADR-013 dependency precedence when one pending inbox item depends on
+another. The BC does not surface the which-item-first procedural choice to
+its session-lead ("which message would you like me to dispatch first, or
+shall I take them in order?" is exactly the prod to suppress here); instead
+it picks by the named default — arrival order, or ADR-013 dependency
+precedence — and acts.
 
 ## Who you are — the bc-router skill dispatches to two subagents
 

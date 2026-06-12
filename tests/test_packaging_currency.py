@@ -36,7 +36,7 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 6, 0)
+MIN_VERSION = (0, 7, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
@@ -119,6 +119,28 @@ BC_EMIT_MODULE_REL = "shop_templates/bc_emit.py"
 COMPOSE_REL = "templates/ops/compose.yaml"
 COMPOSE_AGENT_VAULT_IMAGE = "infisical/agent-vault:latest"
 COMPOSE_FORBIDDEN_IMAGE = "hashicorp"
+
+# v0.7.0 ships the lead-beym agent-vault-provision rewrite against the REAL
+# agent-vault 0.32.0 command surface (owner/vault/credential/service/agent flow
+# per ADR-026 D2). The delivered ops/agent-vault-provision must NOT carry the
+# fabricated `agent-vault put` verb (0.32.0 has no such subcommand) and MUST use
+# the real verbs, so the dummyco spike (lead-jdfb) re-pours a provision script
+# that drives the live broker rather than crashing on an unknown subcommand.
+PROVISION_REL = "templates/ops/agent-vault-provision"
+PROVISION_FORBIDDEN_VERB = "agent-vault put"
+PROVISION_REAL_VERBS = ["agent-vault vault credential", "agent-vault agent create"]
+
+# v0.7.0 also locks the lead-beym sh-compatible compose healthcheck: the
+# delivered ops/compose.yaml agent-vault healthcheck must use a real sh-callable
+# probe (`nc -z`) and must NOT rely on the bash-only `/dev/tcp` pseudo-device,
+# which the broker image's `sh` healthcheck shell cannot expand.
+COMPOSE_FORBIDDEN_HEALTHCHECK = "/dev/tcp"
+COMPOSE_SH_HEALTHCHECK_PROBE = "nc"
+
+# v0.7.0 ships the lead-ld7i fix: bc-emit declares the `scenarios` VCS-pinned
+# dependency so the published artifact's lazy import resolves on a clean install.
+# The delivered pyproject must declare `scenarios` as a project dependency.
+SCENARIOS_DEP_TOKEN = "scenarios"
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -441,4 +463,61 @@ def test_delivered_compose_renders_real_infisical_agent_vault(built_sdist):
         f"delivered ops/compose.yaml still carries the forbidden placeholder "
         f"image substring {COMPOSE_FORBIDDEN_IMAGE!r}; the lead-llc1 render fix "
         f"replaced it with {COMPOSE_AGENT_VAULT_IMAGE!r}"
+    )
+
+
+def test_delivered_provision_uses_real_agent_vault_032_verbs(built_sdist):
+    """lead-beym: v0.7.0 captures the agent-vault-provision rewrite against the
+    REAL agent-vault 0.32.0 command surface. The delivered
+    ops/agent-vault-provision must NOT carry the fabricated `agent-vault put`
+    verb (0.32.0 has no such subcommand) and MUST use the real verbs
+    (`agent-vault vault credential ...`, `agent-vault agent create ...`), so a
+    tag-install pours a provision script that drives the live broker rather than
+    crashing on an unknown subcommand (the dummyco spike lead-jdfb re-pours
+    this to run the real end-to-end credential gate)."""
+    body = _sdist_member(built_sdist, PROVISION_REL)
+    assert PROVISION_FORBIDDEN_VERB not in body, (
+        f"delivered ops/agent-vault-provision still carries the fabricated "
+        f"{PROVISION_FORBIDDEN_VERB!r} verb; agent-vault 0.32.0 has no such "
+        f"subcommand and the lead-beym rewrite replaced it with the real "
+        f"owner/vault/credential/service/agent flow"
+    )
+    missing = [v for v in PROVISION_REAL_VERBS if v not in body]
+    assert not missing, (
+        f"delivered ops/agent-vault-provision lacks the real agent-vault 0.32.0 "
+        f"verbs {missing}; the lead-beym rewrite drives the "
+        f"owner/vault/credential/service/agent flow"
+    )
+
+
+def test_delivered_compose_healthcheck_is_sh_compatible(built_sdist):
+    """lead-beym: the delivered ops/compose.yaml agent-vault healthcheck must be
+    sh-compatible — it must use a real sh-callable probe (`nc -z`) and must NOT
+    rely on the bash-only `/dev/tcp` pseudo-device, which the broker image's
+    `sh` healthcheck shell cannot expand (the probe would silently never report
+    healthy)."""
+    body = _sdist_member(built_sdist, COMPOSE_REL)
+    assert COMPOSE_FORBIDDEN_HEALTHCHECK not in body, (
+        f"delivered ops/compose.yaml healthcheck still relies on the bash-only "
+        f"{COMPOSE_FORBIDDEN_HEALTHCHECK!r} pseudo-device; the broker image's sh "
+        f"healthcheck shell cannot expand it (lead-beym made it sh-compatible "
+        f"via `nc -z`)"
+    )
+    assert COMPOSE_SH_HEALTHCHECK_PROBE in body, (
+        f"delivered ops/compose.yaml does not carry the sh-compatible "
+        f"{COMPOSE_SH_HEALTHCHECK_PROBE!r} healthcheck probe (lead-beym)"
+    )
+
+
+def test_delivered_pyproject_declares_scenarios_dependency(built_sdist):
+    """lead-ld7i: v0.7.0 ships the bc-emit `scenarios` VCS-pinned dependency so
+    the published artifact's lazy import resolves on a clean install. The
+    delivered pyproject (carried inside the sdist) must declare `scenarios` as a
+    project dependency, or a clean tag-install leaves bc-emit dead-on-arrival
+    when its lazy scenarios import fires."""
+    pyproject = _sdist_member(built_sdist, "/pyproject.toml", prefer_shallowest=True)
+    assert SCENARIOS_DEP_TOKEN in pyproject, (
+        f"delivered pyproject does not declare the {SCENARIOS_DEP_TOKEN!r} "
+        f"dependency (lead-ld7i); a clean tag-install would leave bc-emit's lazy "
+        f"scenarios import unresolved"
     )

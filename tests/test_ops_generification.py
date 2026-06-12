@@ -379,6 +379,36 @@ def test_dummyco_agent_vault_provision_is_slug_scoped_and_human_gated(tmp_path):
     )
 
 
+def test_agent_vault_provision_credential_keys_are_screaming_snake(tmp_path):
+    # lead-l95x: agent-vault 0.32.0 `vault credential set` REJECTS kebab-case
+    # credential KEY names — they must be SCREAMING_SNAKE_CASE. The rendered
+    # provision script must therefore store + reference GITHUB_PAT_USER /
+    # GITHUB_PAT as credential keys, with NO kebab `github-pat` key surviving
+    # in the credential-set args, the --*-key refs, or comments quoting them.
+    body = render_ops_template("agent-vault-provision", "dummyco")
+
+    # the credential KEY names stored via `vault credential set` are
+    # SCREAMING_SNAKE_CASE (key=value form, value still ${GITHUB_PAT...}).
+    assert "GITHUB_PAT_USER=${GITHUB_PAT_USER}" in body, (
+        "provision must store the username under the SCREAMING_SNAKE key "
+        "GITHUB_PAT_USER"
+    )
+    assert "GITHUB_PAT=${GITHUB_PAT}" in body, (
+        "provision must store the PAT under the SCREAMING_SNAKE key GITHUB_PAT"
+    )
+    # the service-add step references the SCREAMING_SNAKE keys.
+    assert "--username-key GITHUB_PAT_USER" in body, (
+        "service add must reference --username-key GITHUB_PAT_USER"
+    )
+    assert "--password-key GITHUB_PAT" in body, (
+        "service add must reference --password-key GITHUB_PAT"
+    )
+    # NO kebab credential key remains ANYWHERE (args, --*-key refs, comments).
+    assert "github-pat" not in body, (
+        f"provision leaked a kebab-case credential key 'github-pat':\n{body}"
+    )
+
+
 def test_dummyco_agent_vault_check_is_slug_scoped_and_non_fatal(tmp_path):
     target = _bootstrap(tmp_path, "dummyco-product")
     body = (target / "bin" / "agent-vault-check").read_text()

@@ -72,7 +72,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scenarios.hash import compute_scenario_hash
+# NOTE: `scenarios.hash.compute_scenario_hash` is imported LAZILY inside
+# `check_scenario_hashes` (the work-done hash-check path), NOT at module top
+# level. This keeps `bc-emit --help` and every non-work-done path importable
+# and runnable even when the `scenarios` package is absent (e.g. before its
+# VCS dependency resolves on a fresh install). The work-done hash check is the
+# only path that needs scenarios, and it imports it on demand. (lead-ld7i /
+# tmpl-20n: a module-top-level import here made the console-script
+# dead-on-arrival in launched BCs.)
 
 # Ambient artifacts that are NOT BC work product: a working tree whose only
 # `git status --porcelain` entries are these is treated as clean. Matched
@@ -349,6 +356,14 @@ def check_scenario_hashes(
     On any divergence: raise PreconditionRefusal naming the precondition, the
     classification, the affected hash value, and the scenario.
     """
+    # Lazy import (lead-ld7i / tmpl-20n): scenarios is only needed on this
+    # work-done hash-check path, so it is imported here rather than at module
+    # top level. This keeps `bc-emit --help` and other subcommands working even
+    # when the `scenarios` package is not installed; the VCS dependency
+    # declared in pyproject guarantees resolution for this path in real
+    # installs.
+    from scenarios.hash import compute_scenario_hash
+
     features_dir = repo / "features"
     recomputed: dict[str, str] = {}  # recomputed_hash -> scenario title
     feature_files = (

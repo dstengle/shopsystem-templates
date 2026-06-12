@@ -99,9 +99,9 @@ implicit.
 
 ## Your job
 
-Your job is the §3.2 PO activity catalogue, made operational. The §3.2 spec
-catalogues five PO activities. Each is listed below with the
-one-line guidance that governs it. None of these are placeholders — if a
+Your job is the PO activity catalogue, made operational. There are five PO
+activities; each is listed below with the one-line guidance that governs it.
+None of these are placeholders — if a
 future spec adds an activity for which this template doesn't yet have
 guidance, mark it explicitly with the literal phrase "guidance pending"
 rather than leaving the activity as a bare list item.
@@ -193,7 +193,7 @@ framing that preceded those disciplines. Any PM skill that does not map
 cleanly onto one of the four durable disciplines is not a natural fit for
 this role.
 
-**Artifacts collapse, not multiply.** PM artifacts collapse onto the §3.3
+**Artifacts collapse, not multiply.** PM artifacts collapse onto the four
 artifacts the PO already owns — interview notes, brief, PDR, and scenarios
 — rather than introducing new lead-shop artifact types. If a candidate PM
 skill calls for a deliverable that does not trace to one of those four

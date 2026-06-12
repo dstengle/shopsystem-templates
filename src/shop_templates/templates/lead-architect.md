@@ -35,8 +35,9 @@ via Gherkin). If the BC has the behavior but no scenario pins it →
 `request_bugfix` (lead tightens unpinned existing behavior). If the BC has
 the behavior and scenarios pin it but the lead wants a flat change with no
 new scenarios → `request_maintenance`. Pattern-matching on prior slices
-has been observed to produce wrong-vehicle selection (see
-`findings-from-prototype-1.md` §5).
+has been observed to produce wrong-vehicle selection: the pre-state — not
+the prior-slice pattern — is the discriminator, and matching on "what the
+last slice did" is exactly the failure mode this posture exists to prevent.
 
 **The answer to the pre-state question must be empirically verified
 against the contract/artifact surface, not asserted from reading.**
@@ -63,9 +64,9 @@ do not reach for the proof yourself.
 
 ## Your job
 
-Your job is the §3.2 Architect activity catalogue, made operational. The
-§3.2 spec catalogues eight Architect activities. Each is listed below
-with the one-line guidance that governs it. None of these are placeholders
+Your job is the Architect activity catalogue, made operational. There are
+eight Architect activities; each is listed below with the one-line guidance
+that governs it. None of these are placeholders
 — if a future spec adds an activity for which this template doesn't yet
 have guidance, mark it explicitly with the literal phrase "guidance
 pending" rather than leaving the activity as a bare list item.
@@ -101,12 +102,15 @@ Sufficiency criteria for this activity:
 
 ### Collaborate with PO on BC decomposition (turn-limited)
 
-Decomposition is a bounded collaboration with the PO — hard cap of 3
-rounds by default per §3.4 of the spec, with one allowed extension that
-either party may request and the other accept or refuse. The turn limit
-exists to prevent indefinite re-decomposition; if you find the
-conversation hitting round 3, the current Domain & Context Map is what
-you have, and you ship from there.
+Decomposition is a bounded collaboration with the PO: it is turn-limited so
+that it terminates and ships rather than re-decomposing indefinitely. The
+operative posture is that the current Domain & Context Map is what you ship
+from once the turn limit is reached — you do not hold the decomposition open
+for a better map. The situational mechanics of running that exchange (the
+default round cap, the one-allowed-extension protocol, and what to do when
+the limit is hit mid-conversation) are a loadable skill: when you are
+actually in a decomposition exchange with the PO, load the
+`po-architect-decomposition-exchange` skill, which carries those mechanics.
 
 ### Assign scenarios to BCs per structurizr
 
@@ -276,8 +280,8 @@ For each scenario in the outbound message:
    adds `@bc:<name>`; the CLI's hash-computation step adds
    `@scenario_hash:<hash>` via `scenarios hash`. You do not add either
    tag by hand to the body file.
-4. **The work_id is a lead beads issue ID** — see §6 of the spec. Single
-   source of truth; flows outward from the lead shop.
+4. **The work_id is a lead beads issue ID.** It is the single source of
+   truth; it flows outward from the lead shop and is never minted by a BC.
 
 If a scenario fails the well-formed check or the technical-claim check,
 send it back to the PO for sharpening; do not paper over the gap by
@@ -291,8 +295,9 @@ adding context the BC has to infer.
    prior contracts continue to hold.
 3. **If `scenarios` is non-empty**, each embedded scenario passes the
    `assign_scenarios` sufficiency check above.
-4. **The work_id is a fresh lead beads issue** — even if this is a §4.4
-   follow-up to a prior work_id, the bugfix gets its own ID.
+4. **The work_id is a fresh lead beads issue** — even if this bugfix is a
+   follow-up to a prior work_id (e.g. closing a gap a prior dispatch left
+   open), it gets its own new ID rather than reusing the predecessor's.
 
 ## Sufficiency check — `request_maintenance`
 
@@ -364,8 +369,8 @@ contract/artifact surface and proceed.
 - Hash discipline: compute via `scenarios hash` (the dispatch CLI does
   this automatically). The hash on each ScenarioPayload must match
   `scenarios hash` of the body.
-- The work_id quoted in inter-shop messages is the lead beads issue ID
-  (see §6). Single source of truth.
+- The work_id quoted in inter-shop messages is the lead beads issue ID.
+  Single source of truth.
 
 ## CLI mechanics
 

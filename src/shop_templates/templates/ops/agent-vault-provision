@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# bin/agent-vault-provision — one-time credential provisioning for the
+# product's agent-vault broker (shop-owned, PDR-003 path F).
+#
+# Provisions the long-lived secrets the agent-vault broker injects on the
+# wire for the bc-launcher containers and the daily-driver shell: the GitHub PAT,
+# any plain API tokens, AND the refreshing Claude-OAuth credential. Run it
+# once per product after `docker compose up -d agent-vault`.
+#
+# PRODUCT-SCOPED (lead-w87b / WS-2): the broker CONTAINER, the VAULT name,
+# and the docker NETWORK all derive from the bootstrap product slug
+# ({{OPS_SLUG}}) so this script never targets another product's broker. The
+# broker container name matches the agent-vault service compose.yaml defines
+# ({{OPS_SLUG}}-agent-vault) so provisioning lands on the compose-defined
+# broker. Every product-scoped token is rendered from the slug; none is
+# hardcoded to a specific product's broker container or vault name.
+#
+# HUMAN GATE (ADR-026 D4 / PDR-017): the Claude-OAuth credential is a
+# refreshing credential type that agent-vault 0.32.0 has NO CLI path to
+# provision (verified live, lead-5jbc). This script therefore STOPS at the
+# dashboard step and waits for a human to paste the OAuth credential into the
+# agent-vault dashboard by hand. It is the ONE documented manual step; do not
+# automate it.
+set -euo pipefail
+
+# -----------------------------------------------------------------------
+# Slug-derived broker coordinates (every <product>-* literal is rendered
+# from {{OPS_SLUG}} at bootstrap; nothing here is hardcoded to a product).
+# -----------------------------------------------------------------------
+SLUG="{{OPS_SLUG}}"
+# The broker container compose.yaml brings up (container_name:
+# <slug>-agent-vault). Override only if you renamed the compose service.
+CONTAINER="${AGENT_VAULT_CONTAINER:-{{OPS_SLUG}}-agent-vault}"
+# The logical vault/namespace the broker stores this product's secrets under.
+# Slug-derived (NOT a shared fixed namespace) so two products never share a vault.
+VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
+# The docker network the broker and its clients share.
+NETWORK="${AGENT_VAULT_NETWORK:-{{OPS_SLUG}}}"
+
+echo "agent-vault-provision: provisioning broker '$CONTAINER' (vault '$VAULT', network '$NETWORK')."
+
+# Fail fast if the compose-defined broker is not up.
+if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+  echo "agent-vault-provision: broker container '$CONTAINER' is not running." >&2
+  echo "  Bring it up first:  docker compose -f compose.yaml up -d agent-vault" >&2
+  exit 1
+fi
+
+# -----------------------------------------------------------------------
+# (1) GitHub PAT + plain API tokens — provisioned non-interactively against
+#     the slug-derived broker/vault. These credential types DO have a CLI
+#     path, so they are scripted here.
+# -----------------------------------------------------------------------
+GITHUB_PAT="${GITHUB_PAT:-}"
+if [[ -n "$GITHUB_PAT" ]]; then
+  echo "agent-vault-provision: storing GitHub PAT into vault '$VAULT' on '$CONTAINER'."
+  docker exec -i "$CONTAINER" \
+    agent-vault put --vault "$VAULT" --name github-pat --value "$GITHUB_PAT"
+else
+  echo "agent-vault-provision: GITHUB_PAT not set in the environment; skipping the"
+  echo "  scripted GitHub-PAT store. Export GITHUB_PAT and re-run to provision it."
+fi
+
+# -----------------------------------------------------------------------
+# (2) Claude-OAuth refreshing credential — THE HUMAN GATE (ADR-026 D4).
+#
+# agent-vault 0.32.0 has no CLI path for the refreshing OAuth credential
+# type (verified live, lead-5jbc). We STOP here and wait for a human to paste
+# the credential into the dashboard by hand. Do NOT automate this step.
+# -----------------------------------------------------------------------
+cat <<EOF
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │ HUMAN GATE — Claude-OAuth dashboard paste (one-time, manual)          │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  agent-vault 0.32.0 cannot provision the refreshing Claude-OAuth credential
+  from the CLI. Provision it by hand now:
+
+    1. Open the agent-vault dashboard for broker '$CONTAINER'
+       (vault '$VAULT', network '$NETWORK').
+    2. Add a credential of type 'claude-oauth' (the refreshing OAuth type).
+    3. Paste the Claude-OAuth credential value into the dashboard form
+       and save it into vault '$VAULT'.
+
+  This script will WAIT until you confirm the dashboard paste is complete.
+
+EOF
+
+read -r -p "Press ENTER once the Claude-OAuth credential is saved in the dashboard... " _ack
+
+echo "agent-vault-provision: dashboard paste acknowledged; provisioning complete for vault '$VAULT' on '$CONTAINER'."

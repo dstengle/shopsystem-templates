@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# bin/agent-vault-check — non-fatal broker credential expiry advisory
+# (shop-owned, PDR-003 path F).
+#
+# A soft startup probe that warns the operator when the product's GitHub PAT
+# stored in the agent-vault broker is within 30 days of expiry. It is wired
+# into bin/shop-shell as `bin/agent-vault-check || true`, so it must NEVER
+# abort the calling shell: it exits 0 even when it emits a warning (the
+# `|| true` in shop-shell is belt-and-suspenders, not the only guard).
+#
+# PRODUCT-SCOPED (lead-w87b / WS-2): the broker CONTAINER, NETWORK, and proxy
+# host all derive from the bootstrap product slug ({{OPS_SLUG}}); the broker
+# container matches the agent-vault service compose.yaml defines
+# ({{OPS_SLUG}}-agent-vault). Every product-scoped token is rendered from the
+# slug; none is hardcoded to a specific product's broker or vault namespace.
+#
+# NON-FATAL: this script deliberately does NOT use `set -e`. Every probe is
+# best-effort; a missing broker, a missing credential, or a parse failure
+# downgrades to a soft advisory and the script still exits 0. That keeps a
+# warning from killing the shop-shell startup it runs inside.
+set -uo pipefail
+
+# Threshold (days) below which we warn about impending GitHub-PAT expiry.
+EXPIRY_WARN_DAYS=30
+
+# -----------------------------------------------------------------------
+# Slug-derived broker coordinates (rendered from {{OPS_SLUG}} at bootstrap).
+# -----------------------------------------------------------------------
+CONTAINER="${AGENT_VAULT_CONTAINER:-{{OPS_SLUG}}-agent-vault}"
+VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
+NETWORK="${AGENT_VAULT_NETWORK:-{{OPS_SLUG}}}"
+# The broker proxy host (slug-derived service name on the product network).
+PROXY_HOST="${AGENT_VAULT_PROXY_HOST:-{{OPS_SLUG}}-agent-vault}"
+
+# If the broker is not up, there is nothing to advise on — stay silent and
+# succeed (this is a soft startup probe, not a gate).
+if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER" 2>/dev/null; then
+  exit 0
+fi
+
+# Best-effort: read the GitHub PAT's expiry timestamp from the broker. Any
+# failure (no credential, broker hiccup, unparseable output) downgrades to a
+# silent success — never a hard error.
+EXPIRY_EPOCH=""
+if EXPIRY_RAW="$(docker exec -i "$CONTAINER" \
+      agent-vault get --vault "$VAULT" --name github-pat --field expires_at \
+      2>/dev/null)"; then
+  EXPIRY_EPOCH="$(date -d "$EXPIRY_RAW" +%s 2>/dev/null || true)"
+fi
+
+if [[ -z "$EXPIRY_EPOCH" ]]; then
+  # Could not determine an expiry; nothing to warn about. Stay non-fatal.
+  exit 0
+fi
+
+NOW_EPOCH="$(date +%s)"
+SECONDS_LEFT=$(( EXPIRY_EPOCH - NOW_EPOCH ))
+DAYS_LEFT=$(( SECONDS_LEFT / 86400 ))
+
+if (( DAYS_LEFT <= EXPIRY_WARN_DAYS )); then
+  echo "agent-vault-check: ADVISORY — the GitHub PAT in vault '$VAULT' on broker" >&2
+  echo "  '$CONTAINER' (proxy '$PROXY_HOST', network '$NETWORK') expires in" >&2
+  echo "  ${DAYS_LEFT} day(s) (threshold ${EXPIRY_WARN_DAYS}). Rotate it soon via" >&2
+  echo "  bin/agent-vault-provision. This is a non-fatal advisory." >&2
+fi
+
+# Always succeed: this advisory must never abort the shop-shell startup.
+exit 0

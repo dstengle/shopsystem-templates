@@ -258,6 +258,15 @@ _LEAD_OPS_FILES: tuple[tuple[str, str, bool], ...] = (
     # bc-launcher container — ADR-018). Shop-owned starter content, never
     # under .claude/canonical/.
     ("shop-scenario-completion", "bin/shop-scenario-completion", True),
+    # lead-w87b (WS-2): the agent-vault broker provisioning + expiry-advisory
+    # scripts. Poured executable under bin/ for "lead" shops, product-scoped
+    # via {{OPS_SLUG}} so each renders against its own compose-defined broker
+    # (<slug>-agent-vault) — no shopsystem-*/fleet literals. provision is the
+    # one human-gated Claude-OAuth dashboard paste (ADR-026 D4); check is the
+    # non-fatal 30-day GitHub-PAT expiry probe bin/shop-shell calls at startup
+    # (`bin/agent-vault-check || true`). Shop-owned, never under .claude/.
+    ("agent-vault-provision", "bin/agent-vault-provision", True),
+    ("agent-vault-check", "bin/agent-vault-check", True),
 )
 
 

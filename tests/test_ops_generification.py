@@ -304,3 +304,108 @@ def test_shopsystem_product_preserves_lead_held_invariants(tmp_path):
     assert "docker run" in shell
     assert "--user vscode" in shell
     assert "--user $(id -u):$(id -g)" not in shell
+
+
+# -----------------------------------------------------------------------
+# (WS-2 / lead-w87b) agent-vault-provision + agent-vault-check ops files
+#
+# These two scripts are AUTHORED FROM the behavioral spec (the instance
+# copies live in the shopsystem-product lead host, outside this BC root and
+# never read). They must be rendered into ops/ INCLUDING the slug-derived
+# broker container/vault/network/proxy, with NO shopsystem-*/fleet literals
+# in a dummyco render, the Claude-OAuth dashboard paste preserved as the one
+# human gate, and the check non-fatal (exits 0 even on a soft warning).
+# -----------------------------------------------------------------------
+
+
+def _no_placeholder_leak(name):
+    body = render_ops_template(name, "dummyco")
+    assert "{{OPS_" not in body, f"{name} leaked an unrendered ops placeholder"
+
+
+def test_render_ops_template_agent_vault_scripts_have_no_placeholder_leak():
+    _no_placeholder_leak("agent-vault-provision")
+    _no_placeholder_leak("agent-vault-check")
+
+
+def test_dummyco_bootstrap_writes_executable_agent_vault_scripts(tmp_path):
+    target = _bootstrap(tmp_path, "dummyco-product")
+    for rel in ("bin/agent-vault-provision", "bin/agent-vault-check"):
+        dest = target / rel
+        assert dest.exists(), f"bootstrap must render {rel}"
+        assert os.access(dest, os.X_OK), f"{rel} must be executable"
+        assert dest.read_text().splitlines()[0] == "#!/usr/bin/env bash"
+
+
+def test_dummyco_agent_vault_provision_is_slug_scoped_and_human_gated(tmp_path):
+    target = _bootstrap(tmp_path, "dummyco-product")
+    body = (target / "bin" / "agent-vault-provision").read_text()
+
+    # broker container + vault + network derive from the dummyco slug, and
+    # the broker container matches what compose names the agent-vault service.
+    assert "dummyco-agent-vault" in body, (
+        "provision must target the slug-derived broker container "
+        "<slug>-agent-vault that compose defines"
+    )
+    # vault name is slug-derived, NOT the literal 'fleet'
+    assert "dummyco" in body
+    assert "fleet" not in body, (
+        f"provision leaked the literal vault name 'fleet':\n{body}"
+    )
+    # ZERO residual shopsystem literals (slug is dummyco, not shopsystem)
+    assert "shopsystem" not in body, (
+        f"dummyco provision leaked a shopsystem literal:\n{body}"
+    )
+    assert "shopsystem-agent-vault-1" not in body
+    # the Claude-OAuth dashboard paste is preserved as the one HUMAN GATE:
+    # the script STOPs for the dashboard step (does not automate it).
+    low = body.lower()
+    assert "dashboard" in low, "provision must reference the OAuth dashboard step"
+    assert ("oauth" in low) or ("claude" in low), (
+        "provision must reference the Claude-OAuth credential paste"
+    )
+    # an explicit human-gated halt for the dashboard step
+    assert any(tok in body for tok in ("read -r", "read -p", 'read ')), (
+        "provision must STOP/await for the human dashboard paste"
+    )
+
+
+def test_dummyco_agent_vault_check_is_slug_scoped_and_non_fatal(tmp_path):
+    target = _bootstrap(tmp_path, "dummyco-product")
+    body = (target / "bin" / "agent-vault-check").read_text()
+
+    # broker container / network / proxy derive from the dummyco slug
+    assert "dummyco-agent-vault" in body, (
+        "check must probe the slug-derived broker container"
+    )
+    assert "shopsystem" not in body, (
+        f"dummyco check leaked a shopsystem literal:\n{body}"
+    )
+    assert "fleet" not in body
+    # 30-day GitHub-PAT expiry advisory
+    low = body.lower()
+    assert "30" in body, "check must reference the 30-day expiry window"
+    assert "github" in low or "pat" in low, (
+        "check must reference the GitHub PAT it advises on"
+    )
+    # NON-FATAL: must exit 0 even on a soft warning. A `set -e` that aborts
+    # the calling shell on a warning is forbidden — assert the script either
+    # avoids `set -e` or, if present, is explicitly non-fatal (exit 0).
+    assert "exit 1" not in body, (
+        "check must be non-fatal — it must not exit non-zero on a soft warning"
+    )
+    assert "exit 0" in body, "check must explicitly exit 0 (non-fatal advisory)"
+
+
+def test_shopsystem_bootstrap_renders_working_agent_vault_scripts(tmp_path):
+    # additive: the shopsystem-product slug still gets working, slug-scoped
+    # provision/check (shopsystem IS the slug here, so the literal is legit).
+    target = _bootstrap(tmp_path, "shopsystem-product")
+    for rel in ("bin/agent-vault-provision", "bin/agent-vault-check"):
+        dest = target / rel
+        assert dest.exists(), f"shopsystem bootstrap must render {rel}"
+        assert os.access(dest, os.X_OK)
+    provision = (target / "bin" / "agent-vault-provision").read_text()
+    assert "shopsystem-agent-vault" in provision, (
+        "shopsystem provision must target the shopsystem broker container"
+    )

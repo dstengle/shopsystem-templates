@@ -69,6 +69,25 @@ OPS_VAULT_RELS = [
 CLI_REL = "shop_templates/cli.py"
 CLI_SLUG_MECHANISM = ["render_ops_template", "_ops_slug", "{{OPS_SLUG}}"]
 
+# lead-llc1 packaging fix (tmpl-263): _render_lead_env_example reads
+# templates/ops/.env.example at bootstrap time, but the leading-dot file is a
+# packaging hazard — a `templates/ops/*` glob does NOT match dotfiles, so the
+# DELIVERED artifact silently omits it and a fresh `pip install` +
+# `shop-templates bootstrap --shop-type lead` crashes with FileNotFoundError.
+# This guard asserts against the BUILT ARTIFACT (an editable / PYTHONPATH=src
+# run would mask the defect): every ops/ template the bootstrap path reads —
+# including the dotfile — must ride along in the package. We pin the full ops/
+# set so a future glob change cannot drop a sibling either.
+OPS_PACKAGED_RELS = [
+    "templates/ops/.env.example",
+    "templates/ops/Dockerfile.shopsystem-shell",
+    "templates/ops/agent-vault-check",
+    "templates/ops/agent-vault-provision",
+    "templates/ops/compose.yaml",
+    "templates/ops/shop-scenario-completion",
+    "templates/ops/shop-shell",
+]
+
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
     m = re.match(r"(\d+)\.(\d+)\.(\d+)", raw.strip())
@@ -80,6 +99,13 @@ _BUILD_SDIST_SCRIPT = """
 import sys
 import setuptools.build_meta as backend
 name = backend.build_sdist(sys.argv[1])
+print(name)
+"""
+
+_BUILD_WHEEL_SCRIPT = """
+import sys
+import setuptools.build_meta as backend
+name = backend.build_wheel(sys.argv[1])
 print(name)
 """
 
@@ -108,6 +134,45 @@ def built_sdist(tmp_path_factory) -> Path:
     sdist = out / sdist_name
     assert sdist.exists(), f"backend reported {sdist_name!r} but it is missing in {out}"
     return sdist
+
+
+@pytest.fixture(scope="module")
+def built_wheel(tmp_path_factory) -> Path:
+    """Build a wheel from the repo and return its path.
+
+    The wheel is the artifact `pip install` actually unpacks onto a fresh
+    machine, so wheel membership is the closest in-process proxy for the
+    clean-install bootstrap. Like the sdist fixture, it drives the repo's own
+    PEP-517 backend (`setuptools.build_meta`) so the package-data globs are
+    resolved exactly as a real publish would resolve them."""
+    out = tmp_path_factory.mktemp("wheel")
+    result = subprocess.run(
+        [sys.executable, "-c", _BUILD_WHEEL_SCRIPT, str(out)],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"wheel build failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
+    wheel_name = result.stdout.strip().splitlines()[-1]
+    wheel = out / wheel_name
+    assert wheel.exists(), f"backend reported {wheel_name!r} but it is missing in {out}"
+    return wheel
+
+
+def _wheel_has_member(wheel: Path, suffix: str) -> bool:
+    """True iff the wheel carries a member whose path ends with `suffix`."""
+    import zipfile
+
+    with zipfile.ZipFile(wheel) as zf:
+        return any(name.endswith(suffix) for name in zf.namelist())
+
+
+def _sdist_has_member(sdist: Path, suffix: str) -> bool:
+    """True iff the sdist carries a member whose path ends with `suffix`."""
+    with tarfile.open(sdist, "r:gz") as tf:
+        return any(m.name.endswith(suffix) for m in tf.getmembers())
 
 
 def _sdist_member(sdist: Path, suffix: str, prefer_shallowest: bool = False) -> str:
@@ -218,4 +283,34 @@ def test_delivered_cli_carries_slug_ops_mechanism(built_sdist):
     assert not absent, (
         f"delivered cli.py lacks the slug-parametric ops/ rendering "
         f"mechanism (lead-faua 90308d0); missing tokens: {absent}"
+    )
+
+
+def test_delivered_artifact_ships_all_ops_templates_including_dotfile(
+    built_sdist, built_wheel
+):
+    """lead-llc1 packaging fix (tmpl-263): every ops/ template the bootstrap
+    path reads must ride along in BOTH the sdist and the wheel — including the
+    leading-dot `.env.example`, which `_render_lead_env_example` reads at
+    `shop-templates bootstrap --shop-type lead` time.
+
+    This asserts against the BUILT ARTIFACTS, not the source tree, because the
+    defect this guards is invisible from an editable / PYTHONPATH=src run: the
+    file exists in `src/` either way. The hazard is that a `templates/ops/*`
+    package-data glob does NOT match dotfiles, so the published sdist+wheel
+    silently omit `.env.example` and a fresh `pip install` + bootstrap crashes
+    with FileNotFoundError. We pin the full ops/ set so no glob change can drop
+    a sibling either."""
+    sdist_missing = [
+        rel for rel in OPS_PACKAGED_RELS if not _sdist_has_member(built_sdist, rel)
+    ]
+    wheel_missing = [
+        rel for rel in OPS_PACKAGED_RELS if not _wheel_has_member(built_wheel, rel)
+    ]
+    assert not sdist_missing and not wheel_missing, (
+        f"delivered ops/ template set is incomplete in the BUILT ARTIFACT — a "
+        f"fresh pip install + `shop-templates bootstrap --shop-type lead` would "
+        f"crash on the missing file(s). sdist missing: {sdist_missing}; wheel "
+        f"missing: {wheel_missing}. (A `templates/ops/*` glob does not match "
+        f"the leading-dot `.env.example`.)"
     )

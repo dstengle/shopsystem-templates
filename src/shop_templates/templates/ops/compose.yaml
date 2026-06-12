@@ -7,8 +7,9 @@
 #     docker compose up -d postgres
 #
 # PRODUCT-SCOPED: every name below derives from the bootstrap product slug
-# ({{OPS_SLUG}}) so a second product can run alongside a live fleet without
-# colliding on container names, the docker network, named volumes, or host
+# ({{OPS_SLUG}}) so a second product can run alongside other live products
+# without colliding on container names, the docker network, named volumes,
+# or host
 # ports. The slug is the bootstrap --shop-name with a trailing "-product"
 # stripped (e.g. dummyco-product -> dummyco), read from .claude/shop/name.md.
 #

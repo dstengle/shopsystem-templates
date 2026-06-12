@@ -13830,41 +13830,43 @@ def then_body_greps_container_name(
 def then_body_token_guard_nonzero(rel: str, context: dict) -> None:
     real = _ops_target(context)
     lines = (real / rel).read_text().splitlines()
-    # Locate a guard predicated on an empty/unset broker TOKEN, and confirm
-    # that within the guarded block there is a non-zero exit and a diagnostic
-    # emitted to stderr.
-    guard_idx = None
-    for idx, ln in enumerate(lines):
-        low = ln
-        if "TOKEN" in low and (
-            '-z "' in low or "-z " in low or "unset" in low or "empty" in low
-        ) and ("if " in low or "[[" in low or "[ " in low):
-            guard_idx = idx
-            break
-    assert guard_idx is not None, (
+    # A "token-presence guard that exits non-zero with a diagnostic" is a
+    # guarded block predicated on an empty/unset broker TOKEN that, when
+    # taken, both exits non-zero AND emits a diagnostic to stderr. There may
+    # be several TOKEN-predicated guards (e.g. a recovery branch that does
+    # NOT exit); the contract is satisfied if AT LEAST ONE such guard exits
+    # non-zero with a diagnostic. Scan every candidate guard block.
+    def _guard_indices() -> list[int]:
+        out = []
+        for idx, ln in enumerate(lines):
+            if "TOKEN" in ln and (
+                '-z "' in ln or "-z " in ln or "unset" in ln or "empty" in ln
+            ) and ("if " in ln or "[[" in ln or "[ " in ln):
+                out.append(idx)
+        return out
+
+    guard_idxs = _guard_indices()
+    assert guard_idxs, (
         f"{rel}: no token-presence guard testing an empty/unset broker token"
     )
-    # Scan the guarded block (until 'fi' / dedent) for a non-zero exit + a
-    # diagnostic to stderr.
-    block = []
-    for ln in lines[guard_idx:]:
-        block.append(ln)
-        if ln.strip() == "fi":
-            break
-    block_text = "\n".join(block)
-    has_nonzero_exit = any(
-        ln.strip().startswith("exit") and ln.strip() != "exit 0"
-        and ln.strip() != "exit"
-        for ln in block
-    )
-    assert has_nonzero_exit, (
-        f"{rel}: token guard block does not exit non-zero; block was:\n"
-        f"{block_text}"
-    )
-    has_diag = ">&2" in block_text or "stderr" in block_text.lower()
-    assert has_diag, (
-        f"{rel}: token guard block emits no diagnostic to stderr; block "
-        f"was:\n{block_text}"
+    for gi in guard_idxs:
+        block = []
+        for ln in lines[gi:]:
+            block.append(ln)
+            if ln.strip() == "fi":
+                break
+        block_text = "\n".join(block)
+        has_nonzero_exit = any(
+            ln.strip().startswith("exit")
+            and ln.strip() not in ("exit 0", "exit")
+            for ln in block
+        )
+        has_diag = ">&2" in block_text or "stderr" in block_text.lower()
+        if has_nonzero_exit and has_diag:
+            return
+    assert False, (
+        f"{rel}: no empty/unset-token guard block both exits non-zero and "
+        f"emits a diagnostic to stderr"
     )
 
 

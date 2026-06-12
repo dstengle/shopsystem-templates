@@ -36,7 +36,7 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 5, 0)
+MIN_VERSION = (0, 6, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
@@ -101,6 +101,24 @@ OPS_PACKAGED_RELS = [
 # and the built wheel. A future dropped ops file is named automatically,
 # regardless of its name, with no test edit required.
 OPS_SOURCE_DIR = REPO_ROOT / "src" / "shop_templates" / "templates" / "ops"
+
+# v0.6.0 ships the lead-m56e bc-emit work-done wrapper as a PACKAGE-DELIVERED
+# console-script: `[project.scripts]` declares `bc-emit = shop_templates.bc_emit:main`
+# and the `shop_templates/bc_emit.py` module rides along in the built artifact.
+# This is delivery-currency: the wrapper only reaches launched BCs after the
+# published version advances past 0.5.0 and the artifact actually carries both
+# the entry-point declaration and the module.
+BC_EMIT_SCRIPT_DECL = "bc-emit = \"shop_templates.bc_emit:main\""
+BC_EMIT_MODULE_REL = "shop_templates/bc_emit.py"
+
+# v0.6.0 ships the lead-llc1 agent-vault compose render fix: the delivered
+# ops/compose.yaml must carry the REAL broker image `infisical/agent-vault:latest`
+# and must NOT carry the old `hashicorp` placeholder. The dummyco spike (lead-jdfb)
+# re-pours this to stand up the real broker, so the published artifact has to
+# reflect it.
+COMPOSE_REL = "templates/ops/compose.yaml"
+COMPOSE_AGENT_VAULT_IMAGE = "infisical/agent-vault:latest"
+COMPOSE_FORBIDDEN_IMAGE = "hashicorp"
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -373,4 +391,54 @@ def test_every_source_ops_template_is_shipped_in_both_artifacts(
         f"wheel missing: {wheel_missing}. Add an explicit "
         f"`[tool.setuptools.package-data]` entry for each named file (a "
         f"`templates/ops/*` glob does not match leading-dot files)."
+    )
+
+
+def test_delivered_artifact_declares_bc_emit_console_script(built_sdist):
+    """lead-m56e: v0.6.0 ships the bc-emit work-done wrapper as a
+    package-delivered console-script. The delivered artifact's PKG-INFO /
+    pyproject-derived metadata must declare the `bc-emit` entry point so a
+    clean `pip install ...@v0.6.0` exposes the `bc-emit` command. We read the
+    pyproject carried inside the sdist (the [project.scripts] table) as the
+    authoritative declaration, since that is exactly what the PEP-517 build
+    consumes to register the console-script."""
+    pyproject = _sdist_member(built_sdist, "/pyproject.toml", prefer_shallowest=True)
+    assert BC_EMIT_SCRIPT_DECL in pyproject, (
+        f"delivered pyproject does not declare the bc-emit console-script "
+        f"({BC_EMIT_SCRIPT_DECL!r}); a clean tag-install would not expose the "
+        f"lead-m56e bc-emit work-done wrapper command"
+    )
+
+
+def test_delivered_artifact_ships_bc_emit_module(built_sdist, built_wheel):
+    """lead-m56e: the `shop_templates/bc_emit.py` module backing the bc-emit
+    console-script must ride along in BOTH the built sdist and the built wheel,
+    or the declared entry point resolves to a missing module on a clean
+    install."""
+    assert _sdist_has_member(built_sdist, BC_EMIT_MODULE_REL), (
+        f"delivered sdist is missing the bc-emit module {BC_EMIT_MODULE_REL!r}; "
+        f"the declared console-script would fail to import on a clean install"
+    )
+    assert _wheel_has_member(built_wheel, BC_EMIT_MODULE_REL), (
+        f"delivered wheel is missing the bc-emit module {BC_EMIT_MODULE_REL!r}; "
+        f"the declared console-script would fail to import on a clean install"
+    )
+
+
+def test_delivered_compose_renders_real_infisical_agent_vault(built_sdist):
+    """lead-llc1: v0.6.0 ships the real agent-vault broker render. The
+    delivered ops/compose.yaml must carry `infisical/agent-vault:latest` and
+    must NOT carry the old `hashicorp` placeholder image, so the dummyco spike
+    (lead-jdfb) re-pours a compose that stands up the real broker rather than a
+    placeholder."""
+    body = _sdist_member(built_sdist, COMPOSE_REL)
+    assert COMPOSE_AGENT_VAULT_IMAGE in body, (
+        f"delivered ops/compose.yaml does not render the real broker image "
+        f"{COMPOSE_AGENT_VAULT_IMAGE!r}; a tag-install would not pour the "
+        f"lead-llc1 agent-vault render"
+    )
+    assert COMPOSE_FORBIDDEN_IMAGE not in body, (
+        f"delivered ops/compose.yaml still carries the forbidden placeholder "
+        f"image substring {COMPOSE_FORBIDDEN_IMAGE!r}; the lead-llc1 render fix "
+        f"replaced it with {COMPOSE_AGENT_VAULT_IMAGE!r}"
     )

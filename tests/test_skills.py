@@ -1,6 +1,10 @@
 """Pins the skills package-data surface and its content guardrails."""
 import pytest
-from shop_templates.cli import iter_skill_files, _read_template
+from shop_templates.cli import (
+    iter_skill_files,
+    _read_template,
+    read_gitignore_template,
+)
 
 
 def test_iter_skill_files_yields_relative_paths_and_bytes():
@@ -96,3 +100,54 @@ def test_integrating_to_main_staged_commits_survive_squash():
     body = _skill("integrating-to-main").lower()
     assert "test(red)" in body and "feat(green)" in body
     assert "squash" in body
+
+
+# ---------------------------------------------------------------------------
+# lead-ajc9: per-work_id worktrees must live INSIDE the BC root / /workspace.
+# The ../worktrees/<id> convention is the PARENT of /workspace, OUTSIDE the
+# container bind-mount, and trips a hard Claude-Code permission wall even in
+# bypass mode. The corrected placement is .worktrees/<work_id> in-root.
+# ---------------------------------------------------------------------------
+
+def test_using_git_worktrees_never_names_parent_worktrees_path():
+    """The skill must not place worktrees at ../worktrees/<id> — that is the
+    PARENT of /workspace, outside the container bind-mount."""
+    body = _skill("using-git-worktrees")
+    assert "../worktrees" not in body, (
+        "using-git-worktrees still names the out-of-root ../worktrees path"
+    )
+
+
+def test_using_git_worktrees_names_in_root_worktrees_path():
+    """The skill must name the in-root .worktrees/<work_id> placement."""
+    body = _skill("using-git-worktrees")
+    assert ".worktrees/<work_id>" in body, (
+        "using-git-worktrees does not name the in-root .worktrees/<work_id> path"
+    )
+
+
+def test_using_git_worktrees_boundary_prose_forbids_adjacent_paths():
+    """The boundary prose must no longer permit a parent/adjacent path; the
+    'adjacent to' framing was the bug (../worktrees is the parent dir)."""
+    body = _skill("using-git-worktrees").lower()
+    assert "adjacent to" not in body, (
+        "boundary prose still permits an 'adjacent to' (parent/outside) path"
+    )
+
+
+def test_using_git_worktrees_carries_container_rationale():
+    """The skill must carry the rationale: containerized BCs cannot write
+    outside /workspace (the worktree placement keeps writes in the bind-mount)."""
+    body = _skill("using-git-worktrees").lower()
+    assert "/workspace" in body, (
+        "using-git-worktrees lacks the /workspace container rationale"
+    )
+
+
+def test_gitignore_template_lists_worktrees_dir():
+    """A freshly-bootstrapped BC must gitignore .worktrees/ so the isolated
+    per-work_id worktree does not pollute the main checkout."""
+    body = read_gitignore_template()
+    assert ".worktrees/" in body, (
+        "gitignore.template does not list .worktrees/"
+    )

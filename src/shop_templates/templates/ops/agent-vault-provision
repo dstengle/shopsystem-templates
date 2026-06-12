@@ -15,6 +15,18 @@
 # broker. Every product-scoped token is rendered from the slug; none is
 # hardcoded to a specific product's broker container or vault name.
 #
+# REAL CLI SURFACE (lead-beym / ADR-026 D2): the GitHub-PAT path is scripted
+# against the REAL agent-vault 0.32.0 command surface — owner-account
+# registration (`auth register`) -> vault (`vault create`) -> credential
+# (`vault credential set`) -> service (`vault service add`, github.com Basic
+# brokered over the single MITM proxy listener at :14322) -> agent token
+# (`agent create <slug>-fleet --token-only`). agent-vault 0.32.0 has NO
+# `put`/`store` verb; every invocation below is one of the real top-level
+# verbs (account/agent/auth/ca/catalog/master-password/owner/run/server/
+# user/vault/version). After provisioning, the real broker address and the
+# minted `av_agt_...` fleet token are written back into .env (Brief 011 Step 4
+# — the fleet token wires shop-shell + the BC launches).
+#
 # HUMAN GATE (ADR-026 D4 / PDR-017): the Claude-OAuth credential is a
 # refreshing credential type that agent-vault 0.32.0 has NO CLI path to
 # provision (verified live, lead-5jbc). This script therefore STOPS at the
@@ -36,6 +48,31 @@ CONTAINER="${AGENT_VAULT_CONTAINER:-{{OPS_SLUG}}-agent-vault}"
 VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
 # The docker network the broker and its clients share.
 NETWORK="${AGENT_VAULT_NETWORK:-{{OPS_SLUG}}}"
+# The broker API address the in-network clients (shop-shell, bc-launcher
+# containers) reach. On the shared docker network the broker is addressable
+# by its container name on the fixed API port 14321 (compose maps it to a
+# slug-derived HOST port, but in-network traffic uses the container port).
+BROKER_ADDR="${AGENT_VAULT_ADDR:-http://${CONTAINER}:14321}"
+# The MITM HTTPS proxy listener the broker exposes (fixed container port).
+# ADR-026 D2: BOTH the github.com Basic leg and the agent's outbound traffic
+# broker over this single proxy listener.
+PROXY_PORT="14322"
+# The repo-local .env this script updates with the real broker addr + the
+# minted fleet token (replacing the <changeme-...> placeholders).
+ENV_FILE="${AGENT_VAULT_ENV_FILE:-.env}"
+
+# Owner-account bootstrap credentials. The FIRST account registered on a
+# fresh broker becomes the instance owner (verified: `auth register` ->
+# "The first user to register becomes the instance owner."). These default
+# to env-supplied values; the password is read from stdin (never on argv).
+OWNER_EMAIL="${AGENT_VAULT_OWNER_EMAIL:-owner@${SLUG}.local}"
+OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-}"
+
+# GitHub Basic-auth identity. For github.com over Basic the PAT is the
+# password; the username is the GitHub login (or the PAT itself — GitHub
+# accepts any non-empty username when a PAT is the password). Defaults to
+# the conventional token-as-username form when unset.
+GITHUB_PAT_USER="${GITHUB_PAT_USER:-x-access-token}"
 
 echo "agent-vault-provision: provisioning broker '$CONTAINER' (vault '$VAULT', network '$NETWORK')."
 
@@ -46,23 +83,114 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
   exit 1
 fi
 
+# Every CLI verb runs inside the broker container via this exec prefix; the
+# `agent-vault <verb>` invocations below are spelled out in full so the real
+# 0.32.0 command surface is auditable by eye (no wrapper hides the verb).
+DEXEC=(docker exec -i "$CONTAINER")
+
 # -----------------------------------------------------------------------
-# (1) GitHub PAT + plain API tokens — provisioned non-interactively against
-#     the slug-derived broker/vault. These credential types DO have a CLI
-#     path, so they are scripted here.
+# (0) Owner-account bootstrap (ADR-026 D2). The first registrant becomes the
+#     instance owner; on a re-run the account already exists, so a failing
+#     register is non-fatal (we proceed with the existing owner session).
 # -----------------------------------------------------------------------
+if [[ -n "$OWNER_PASSWORD" ]]; then
+  echo "agent-vault-provision: registering instance owner '$OWNER_EMAIL' (first registrant = owner)."
+  if ! printf '%s' "$OWNER_PASSWORD" | "${DEXEC[@]}" agent-vault auth register --email "$OWNER_EMAIL" --password-stdin 2>/dev/null; then
+    echo "agent-vault-provision: owner already registered (or register declined); logging in instead."
+    printf '%s' "$OWNER_PASSWORD" | "${DEXEC[@]}" agent-vault auth login --email "$OWNER_EMAIL" --password-stdin
+  fi
+else
+  echo "agent-vault-provision: AGENT_VAULT_OWNER_PASSWORD not set; assuming an" >&2
+  echo "  owner session already exists inside '$CONTAINER'. Export it to bootstrap" >&2
+  echo "  the owner non-interactively." >&2
+fi
+
+# -----------------------------------------------------------------------
+# (1) Vault + GitHub PAT + service wiring — provisioned non-interactively
+#     against the slug-derived broker/vault using ONLY real 0.32.0 verbs.
+#
+#     ADR-026 D2 flow: vault create -> credential set -> service add
+#     (github.com Basic, brokered over the single MITM proxy listener).
+# -----------------------------------------------------------------------
+echo "agent-vault-provision: ensuring vault '$VAULT' exists on '$CONTAINER'."
+# `vault create` is idempotent for our purposes: a re-run on an existing
+# vault is non-fatal (we still need it to exist).
+"${DEXEC[@]}" agent-vault vault create "$VAULT" 2>/dev/null || true
+
 GITHUB_PAT="${GITHUB_PAT:-}"
 if [[ -n "$GITHUB_PAT" ]]; then
-  echo "agent-vault-provision: storing GitHub PAT into vault '$VAULT' on '$CONTAINER'."
-  docker exec -i "$CONTAINER" \
-    agent-vault put --vault "$VAULT" --name github-pat --value "$GITHUB_PAT"
+  echo "agent-vault-provision: storing GitHub PAT credential into vault '$VAULT' on '$CONTAINER'."
+  # `vault credential set <key=value> ...` — the github username + PAT are
+  # stored as named credential keys the service references by key.
+  "${DEXEC[@]}" agent-vault vault credential set \
+    "github-pat-user=${GITHUB_PAT_USER}" \
+    "github-pat=${GITHUB_PAT}" \
+    --vault "$VAULT"
+
+  echo "agent-vault-provision: wiring github.com Basic service over the MITM proxy (:$PROXY_PORT)."
+  # `vault service add` upserts the service by name. github.com is brokered
+  # with Basic auth: username-key + password-key reference the credentials
+  # stored above. Both legs broker over the single proxy listener at
+  # :$PROXY_PORT (ADR-026 D2).
+  "${DEXEC[@]}" agent-vault vault service add \
+    --name github \
+    --host github.com \
+    --auth-type basic \
+    --username-key github-pat-user \
+    --password-key github-pat \
+    --vault "$VAULT"
 else
   echo "agent-vault-provision: GITHUB_PAT not set in the environment; skipping the"
   echo "  scripted GitHub-PAT store. Export GITHUB_PAT and re-run to provision it."
 fi
 
 # -----------------------------------------------------------------------
-# (2) Claude-OAuth refreshing credential — THE HUMAN GATE (ADR-026 D4).
+# (2) Mint the <slug>-fleet agent token (ADR-026 D2 / Brief 011 Step 4).
+#
+#     `agent create <name> --token-only --vault <vault>:proxy` prints the
+#     raw `av_agt_...` token on stdout. This is the long-lived fleet token
+#     that wires the shop-shell + every bc-launcher container's
+#     AGENT_VAULT_TOKEN. We capture it and write it (plus the broker addr)
+#     back into .env, replacing the <changeme-...> placeholders.
+# -----------------------------------------------------------------------
+# The fleet agent name is slug-derived ({{OPS_SLUG}}-fleet) and rendered as a
+# literal at bootstrap so the minted agent is product-scoped.
+FLEET_AGENT="{{OPS_SLUG}}-fleet"
+echo "agent-vault-provision: minting the '$FLEET_AGENT' agent token (vault '$VAULT')."
+FLEET_TOKEN="$("${DEXEC[@]}" agent-vault agent create "$FLEET_AGENT" --token-only --vault "${VAULT}:proxy" | tr -d '\r\n')"
+
+if [[ -z "$FLEET_TOKEN" ]]; then
+  echo "agent-vault-provision: failed to mint the '$FLEET_AGENT' agent token." >&2
+  exit 1
+fi
+
+# Write the real broker addr + fleet token into .env, REPLACING the
+# placeholder values so no <changeme> survives for these two keys.
+if [[ -f "$ENV_FILE" ]]; then
+  echo "agent-vault-provision: writing AGENT_VAULT_ADDR + AGENT_VAULT_TOKEN into '$ENV_FILE'."
+  # Replace the placeholder lines in place (BSD/GNU-portable: rewrite via a
+  # temp file). The .env.example ships these as:
+  #   AGENT_VAULT_ADDR=<changeme-broker-address>
+  #   AGENT_VAULT_TOKEN=<changeme-broker-token>
+  tmp_env="$(mktemp)"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      AGENT_VAULT_ADDR=*)  printf 'AGENT_VAULT_ADDR=%s\n' "$BROKER_ADDR" ;;
+      AGENT_VAULT_TOKEN=*) printf 'AGENT_VAULT_TOKEN=%s\n' "$FLEET_TOKEN" ;;
+      *)                   printf '%s\n' "$line" ;;
+    esac
+  done < "$ENV_FILE" > "$tmp_env"
+  mv "$tmp_env" "$ENV_FILE"
+else
+  echo "agent-vault-provision: '$ENV_FILE' not found; appending broker coordinates." >&2
+  {
+    printf 'AGENT_VAULT_ADDR=%s\n' "$BROKER_ADDR"
+    printf 'AGENT_VAULT_TOKEN=%s\n' "$FLEET_TOKEN"
+  } >> "$ENV_FILE"
+fi
+
+# -----------------------------------------------------------------------
+# (3) Claude-OAuth refreshing credential — THE HUMAN GATE (ADR-026 D4).
 #
 # agent-vault 0.32.0 has no CLI path for the refreshing OAuth credential
 # type (verified live, lead-5jbc). We STOP here and wait for a human to paste

@@ -88,6 +88,20 @@ OPS_PACKAGED_RELS = [
     "templates/ops/shop-shell",
 ]
 
+# lead-emui hardening: the lead-llc1 fix ships `.env.example` via an EXPLICIT
+# per-file package-data entry. That is the correct, deliberate choice (a broad
+# `templates/ops/.*` glob could sweep stray dotfiles), but it has a hazard: the
+# NEXT ops file added — especially another dotfile — silently drops from the
+# built artifact again (the same bug class as tmpl-263) until someone remembers
+# to add another explicit entry. The hard-coded OPS_PACKAGED_RELS list above has
+# the same staleness: it pins today's known set, not whatever the source tree
+# actually carries tomorrow. This generic guard closes that gap by deriving the
+# expected set from the SOURCE tree at test time: EVERY file present under
+# `src/shop_templates/templates/ops/` must be a member of BOTH the built sdist
+# and the built wheel. A future dropped ops file is named automatically,
+# regardless of its name, with no test edit required.
+OPS_SOURCE_DIR = REPO_ROOT / "src" / "shop_templates" / "templates" / "ops"
+
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
     m = re.match(r"(\d+)\.(\d+)\.(\d+)", raw.strip())
@@ -313,4 +327,50 @@ def test_delivered_artifact_ships_all_ops_templates_including_dotfile(
         f"crash on the missing file(s). sdist missing: {sdist_missing}; wheel "
         f"missing: {wheel_missing}. (A `templates/ops/*` glob does not match "
         f"the leading-dot `.env.example`.)"
+    )
+
+
+def test_every_source_ops_template_is_shipped_in_both_artifacts(
+    built_sdist, built_wheel
+):
+    """lead-emui generic parity guard: EVERY file under the source
+    `templates/ops/` directory must ride along in BOTH the built sdist and the
+    built wheel.
+
+    Unlike `test_delivered_artifact_ships_all_ops_templates_including_dotfile`
+    (which pins a hand-maintained list), this guard derives the expected set
+    from the SOURCE TREE at test time, so it future-proofs against the *next*
+    dropped ops file regardless of name: add an ops template, and if a stale
+    `package-data` config omits it from the artifact, this guard fails and names
+    it. That is the same bug class as tmpl-263 — `.env.example` was dropped
+    because `templates/ops/*` does not match leading-dot files — caught now
+    mechanically rather than per-file. This complements (does not reverse) the
+    deliberate explicit-entry choice for `.env.example`; it is strictly
+    additive coverage.
+
+    Asserts against the BUILT ARTIFACTS, not the source tree, because the defect
+    it guards is invisible from an editable / PYTHONPATH=src run (the file exists
+    in `src/` either way)."""
+    source_rels = sorted(
+        f"templates/ops/{p.name}"
+        for p in OPS_SOURCE_DIR.iterdir()
+        if p.is_file()
+    )
+    assert source_rels, (
+        f"no ops templates found under {OPS_SOURCE_DIR}; the source tree is "
+        f"missing the ops/ template set entirely"
+    )
+    sdist_missing = [
+        rel for rel in source_rels if not _sdist_has_member(built_sdist, rel)
+    ]
+    wheel_missing = [
+        rel for rel in source_rels if not _wheel_has_member(built_wheel, rel)
+    ]
+    assert not sdist_missing and not wheel_missing, (
+        f"source-vs-artifact ops parity broken — files present under "
+        f"{OPS_SOURCE_DIR} but MISSING from the delivered artifact (a fresh "
+        f"pip install would not pour them). sdist missing: {sdist_missing}; "
+        f"wheel missing: {wheel_missing}. Add an explicit "
+        f"`[tool.setuptools.package-data]` entry for each named file (a "
+        f"`templates/ops/*` glob does not match leading-dot files)."
     )

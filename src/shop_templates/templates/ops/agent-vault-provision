@@ -123,8 +123,8 @@ if [[ -n "$GITHUB_PAT" ]]; then
   # `vault credential set <key=value> ...` — the github username + PAT are
   # stored as named credential keys the service references by key.
   "${DEXEC[@]}" agent-vault vault credential set \
-    "github-pat-user=${GITHUB_PAT_USER}" \
-    "github-pat=${GITHUB_PAT}" \
+    "GITHUB_PAT_USER=${GITHUB_PAT_USER}" \
+    "GITHUB_PAT=${GITHUB_PAT}" \
     --vault "$VAULT"
 
   echo "agent-vault-provision: wiring github.com Basic service over the MITM proxy (:$PROXY_PORT)."
@@ -136,8 +136,8 @@ if [[ -n "$GITHUB_PAT" ]]; then
     --name github \
     --host github.com \
     --auth-type basic \
-    --username-key github-pat-user \
-    --password-key github-pat \
+    --username-key GITHUB_PAT_USER \
+    --password-key GITHUB_PAT \
     --vault "$VAULT"
 else
   echo "agent-vault-provision: GITHUB_PAT not set in the environment; skipping the"

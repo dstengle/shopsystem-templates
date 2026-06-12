@@ -347,10 +347,19 @@ def test_dummyco_agent_vault_provision_is_slug_scoped_and_human_gated(tmp_path):
         "provision must target the slug-derived broker container "
         "<slug>-agent-vault that compose defines"
     )
-    # vault name is slug-derived, NOT the literal 'fleet'
+    # vault/broker coordinates are slug-derived, NOT a default-product literal.
     assert "dummyco" in body
-    assert "fleet" not in body, (
-        f"provision leaked the literal vault name 'fleet':\n{body}"
+    # lead-beym (ADR-026 D2): the provision script now mints the slug-derived
+    # <slug>-fleet AGENT token (dummyco-fleet), so the bare token "fleet" is a
+    # legitimate slug-scoped substring here. What must NOT leak is the
+    # DEFAULT-PRODUCT broker literal `shopsystem-fleet` (the original guard's
+    # real intent) — assert that specifically rather than banning "fleet"
+    # wholesale, which would conflict with the mandated dummyco-fleet mint.
+    assert "shopsystem-fleet" not in body, (
+        f"provision leaked the default-product broker literal 'shopsystem-fleet':\n{body}"
+    )
+    assert "dummyco-fleet" in body, (
+        "provision must mint the slug-derived <slug>-fleet agent (dummyco-fleet)"
     )
     # ZERO residual shopsystem literals (slug is dummyco, not shopsystem)
     assert "shopsystem" not in body, (

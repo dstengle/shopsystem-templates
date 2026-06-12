@@ -314,6 +314,32 @@ def _ops_postgres_host_port(slug: str) -> int:
     return 5432 + (zlib.crc32(slug.encode("utf-8")) % 1000)
 
 
+def _ops_vault_api_host_port(slug: str) -> int:
+    """Return a deterministic, product-distinct default agent-vault broker
+    API HOST port for a slug.
+
+    Mirrors `_ops_postgres_host_port`: 14321 + crc32(slug) % 1000, giving each
+    product a stable host port in [14321, 15320] so a second product does not
+    collide on the published broker API port with a running fleet. The broker
+    CONTAINER API port stays fixed at 14321; only the published HOST default
+    is slug-derived (and env-overridable via `<SLUG_UPPER>_VAULT_API_PORT`).
+    """
+    return 14321 + (zlib.crc32(("vault-api:" + slug).encode("utf-8")) % 1000)
+
+
+def _ops_vault_proxy_host_port(slug: str) -> int:
+    """Return a deterministic, product-distinct default agent-vault broker
+    PROXY HOST port for a slug.
+
+    Mirrors `_ops_postgres_host_port`: 14322 + crc32(slug) % 1000. The broker
+    CONTAINER proxy port stays fixed at 14322 (the `HTTPS_PROXY=<broker>:14322`
+    target bin/shop-shell wires, scenario 5335c39eb06f7493); only the published
+    HOST default is slug-derived (env-overridable via
+    `<SLUG_UPPER>_VAULT_PROXY_PORT`).
+    """
+    return 14322 + (zlib.crc32(("vault-proxy:" + slug).encode("utf-8")) % 1000)
+
+
 def render_ops_template(name: str, slug: str) -> str:
     """Return the named ops template body rendered for a product slug.
 
@@ -329,6 +355,10 @@ def render_ops_template(name: str, slug: str) -> str:
     body = body.replace("{{OPS_SLUG_UPPER}}", upper)
     body = body.replace("{{OPS_SLUG}}", slug)
     body = body.replace("{{OPS_POSTGRES_PORT}}", str(_ops_postgres_host_port(slug)))
+    body = body.replace("{{OPS_VAULT_API_PORT}}", str(_ops_vault_api_host_port(slug)))
+    body = body.replace(
+        "{{OPS_VAULT_PROXY_PORT}}", str(_ops_vault_proxy_host_port(slug))
+    )
     return body
 
 
@@ -394,6 +424,32 @@ def _render_lead_ops_scaffolding(target: Path, slug: str) -> None:
             mode = dest.stat().st_mode
             # Set the owner-execute bit (scenario 3d94639d5af360d7).
             dest.chmod(mode | 0o100)
+    _render_lead_env_example(target, slug)
+
+
+# The top-level .env.example scaffold (lead-llc1, scenario d8b53704e6e2584).
+# This is DELIBERATELY rendered OUTSIDE the six-file `_LEAD_OPS_FILES`
+# ops-tool enumeration (scenario cb1e585684ff4a14 pins exactly six ops-tool
+# files). It is an additive top-level scaffold carrying placeholder-only
+# broker credentials the rendered compose.yaml / bin/shop-shell consume
+# (AGENT_VAULT_MASTER_PASSWORD, AGENT_VAULT_ADDR, AGENT_VAULT_TOKEN), so
+# `cp .env.example .env` is executable as written. It is never under
+# .claude/, and never enumerated alongside the six ops-tool files.
+_LEAD_ENV_EXAMPLE_TEMPLATE = ".env.example"
+
+
+def _render_lead_env_example(target: Path, slug: str) -> None:
+    """Render the top-level placeholder-only .env.example for a lead shop.
+
+    Additive to the six-file ops-tool set: rendered through the same
+    placeholder-substitution mechanism (so {{OPS_SLUG}} comments stay
+    slug-clean) but NOT part of `_LEAD_OPS_FILES`. Every value is a
+    placeholder; no real secret material is written.
+    """
+    body = render_ops_template(_LEAD_ENV_EXAMPLE_TEMPLATE, slug)
+    dest = target / ".env.example"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(body)
 
 
 def canonical_role_set(shop_type: str) -> tuple[str, ...]:

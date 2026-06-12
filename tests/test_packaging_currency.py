@@ -36,10 +36,25 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 3, 0)
+MIN_VERSION = (0, 4, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
+
+# Self-contained role templates (lead-0nc8 WS-4 Part2): the delivered
+# lead-architect / lead-po / bc-reviewer carry NO dangling spec citation
+# (a bare `§` section reference or a `findings-from-prototype` pointer that
+# resolves to a file the launched shop never receives).
+SELF_CONTAINED_RELS = [
+    "templates/lead-architect.md",
+    "templates/lead-po.md",
+    "templates/bc-reviewer.md",
+]
+DANGLING_CITE = re.compile(r"§|findings-from-prototype")
+
+# PDR-014 skill (po↔architect decomposition exchange) must ride along in
+# the delivered artifact so a tag-install pours it.
+PDR014_SKILL_REL = "templates/skills/po-architect-decomposition-exchange/SKILL.md"
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -100,10 +115,11 @@ def _sdist_member(sdist: Path, suffix: str, prefer_shallowest: bool = False) -> 
         return f.read().decode()
 
 
-def test_delivered_package_version_is_at_least_0_3_0(built_sdist):
-    """The published artifact's version must advance past the stale 0.2.0
-    that predates lead-80t0, so the launcher's tag-install delivers the
-    health-bearing bc-router."""
+def test_delivered_package_version_is_at_least_min_version(built_sdist):
+    """The published artifact's version must advance past the prior floor so
+    the launcher's tag-install (no --force-reinstall) delivers the
+    self-contained templates batch (lead-f3gm / lead-0nc8) and the PDR-014
+    skill rather than a stale artifact."""
     # The sdist root carries the canonical PKG-INFO (an egg-info copy also
     # exists under src/; select the top-level one).
     pkg_info = _sdist_member(built_sdist, "/PKG-INFO", prefer_shallowest=True)
@@ -113,8 +129,37 @@ def test_delivered_package_version_is_at_least_0_3_0(built_sdist):
     version = _parse_version(version_line.split(":", 1)[1])
     assert version >= MIN_VERSION, (
         f"delivered package version {version} < {MIN_VERSION}; the published "
-        f"artifact predates the lead-80t0 health bc-router and a tag-install "
-        f"would pour the stale 111-line/zero-health version"
+        f"artifact predates the self-contained-templates batch (lead-f3gm / "
+        f"lead-0nc8) and the PDR-014 skill, so a tag-install (no "
+        f"--force-reinstall) would pour the stale pre-0.4.0 artifact"
+    )
+
+
+def test_delivered_role_templates_are_self_contained(built_sdist):
+    """lead-0nc8 WS-4 Part2: the delivered lead-architect / lead-po /
+    bc-reviewer must not carry a dangling spec citation (a bare `§` section
+    reference or a `findings-from-prototype` pointer) that resolves to a
+    file the launched shop never receives."""
+    offenders = {}
+    for rel in SELF_CONTAINED_RELS:
+        body = _sdist_member(built_sdist, rel)
+        hits = sorted(set(DANGLING_CITE.findall(body)))
+        if hits:
+            offenders[rel] = hits
+    assert not offenders, (
+        f"delivered role templates carry dangling spec citations "
+        f"(§ / findings-from-prototype) that resolve to files the launched "
+        f"shop never receives: {offenders}"
+    )
+
+
+def test_delivered_artifact_carries_pdr014_skill(built_sdist):
+    """The PDR-014 po↔architect decomposition-exchange skill must ride along
+    in the delivered artifact so a tag-install pours it."""
+    body = _sdist_member(built_sdist, PDR014_SKILL_REL)
+    assert body.strip(), (
+        f"delivered PDR-014 skill {PDR014_SKILL_REL} is empty in the built "
+        f"artifact; a tag-install would not pour it"
     )
 
 

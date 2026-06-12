@@ -65,7 +65,7 @@ def _bootstrap(tmp_path: Path, shop_name: str) -> Path:
     """Run a real `shop-templates bootstrap --shop-type lead` into a fresh
     git repo under tmp_path and return the target dir."""
     target = tmp_path / shop_name
-    target.mkdir()
+    target.mkdir(parents=True)
     subprocess.run(["git", "init", "-q"], cwd=target, check=True)
     env = dict(os.environ)
     env["PYTHONPATH"] = _SRC + os.pathsep + env.get("PYTHONPATH", "")
@@ -118,10 +118,13 @@ def test_ops_slug_strips_product_suffix(shop_name, expected):
 
 
 def test_render_ops_template_leaves_no_unrendered_placeholder():
+    # Only the {{OPS_*}} ops placeholders must be fully substituted; docker
+    # Go-template format strings ({{.Names}} etc.) are legitimately retained.
     for name in ("compose.yaml", "shop-shell", "Dockerfile.shopsystem-shell"):
         body = render_ops_template(name, "dummyco")
-        assert "{{" not in body, f"{name} has unrendered placeholder: {body!r}"
-        assert "}}" not in body, f"{name} has unrendered placeholder: {body!r}"
+        assert "{{OPS_" not in body, (
+            f"{name} has an unrendered ops placeholder: {body!r}"
+        )
 
 
 # -----------------------------------------------------------------------
@@ -199,9 +202,19 @@ def test_dummyco_shop_shell_is_slug_scoped_and_broker_wired(tmp_path):
         "agent-vault-check",
     ):
         assert needle in body, f"shop-shell missing broker-wiring needle {needle!r}"
-    # errors out with NO host-cred fallback: no host ~/.claude or ~/.gitconfig mounts
-    assert "/.claude" not in body, "shop-shell must not mount host ~/.claude"
-    assert ".gitconfig" not in body, "shop-shell must not mount host ~/.gitconfig"
+    # errors out with NO host-cred fallback: no host ~/.claude or ~/.gitconfig
+    # MOUNTS (`-v ...:...`). Doc-comment mentions of the policy are fine; an
+    # actual bind mount of either host path is forbidden (ADR-028).
+    import re as _re
+
+    mount_lines = _re.findall(r"-v\s+\S+", body)
+    for ml in mount_lines:
+        assert ".claude" not in ml, f"shop-shell must not mount host ~/.claude: {ml}"
+        assert ".gitconfig" not in ml, (
+            f"shop-shell must not mount host ~/.gitconfig: {ml}"
+        )
+    # error-out path present (no host-cred fallback)
+    assert "Aborting" in body or "exit 1" in body
 
 
 def test_dummyco_dockerfile_keeps_from_user_cli(tmp_path):

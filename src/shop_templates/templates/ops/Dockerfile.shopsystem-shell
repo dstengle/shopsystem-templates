@@ -1,12 +1,12 @@
-# Dockerfile.shopsystem-shell — lead-shop daily-driver shell image recipe
+# Dockerfile.{{OPS_SLUG}}-shell — lead-shop daily-driver shell image recipe
 # (shop-owned, PDR-003 path F).
 #
-# Build locally when no published shopsystem-shell image is available:
+# Build locally when no published {{OPS_SLUG}}-shell image is available:
 #
-#     docker build -t shopsystem-shell:dev -f Dockerfile.shopsystem-shell .
+#     docker build -t {{OPS_SLUG}}-shell:dev -f Dockerfile.{{OPS_SLUG}}-shell .
 #
 # This recipe may later be retired in favor of bc-launcher's published
-# shopsystem-shell image; ship it now to unblock docker-only onboarding.
+# shell image; ship it now to unblock docker-only onboarding.
 #
 # Rebased onto the same devcontainer base image the lead host and
 # bc-launcher containers run. That base already ships a working docker CLI
@@ -22,8 +22,8 @@ FROM ghcr.io/dstengle/devcontainer-python-node-claude:latest
 USER vscode
 
 # Install the framework CLIs (shop-msg, scenarios, shop-templates) with
-# pipx so the operator has the full shopsystem toolchain on PATH inside the
-# shell. pipx ships on the devcontainer base for the vscode user.
+# pipx so the operator has the full toolchain on PATH inside the shell.
+# pipx ships on the devcontainer base for the vscode user.
 RUN pipx install shop-msg \
     && pipx install scenarios \
     && pipx install shop-templates

@@ -13269,3 +13269,262 @@ def then_reports_unhealthy_dolt_push(context: dict) -> None:
     assert "test dolt push" in body or "dolt push" in body, (
         "rendered surface does not name the test dolt push as a failure cause"
     )
+
+
+# -----------------------------------------------------------------------
+# lead-hdn3 (scenarios 167/168/169) — the canonical bc primer pins the
+# BETWEEN-ITEM autonomous inbox-drain contract. These steps assert against
+# the rendered bc primer body served through the public template-access
+# surface (read_claude_md_primer("bc")). The bc primer is markdown with
+# soft-wrapped paragraphs; "contiguous block" is scoped to a paragraph —
+# the run of text between blank lines (a markdown paragraph or a single
+# bullet item), so an assertion that several phrases co-occur "in a
+# contiguous block" is checked within one paragraph, not scattered across
+# the whole document.
+# -----------------------------------------------------------------------
+
+
+def _hdn3_paragraphs(body: str) -> list[str]:
+    """Split a markdown body into contiguous blocks (paragraphs / bullet
+    items). A block is a maximal run of non-blank lines; soft-wrapped lines
+    within the run are joined with single spaces so phrase co-occurrence is
+    evaluated at paragraph scope rather than per source line."""
+    blocks: list[str] = []
+    current: list[str] = []
+    for line in body.splitlines():
+        if line.strip() == "":
+            if current:
+                blocks.append(" ".join(s.strip() for s in current))
+                current = []
+        else:
+            current.append(line)
+    if current:
+        blocks.append(" ".join(s.strip() for s in current))
+    return blocks
+
+
+@given(
+    parsers.parse(
+        'the "shop-templates" package ships a canonical "CLAUDE.md" primer '
+        'template for shop type "{shop_type}" through its public '
+        'template-access surface'
+    )
+)
+def given_package_ships_canonical_primer(shop_type: str, context: dict) -> None:
+    # Precondition marker only; the When step does the actual retrieval
+    # through read_claude_md_primer. We stash the requested shop type so a
+    # mis-wired When can be diagnosed, but assert nothing here — the
+    # package shipping the template is what the When + Thens demonstrate.
+    context["hdn3_primer_shop_type"] = shop_type
+
+
+@given("the BC's inbox holds more than one pending item")
+def given_inbox_holds_more_than_one_pending(context: dict) -> None:
+    # Scenario-framing precondition for the choice-suppression scenario
+    # (169): the which-item-first question only arises when more than one
+    # item is pending. The assertion under test is a property of the
+    # rendered primer prose, not of any live inbox; this Given records the
+    # framing without touching postgres.
+    context["hdn3_multiple_pending"] = True
+
+
+@when(parsers.parse(
+    'I ask the package for that canonical primer body for shop type '
+    '"{shop_type}"'
+))
+def when_ask_for_that_canonical_primer_body(shop_type: str, context: dict) -> None:
+    from shop_templates.cli import read_claude_md_primer
+
+    body = read_claude_md_primer(shop_type)
+    context["claude_primer_shop_type"] = shop_type
+    context["claude_primer_body"] = body
+    context["last_returned_body"] = body
+    context["last_returned_surface"] = "claude_primer"
+    context["last_returned_shop_type"] = shop_type
+
+
+def _hdn3_body(context: dict) -> str:
+    body = context.get("last_returned_body")
+    assert body is not None, (
+        "no primer body in context; the matching When step did not run"
+    )
+    return body
+
+
+# --- Scenario 167 (b73e3176eeddd58f): end-of-turn continuation ----------
+
+
+@then(
+    "the returned body contains a contiguous block that names completing a "
+    "work item as the trigger to begin the next ready inbox item rather than "
+    "a stopping point"
+)
+def then_block_names_completion_as_trigger(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        names_completion = (
+            "complet" in low
+            and ("work item" in low or "work_done" in low or "unit of work" in low)
+        )
+        names_trigger = "trigger" in low
+        names_next = "next" in low and ("inbox" in low or "ready" in low)
+        not_a_stopping_point = (
+            "rather than a stopping point" in low
+            or "not a stopping point" in low
+            or "not a place to stop" in low
+        )
+        if names_completion and names_trigger and names_next and not_a_stopping_point:
+            return
+    assert False, (
+        "primer body has no contiguous block naming completion of a work "
+        "item as the trigger to begin the next ready inbox item rather than "
+        "a stopping point"
+    )
+
+
+@then(
+    "that block directs the BC to drain the next pending inbox item "
+    "immediately after a work_done emit"
+)
+def then_block_directs_drain_after_work_done(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        if (
+            "immediately after" in low
+            and "work_done" in low
+            and ("pending inbox" in low or "next pending" in low or "next ready inbox" in low)
+            and ("drain" in low or "begin" in low or "start" in low or "dispatch" in low)
+        ):
+            return
+    assert False, (
+        "primer body has no contiguous block directing the BC to drain the "
+        "next pending inbox item immediately after a work_done emit"
+    )
+
+
+@then(
+    "that block states the BC does not check in with, ask, or wait on its "
+    "session-lead before starting that next item"
+)
+def then_block_no_checkin_before_next_item(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        names_lead = "session-lead" in low or "session lead" in low
+        negated = "does not" in low or "do not" in low or "never" in low or "without" in low
+        names_checkin = "check in" in low or "ask" in low or "wait" in low
+        before_next = "before starting" in low or "before beginning" in low or "next item" in low
+        if names_lead and negated and names_checkin and before_next:
+            return
+    assert False, (
+        "primer body has no contiguous block stating the BC does not check "
+        "in with / ask / wait on its session-lead before starting the next "
+        "item"
+    )
+
+
+# --- Scenario 168 (4aa9c618e80c9db0): idle-detection --------------------
+
+
+@then(parsers.parse(
+    'the returned body contains the literal substring "{needle}" as the '
+    'named operation the BC runs to check for unprocessed inbox work'
+))
+def then_returned_body_substring_as_pending_inbox_op(needle: str, context: dict) -> None:
+    body = _hdn3_body(context)
+    assert needle in body, (
+        f"primer body missing required literal substring {needle!r} (named "
+        f"operation the BC runs to check for unprocessed inbox work)"
+    )
+
+
+@then(
+    "the returned body contains a contiguous block stating the BC idles only "
+    "when that pending-inbox check is empty AND no implementer or reviewer "
+    "task is in flight"
+)
+def then_block_idle_only_when_empty_and_no_inflight(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        names_idle = "idle" in low
+        empty_check = "empty" in low and ("pending inbox" in low or "pending-inbox" in low)
+        in_flight = "in flight" in low or "in-flight" in low
+        roles = "implementer" in low and "reviewer" in low
+        only_when = "only when" in low or "only after" in low
+        if names_idle and empty_check and in_flight and roles and only_when:
+            return
+    assert False, (
+        "primer body has no contiguous block stating the BC idles only when "
+        "the pending-inbox check is empty AND no implementer or reviewer "
+        "task is in flight"
+    )
+
+
+@then(
+    "that block frames idle as a posture earned after the emptiness check "
+    "rather than a default the BC falls back to after finishing an item"
+)
+def then_block_idle_earned_not_default(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        earned = "earned" in low
+        not_default = "not a default" in low or "not the default" in low or "not a fallback" in low or "rather than a default" in low
+        falls_back = "falls back" in low or "fall back" in low or "fallback" in low or "after finishing" in low
+        if "idle" in low and earned and not_default and falls_back:
+            return
+    assert False, (
+        "primer body has no contiguous block framing idle as a posture "
+        "earned after the emptiness check rather than a default fallen back "
+        "to after finishing an item"
+    )
+
+
+# --- Scenario 169 (16ad870377ac7514): choice-suppression ----------------
+
+
+@then(
+    "the returned body contains a contiguous block directing the BC to "
+    "select which pending inbox item to process next by arrival order or by "
+    "ADR-013 dependency precedence"
+)
+def then_block_select_by_arrival_or_adr013(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        selects = "select" in low or "pick" in low or "choose" in low
+        which_next = "next" in low and ("pending inbox" in low or "inbox item" in low)
+        arrival = "arrival order" in low
+        adr013 = "adr-013" in low and ("dependency" in low or "precedence" in low)
+        if selects and which_next and arrival and adr013:
+            return
+    assert False, (
+        "primer body has no contiguous block directing the BC to select the "
+        "next pending inbox item by arrival order or ADR-013 dependency "
+        "precedence"
+    )
+
+
+@then(
+    "that block states the BC does not surface the which-item-first "
+    "procedural choice to its session-lead and instead picks by the named "
+    "default and acts"
+)
+def then_block_no_which_first_choice_to_lead(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        names_lead = "session-lead" in low or "session lead" in low
+        no_surface = "does not surface" in low or "do not surface" in low or "not surface" in low
+        which_first = "which-item-first" in low or "which item first" in low or "which item to process first" in low or "which item to take first" in low
+        instead_acts = ("instead" in low and ("picks" in low or "pick" in low)) and "act" in low
+        if names_lead and no_surface and which_first and instead_acts:
+            return
+    assert False, (
+        "primer body has no contiguous block stating the BC does not surface "
+        "the which-item-first procedural choice to its session-lead and "
+        "instead picks by the named default and acts"
+    )

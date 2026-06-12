@@ -36,7 +36,7 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 4, 0)
+MIN_VERSION = (0, 5, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
@@ -55,6 +55,19 @@ DANGLING_CITE = re.compile(r"§|findings-from-prototype")
 # PDR-014 skill (po↔architect decomposition exchange) must ride along in
 # the delivered artifact so a tag-install pours it.
 PDR014_SKILL_REL = "templates/skills/po-architect-decomposition-exchange/SKILL.md"
+
+# v0.5.0 IS the ops-genericity release: it captures lead-faua 90308d0
+# (render_ops_template / _ops_slug slug-parametric compose+shop-shell) and
+# lead-w87b 51b57dd (agent-vault-provision + agent-vault-check rendered via
+# {{OPS_SLUG}}). The currency guard locks what this release delivers: the
+# built artifact's ops/ template set must carry the agent-vault scripts, and
+# cli.py must carry the slug-rendering mechanism that makes ops/ generic.
+OPS_VAULT_RELS = [
+    "templates/ops/agent-vault-provision",
+    "templates/ops/agent-vault-check",
+]
+CLI_REL = "shop_templates/cli.py"
+CLI_SLUG_MECHANISM = ["render_ops_template", "_ops_slug", "{{OPS_SLUG}}"]
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -177,3 +190,32 @@ def test_delivered_bc_router_carries_lead_80t0_health_step(built_sdist):
     # Guard the specific lead-80t0 capability vocabulary, not just the words.
     assert "dolt" in lowered, "delivered bc-router lacks the test `dolt push` health check"
     assert "health" in lowered, "delivered bc-router lacks beads-health validation"
+
+
+def test_delivered_artifact_carries_agent_vault_ops_scripts(built_sdist):
+    """v0.5.0 captures lead-w87b 51b57dd: the agent-vault-provision +
+    agent-vault-check ops/ scripts must ride along in the delivered artifact
+    so a tag-install pours the {{OPS_SLUG}}-rendered vault provisioning into
+    a bootstrapped lead ops/."""
+    missing = {}
+    for rel in OPS_VAULT_RELS:
+        body = _sdist_member(built_sdist, rel)
+        if not body.strip():
+            missing[rel] = "empty"
+    assert not missing, (
+        f"delivered ops/ template set is missing the lead-w87b agent-vault "
+        f"scripts (a tag-install would not pour them): {missing}"
+    )
+
+
+def test_delivered_cli_carries_slug_ops_mechanism(built_sdist):
+    """v0.5.0 captures lead-faua 90308d0: cli.py in the delivered artifact
+    must carry the slug-parametric ops/ rendering mechanism
+    (render_ops_template / _ops_slug / {{OPS_SLUG}}) — this is the code that
+    makes the bootstrapped ops/ generic rather than shopsystem-hardcoded."""
+    body = _sdist_member(built_sdist, CLI_REL)
+    absent = [tok for tok in CLI_SLUG_MECHANISM if tok not in body]
+    assert not absent, (
+        f"delivered cli.py lacks the slug-parametric ops/ rendering "
+        f"mechanism (lead-faua 90308d0); missing tokens: {absent}"
+    )

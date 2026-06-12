@@ -40,5 +40,10 @@ shop_templates = [
     "templates/claude_body/*.md",
     "templates/claude_settings/*.json",
     "templates/ops/*",
+    # `templates/ops/*` does NOT match leading-dot files; the bootstrap path
+    # (_render_lead_env_example) reads this dotfile, so ship it explicitly
+    # rather than via a broad `templates/ops/.*` that could sweep stray
+    # dotfiles (lead-llc1 / tmpl-263).
+    "templates/ops/.env.example",
     "templates/skills/**/*",
 ]

@@ -26,6 +26,16 @@ Feature: bc-emit work-done wrapper — executable pre-emit preconditions over th
     Then the wrapper treats the reachability precondition as satisfied and does NOT refuse on the ground that the work_id is absent from "origin/main" HEAD
     And the satisfaction is established by the tag pointing at the expected commit lineage, not by the work_id being reachable from "origin/main" HEAD
 
+  @scenario_hash:6d95d409dd527be6 @bc:shopsystem-templates
+  Scenario: bc-emit work-done REFUSES for a TAG deliverable when the named tag exists but points at a commit lineage that does NOT carry/anchor the dispatched work_id, naming both the tag and the work_id
+    Given a dispatched work_id whose deliverable is a release TAG that names an expected commit lineage
+    And the named tag exists on "origin" after a "git fetch origin --tags" and its "git rev-list" is non-empty
+    But the commit lineage the tag points at does NOT carry or anchor the dispatched work_id — for example the tag points at the repository's unrelated seed commit that bears no relationship to the work_id
+    When the BC invokes the "bc-emit work-done" wrapper for that work_id in the TAG/release-deliverable mode
+    Then the wrapper exits non-zero and does not invoke "shop-msg respond work_done"
+    And the wrapper's error names the tag-lineage-anchors-work_id precondition as the cause and names both the offending tag and the dispatched work_id
+    And mere tag existence with a non-empty "git rev-list" does NOT satisfy the precondition; only a tag whose commit lineage carries/anchors the dispatched work_id satisfies it, so the positive arm above and this refusal differ solely on whether the tag's lineage anchors the work_id
+
   @scenario_hash:ea9c1bbd9be87d72 @bc:shopsystem-templates
   Scenario: bc-emit work-done refuses the emit when a recomputed scenario-block-only canonical hash diverges from the carried hash, names the divergence as stale, missing, or orphan, and uses the block-only delegate rather than the Feature-line-included wire form
     Given a dispatched work_id whose deliverable includes one or more scenario blocks committed under "features/" each carrying an "@scenario_hash:<hex>" tag

@@ -26,12 +26,19 @@ Preconditions (lead-m56e):
                   error names the work_id and the current origin/main HEAD
                   short SHA.
         tag     — the named release tag must exist after
-                  `git fetch origin --tags` and point at the expected commit
-                  lineage. Satisfaction comes from the tag pointing at the
-                  expected lineage, NOT from work_id reachability on
-                  origin/main HEAD — so a tag whose lineage is intact
-                  satisfies the check even though origin/main HEAD has
-                  advanced past the tagged commit (the release case).
+                  `git fetch origin --tags` AND its commit lineage must
+                  carry/anchor the work_id (the same `--grep=<work_id>`
+                  attribution check_commit_reachable uses, scoped to the
+                  tag's history). Satisfaction comes from the tag's lineage
+                  anchoring the work_id, NOT from work_id reachability on
+                  origin/main HEAD — so a tag whose lineage carries the
+                  work_id satisfies the check even though origin/main HEAD has
+                  advanced past the tagged commit (the release case). A tag
+                  that merely exists with a non-empty `git rev-list` but whose
+                  lineage carries no work_id-attributed commit (e.g. a tag on
+                  the repo's unrelated seed commit) does NOT satisfy: it
+                  refuses, naming the tag-lineage-anchors-work_id precondition,
+                  the offending tag, and the work_id.
 
   Check 3 — scenario-hash match (hash ea9c1bbd9be87d72)
       Recompute each candidate scenario hash by delegating IN-PROCESS to
@@ -213,20 +220,25 @@ def check_commit_reachable(repo: Path, work_id: str) -> None:
 
 
 def check_tag_reachable(repo: Path, work_id: str, tag: str) -> None:
-    """Check 2 (tag/release mode) — named tag points at the expected lineage.
+    """Check 2 (tag/release mode) — named tag's lineage anchors the work_id.
 
     Satisfaction is established by the named tag EXISTING (after
-    `git fetch origin --tags`) and pointing at the expected commit lineage —
-    NOT by the work_id being reachable from origin/main HEAD. This is the
-    release case: origin/main HEAD may have legitimately advanced to a later
-    commit that does not carry the work_id, and that does NOT refuse the emit
-    so long as the tag's lineage is intact.
+    `git fetch origin --tags`) AND its commit lineage carrying/anchoring the
+    dispatched work_id — NOT by the work_id being reachable from origin/main
+    HEAD. This is the release case: origin/main HEAD may have legitimately
+    advanced to a later commit that does not carry the work_id, and that does
+    NOT refuse the emit so long as the TAG's own lineage anchors the work_id.
 
-    "Points at the expected commit lineage" is checked structurally: the tag
-    resolves to a commit, and that commit's lineage is intact (the tag's
-    target is reachable in history from itself, i.e. `git rev-list <tag>`
-    succeeds with a non-empty lineage). The check deliberately does NOT
-    consult origin/main HEAD for reachability.
+    "Points at the expected commit lineage" means the work_id is attributable
+    to a commit in the TAG's history — the SAME attribution mechanism
+    `check_commit_reachable` uses (a `--grep=<work_id>` over the commit
+    subject/body), but scoped to the tag's reachable history
+    (`git log <tag> ...`) instead of origin/main HEAD. Mere tag existence with
+    a non-empty `git rev-list` does NOT satisfy: an unrelated tag pointing at
+    a commit that bears no relationship to the work_id (e.g. the repo's seed
+    commit) carries the work_id in neither subject nor body of any commit in
+    its lineage, so it refuses. The check deliberately does NOT consult
+    origin/main HEAD for reachability.
     """
     _git(repo, "fetch", "origin", "--tags")
     # The tag must exist and resolve to a commit.
@@ -237,21 +249,39 @@ def check_tag_reachable(repo: Path, work_id: str, tag: str) -> None:
             "refused: the tag-deliverable reachability precondition failed. "
             f"The named release tag {tag!r} does not exist (or does not "
             "resolve to a commit) after `git fetch origin --tags`. Tag-mode "
-            "satisfaction comes from the tag pointing at the expected commit "
-            f"lineage, not from work_id {work_id!r} being reachable from "
-            f"origin/main HEAD ({head}). {_SELF_RESOLVE}"
+            "satisfaction comes from the tag's lineage anchoring the work_id, "
+            f"not from work_id {work_id!r} being reachable from origin/main "
+            f"HEAD ({head}). {_SELF_RESOLVE}"
         )
-    # The tag's target must have an intact lineage (a non-empty rev-list from
-    # the tag). This succeeds for a real release tag; satisfaction does not
-    # depend on origin/main HEAD carrying the work_id.
-    lineage = _git(repo, "rev-list", "--max-count=1", f"{tag}^{{commit}}")
-    if not lineage.stdout.strip():
+    # The tag's commit LINEAGE must carry/anchor the work_id. This mirrors
+    # check_commit_reachable's attribution (--grep over commit subject+body
+    # with --fixed-strings) but is scoped to the TAG's reachable history
+    # rather than origin/main HEAD. A tag whose lineage is intact (non-empty
+    # rev-list) but carries no work_id-attributed commit — e.g. a tag pointing
+    # at the repo's unrelated seed commit — does NOT satisfy.
+    in_lineage = _git(
+        repo,
+        "log",
+        tag,
+        f"--grep={work_id}",
+        "--fixed-strings",
+        "--oneline",
+    )
+    if not in_lineage.stdout.strip():
         raise PreconditionRefusal(
-            "refused: the tag-deliverable reachability precondition failed. "
-            f"The named release tag {tag!r} does not point at an intact "
-            f"commit lineage. {_SELF_RESOLVE}"
+            "refused: the tag-lineage-anchors-work_id precondition failed. The "
+            f"named release tag {tag!r} exists and resolves to a commit with a "
+            f"non-empty `git rev-list`, but no commit attributable to work_id "
+            f"{work_id!r} is present in the tag's commit lineage "
+            f"(`git log {tag} --grep={work_id} --fixed-strings`). Mere tag "
+            "existence with a non-empty rev-list does NOT satisfy tag-mode "
+            "reachability; only a tag whose lineage carries/anchors the "
+            "dispatched work_id does (a tag pointing at an unrelated commit, "
+            "e.g. the repository's seed commit, refuses). "
+            f"{_SELF_RESOLVE}"
         )
-    # Satisfied — return without consulting origin/main HEAD.
+    # Satisfied — the tag's lineage anchors the work_id; return without
+    # consulting origin/main HEAD.
 
 
 def _scenario_blocks(feature_text: str) -> list[tuple[str, str | None]]:

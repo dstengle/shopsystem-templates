@@ -14522,6 +14522,112 @@ def then_tag_satisfaction_not_via_origin_main(context: dict) -> None:
     assert tag_commit, "tag did not resolve to a commit"
 
 
+# ---- Scenario 6d95d409dd527be6 — TAG lineage must anchor the work_id ------
+# NEGATIVE arm of the tag-deliverable reachability check: a tag that EXISTS
+# and whose `git rev-list` is non-empty but whose commit lineage does NOT
+# carry/anchor the dispatched work_id (the tag points at the repo's unrelated
+# seed commit) must REFUSE — mere tag existence + non-empty rev-list does NOT
+# satisfy. This and the positive 12c98d2f differ SOLELY on whether the tag's
+# lineage anchors the work_id.
+
+
+@given(
+    parsers.parse(
+        'the named tag exists on "origin" after a "git fetch origin --tags" '
+        'and its "git rev-list" is non-empty'
+    )
+)
+def given_tag_exists_rev_list_nonempty(context: dict) -> None:
+    clone = context["bc_repo"]
+    tag = context["bc_tag"]
+    # The tag is placed on the repo's pre-existing SEED commit (origin/main's
+    # initial "seed: initial commit"). That commit carries NO work_id. The tag
+    # therefore exists and resolves to a commit whose `git rev-list` is
+    # non-empty (the seed commit is reachable from itself) — satisfying the OLD
+    # permissive check — yet its lineage does NOT anchor the dispatched work_id.
+    seed = _git_in(clone, "rev-parse", "origin/main").stdout.strip()
+    _git_in(clone, "tag", tag, seed)
+    _git_in(clone, "push", "-q", "origin", tag)
+    _git_in(clone, "fetch", "-q", "origin", "--tags")
+    # Invariant: the tagged commit's lineage has a non-empty rev-list.
+    rev_list = _git_in(clone, "rev-list", f"{tag}^{{commit}}").stdout.strip()
+    assert rev_list, "fixture invalid: tag rev-list is empty"
+
+
+@given(
+    parsers.parse(
+        "the commit lineage the tag points at does NOT carry or anchor the "
+        "dispatched work_id — for example the tag points at the repository's "
+        "unrelated seed commit that bears no relationship to the work_id"
+    )
+)
+def given_tag_lineage_does_not_anchor_work_id(context: dict) -> None:
+    clone = context["bc_repo"]
+    tag = context["bc_tag"]
+    wid = context["bc_work_id"]
+    # Prove the tag's ENTIRE lineage carries no commit attributable to the
+    # work_id — the negative premise the refusal must rest on. (The positive
+    # arm's tag lineage WOULD carry it; this is the sole difference.)
+    in_lineage = _git_in(
+        clone, "log", tag, f"--grep={wid}", "--fixed-strings", "--oneline"
+    ).stdout.strip()
+    assert not in_lineage, (
+        "fixture invalid: the tag's lineage unexpectedly carries the work_id"
+    )
+
+
+@then(
+    parsers.parse(
+        "the wrapper's error names the tag-lineage-anchors-work_id "
+        "precondition as the cause and names both the offending tag and the "
+        "dispatched work_id"
+    )
+)
+def then_tag_lineage_cause_names_tag_and_work_id(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    assert "tag-lineage-anchors-work_id precondition" in err, err
+    assert context["bc_tag"] in err, (
+        f"error must name the offending tag {context['bc_tag']!r}: {err!r}"
+    )
+    assert context["bc_work_id"] in err, (
+        f"error must name the work_id {context['bc_work_id']!r}: {err!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'mere tag existence with a non-empty "git rev-list" does NOT satisfy '
+        "the precondition; only a tag whose commit lineage carries/anchors the "
+        "dispatched work_id satisfies it, so the positive arm above and this "
+        "refusal differ solely on whether the tag's lineage anchors the work_id"
+    )
+)
+def then_tag_existence_alone_does_not_satisfy(context: dict) -> None:
+    clone = context["bc_repo"]
+    tag = context["bc_tag"]
+    wid = context["bc_work_id"]
+    # The tag EXISTS and its rev-list is non-empty (the OLD permissive ground
+    # for satisfaction) ...
+    resolved = _git_in(
+        clone, "rev-parse", "--verify", f"{tag}^{{commit}}"
+    ).stdout.strip()
+    assert resolved, "tag did not resolve to a commit"
+    rev_list = _git_in(clone, "rev-list", f"{tag}^{{commit}}").stdout.strip()
+    assert rev_list, "tag rev-list is empty"
+    # ... yet the lineage does NOT anchor the work_id, so the wrapper REFUSED.
+    in_lineage = _git_in(
+        clone, "log", tag, f"--grep={wid}", "--fixed-strings", "--oneline"
+    ).stdout.strip()
+    assert not in_lineage, "tag lineage unexpectedly anchors the work_id"
+    assert context["bc_emit_result"].returncode != 0, (
+        "tag existence + non-empty rev-list wrongly satisfied: the wrapper did "
+        f"not refuse. stderr={context['bc_emit_result'].stderr!r}"
+    )
+    assert not _respond_was_invoked(context["respond_log"]), (
+        "respond was invoked despite the tag lineage not anchoring the work_id"
+    )
+
+
 # ---- Scenario ea9c1bbd9be87d72 — scenario-hash divergence (block-only) ----
 
 _HASH_FEATURE_BLOCK = (

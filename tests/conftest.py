@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 import pytest
@@ -13537,4 +13538,531 @@ def then_block_no_which_first_choice_to_lead(context: dict) -> None:
         "primer body has no contiguous block stating the BC does not surface "
         "the which-item-first procedural choice to its session-lead and "
         "instead picks by the named default and acts"
+    )
+
+
+# =======================================================================
+# lead-r9r5 (plan tmpl-220) — slug-parametric ops generification: pin the
+# 6 lead-authored hashes that supersede/tighten 133/134/138 + grow the
+# ops file-set. Scenarios 8fcf898fdeebc6be, 9c8b8b40ee9ffde4,
+# 5335c39eb06f7493, abe57dcb4d6f6554, cb1e585684ff4a14, 1b6dbe8a0095fb8f.
+#
+# These pin behavior already delivered under lead-faua (compose/shop-shell
+# generification, crc32 ports, broker-wiring) + lead-w87b
+# (agent-vault-provision/check). The step defs below assert exactly what
+# each Then says; most pass GREEN against the current render
+# (fits-existing-capability), a couple expose real gaps the feat(green)
+# closes.
+# =======================================================================
+
+
+def _r9r5_services(context: dict) -> dict:
+    """Return the parsed compose 'services' mapping (loading if needed)."""
+    data = context.get("parsed_compose") or _load_compose(context)
+    assert isinstance(data, dict), "compose.yaml did not parse to a mapping"
+    services = data.get("services")
+    assert isinstance(services, dict), "compose.yaml has no 'services' mapping"
+    return services
+
+
+# -- Scenario 8fcf898fdeebc6be -----------------------------------------
+
+
+@then(
+    parsers.re(
+        r'the parsed YAML contains a top-level key "networks" whose value is '
+        r'a mapping containing exactly the key "(?P<slug>[^"]+)" and no key '
+        r'literally named "shopsystem" unless "(?P=slug)" is itself '
+        r'"shopsystem"'
+    )
+)
+def then_networks_exactly_slug_no_shopsystem(slug: str, context: dict) -> None:
+    data = context.get("parsed_compose") or _load_compose(context)
+    assert isinstance(data, dict) and "networks" in data, (
+        "compose.yaml has no top-level 'networks' key"
+    )
+    nets = data["networks"]
+    assert isinstance(nets, dict), "'networks' is not a mapping"
+    keys = list(nets.keys())
+    assert keys == [slug], (
+        f"'networks' keys are {keys!r}; expected exactly [{slug!r}]"
+    )
+    if slug != "shopsystem":
+        assert "shopsystem" not in nets, (
+            f"'networks' leaks a literal 'shopsystem' key for slug {slug!r}"
+        )
+
+
+@then(
+    parsers.parse(
+        'the parsed YAML "services" mapping contains a key whose value '
+        'carries a "container_name" equal to "{name}"'
+    )
+)
+def then_services_has_container_name(name: str, context: dict) -> None:
+    services = _r9r5_services(context)
+    found = [
+        svc_name
+        for svc_name, svc in services.items()
+        if isinstance(svc, dict) and svc.get("container_name") == name
+    ]
+    assert found, (
+        f"no service carries container_name == {name!r}; "
+        f"saw {[(k, (v or {}).get('container_name')) for k, v in services.items()]!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the parsed YAML contains a top-level key "volumes" whose value is a '
+        'mapping containing the key "{key}"'
+    )
+)
+def then_volumes_contains_key(key: str, context: dict) -> None:
+    data = context.get("parsed_compose") or _load_compose(context)
+    assert isinstance(data, dict) and "volumes" in data, (
+        "compose.yaml has no top-level 'volumes' key"
+    )
+    vols = data["volumes"]
+    assert isinstance(vols, dict) and key in vols, (
+        f"top-level 'volumes' {list(vols) if isinstance(vols, dict) else vols!r} "
+        f"does not contain key {key!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'every service entry under "services" attaches only to the '
+        r'"(?P<slug>[^"]+)" network and to no network literally named '
+        r'"shopsystem" unless "(?P=slug)" is itself "shopsystem"'
+    )
+)
+def then_every_service_only_slug_network(slug: str, context: dict) -> None:
+    services = _r9r5_services(context)
+    for svc_name, svc in services.items():
+        assert isinstance(svc, dict), f"service {svc_name!r} is not a mapping"
+        nets = svc.get("networks")
+        assert nets is not None, (
+            f"service {svc_name!r} declares no 'networks' entry"
+        )
+        names = list(nets.keys()) if isinstance(nets, dict) else list(nets)
+        assert names == [slug], (
+            f"service {svc_name!r} attaches to {names!r}; "
+            f"expected only [{slug!r}]"
+        )
+        if slug != "shopsystem":
+            assert "shopsystem" not in names, (
+                f"service {svc_name!r} attaches to a literal 'shopsystem' "
+                f"network for slug {slug!r}"
+            )
+
+
+# -- Scenario 9c8b8b40ee9ffde4 (pgdata source, slug-parametric env) ------
+
+
+@then(
+    parsers.parse(
+        'the source string of the volume mount on the postgres service whose '
+        'target is "{target}" contains the literal substring "{src_lit}"'
+    )
+)
+def then_postgres_volume_source_contains(
+    target: str, src_lit: str, context: dict
+) -> None:
+    services = _r9r5_services(context)
+    node = services.get("postgres")
+    assert isinstance(node, dict), "compose.yaml has no 'postgres' service"
+    src, _tgt = _find_volume_for_target(node, target)
+    assert src is not None, (
+        f"postgres service has no volume whose target is {target!r}"
+    )
+    context["last_volume_source"] = src
+    assert src_lit in src, (
+        f"postgres volume source {src!r} does not contain {src_lit!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'that source string expresses a default whose literal substring is '
+        r'"(?P<a>[^"]+)" or "(?P<b>[^"]+)"'
+    )
+)
+def then_that_source_string_default(a: str, b: str, context: dict) -> None:
+    src = context.get("last_volume_source")
+    assert src is not None, "no volume source captured by a prior step"
+    assert a in src or b in src, (
+        f"volume source {src!r} expresses neither {a!r} nor {b!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'that source string does not contain the literal substring "{needle}"'
+    )
+)
+def then_that_source_string_excludes(needle: str, context: dict) -> None:
+    src = context.get("last_volume_source")
+    assert src is not None, "no volume source captured by a prior step"
+    assert needle not in src, (
+        f"volume source {src!r} unexpectedly contains {needle!r}"
+    )
+
+
+# -- Scenario 5335c39eb06f7493 (shop-shell broker-wired) ----------------
+
+
+@then(
+    parsers.parse(
+        'after the invocation the target directory contains a file at '
+        '"{rel}" whose owner-execute permission bit is set and whose first '
+        'line is exactly "{line}"'
+    )
+)
+def then_file_executable_and_first_line(
+    rel: str, line: str, context: dict
+) -> None:
+    import stat as _stat
+
+    real = _ops_target(context)
+    path = real / rel
+    assert path.is_file(), f"expected file {path!s} to exist"
+    mode = path.stat().st_mode
+    assert mode & _stat.S_IXUSR, (
+        f"expected owner-execute bit set on {path!s}; mode={oct(mode)}"
+    )
+    text = path.read_text()
+    first = text.splitlines()[0] if text.splitlines() else ""
+    assert first == line, f"first line of {rel} is {first!r}, expected {line!r}"
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" contains the literal substring '
+        r'"(?P<first>[^"]+)" followed somewhere later in the file by the '
+        r'literal substring "(?P<second>[^"]+)", and contains the literal '
+        r'substring "(?P<third>[^"]+)", and contains the literal substring '
+        r'"(?P<fourth>[^"]+)"'
+    )
+)
+def then_body_ordered_plus_two_more(
+    rel: str, first: str, second: str, third: str, fourth: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    i = body.find(first)
+    j = body.find(second)
+    assert i != -1, f"{rel} missing literal {first!r}"
+    assert j != -1, f"{rel} missing literal {second!r}"
+    assert i < j, (
+        f"{rel}: {first!r} (at {i}) must precede {second!r} (at {j})"
+    )
+    assert third in body, f"{rel} missing literal {third!r}"
+    assert fourth in body, f"{rel} missing literal {fourth!r}"
+
+
+@then(
+    parsers.parse(
+        'the body of "{rel}" references the environment variable "{var1}" '
+        'and the environment variable "{var2}" for broker credentials'
+    )
+)
+def then_body_references_two_env_vars(
+    rel: str, var1: str, var2: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert var1 in body, f"{rel} does not reference env var {var1!r}"
+    assert var2 in body, f"{rel} does not reference env var {var2!r}"
+
+
+@then(
+    parsers.parse(
+        'the body of "{rel}" references the proxy endpoint by the literal '
+        'substring "{port}" carried on an "{assign}" assignment'
+    )
+)
+def then_body_proxy_port_on_assignment(
+    rel: str, port: str, assign: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    # Find an assignment line for the named variable that also carries the
+    # port literal (e.g. HTTPS_PROXY="...:14322").
+    matched = any(
+        port in ln and assign in ln and ("=" in ln)
+        and ln.lstrip().startswith(assign)
+        for ln in body.splitlines()
+    )
+    assert matched, (
+        f"{rel}: no {assign} assignment line carries the proxy port {port!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" greps for a container name containing '
+        r'the literal substring "(?P<a>[^"]+)" or "(?P<b>[^"]+)"'
+    )
+)
+def then_body_greps_container_name(
+    rel: str, a: str, b: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    grep_lines = [
+        ln for ln in body.splitlines() if "grep" in ln
+    ]
+    assert grep_lines, f"{rel} contains no grep invocation"
+    matched = any((a in ln or b in ln) for ln in grep_lines)
+    assert matched, (
+        f"{rel}: no grep line references {a!r} or {b!r}; "
+        f"grep lines were {grep_lines!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the body of "{rel}" contains a token-presence guard that exits '
+        'non-zero with a diagnostic when the broker token is empty or unset'
+    )
+)
+def then_body_token_guard_nonzero(rel: str, context: dict) -> None:
+    real = _ops_target(context)
+    lines = (real / rel).read_text().splitlines()
+    # A "token-presence guard that exits non-zero with a diagnostic" is a
+    # guarded block predicated on an empty/unset broker TOKEN that, when
+    # taken, both exits non-zero AND emits a diagnostic to stderr. There may
+    # be several TOKEN-predicated guards (e.g. a recovery branch that does
+    # NOT exit); the contract is satisfied if AT LEAST ONE such guard exits
+    # non-zero with a diagnostic. Scan every candidate guard block.
+    def _guard_indices() -> list[int]:
+        out = []
+        for idx, ln in enumerate(lines):
+            if "TOKEN" in ln and (
+                '-z "' in ln or "-z " in ln or "unset" in ln or "empty" in ln
+            ) and ("if " in ln or "[[" in ln or "[ " in ln):
+                out.append(idx)
+        return out
+
+    guard_idxs = _guard_indices()
+    assert guard_idxs, (
+        f"{rel}: no token-presence guard testing an empty/unset broker token"
+    )
+    for gi in guard_idxs:
+        block = []
+        for ln in lines[gi:]:
+            block.append(ln)
+            if ln.strip() == "fi":
+                break
+        block_text = "\n".join(block)
+        has_nonzero_exit = any(
+            ln.strip().startswith("exit")
+            and ln.strip() not in ("exit 0", "exit")
+            for ln in block
+        )
+        has_diag = ">&2" in block_text or "stderr" in block_text.lower()
+        if has_nonzero_exit and has_diag:
+            return
+    assert False, (
+        f"{rel}: no empty/unset-token guard block both exits non-zero and "
+        f"emits a diagnostic to stderr"
+    )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" does not contain the literal '
+        r'substring "(?P<a>[^"]+)" and does not contain the literal '
+        r'substring "(?P<b>[^"]+)" and does not contain the literal '
+        r'substring "(?P<c>[^"]+)" and does not contain the literal '
+        r'substring "(?P<d>[^"]+)"'
+    )
+)
+def then_body_excludes_four(
+    rel: str, a: str, b: str, c: str, d: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    for needle in (a, b, c, d):
+        assert needle not in body, (
+            f"{rel}: expected NOT to contain literal substring {needle!r}"
+        )
+
+
+# -- Scenario abe57dcb4d6f6554 (host port crc32, collision-free) --------
+
+
+def _r9r5_postgres_ports(context: dict) -> list:
+    services = _r9r5_services(context)
+    node = services.get("postgres")
+    assert isinstance(node, dict), "compose.yaml has no 'postgres' service"
+    ports = node.get("ports")
+    assert ports, "postgres service declares no 'ports' entry"
+    return list(ports)
+
+
+@then(
+    parsers.re(
+        r'the postgres service\'s "ports" entry maps a host port whose '
+        r'default value equals "(?P<port>\d+)", which is '
+        r'"5432 \+ crc32\((?P<slug>[^)]+)\) % 1000"'
+    )
+)
+def then_postgres_port_default_equals(
+    port: str, slug: str, context: dict
+) -> None:
+    ports = _r9r5_postgres_ports(context)
+    # The published host port is the default of an env-overridable expression
+    # like "${SLUG_UPPER_POSTGRES_PORT:-5829}:5432". Confirm the default value
+    # equals the crc32-derived port AND matches the literal in the entry.
+    expected = 5432 + (zlib.crc32(slug.encode("utf-8")) % 1000)
+    assert str(expected) == port, (
+        f"5432 + crc32({slug!r}) % 1000 = {expected}, not {port}"
+    )
+    joined = "\n".join(str(p) for p in ports)
+    # default appears after ':-' and before the closing brace / target port.
+    assert f":-{port}}}" in joined or f":-{port}" in joined, (
+        f"postgres ports {ports!r} do not express default {port!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'that "ports" entry expresses the host port through the '
+        r'"(?P<var>[^"]+)" environment variable with "(?P<port>\d+)" as its '
+        r'default'
+    )
+)
+def then_postgres_port_env_overridable(
+    var: str, port: str, context: dict
+) -> None:
+    ports = _r9r5_postgres_ports(context)
+    joined = "\n".join(str(p) for p in ports)
+    assert var in joined, (
+        f"postgres ports {ports!r} do not reference env var {var!r}"
+    )
+    assert f":-{port}" in joined, (
+        f"postgres ports {ports!r} do not express {port!r} as the default"
+    )
+
+
+@then(
+    parsers.re(
+        r'the rendered host port "(?P<port>\d+)" differs from the host port '
+        r'that the same rule yields for any other product slug, so '
+        r'concurrently bootstrapped products do not collide on the postgres '
+        r'host port'
+    )
+)
+def then_host_port_distinct(port: str, context: dict) -> None:
+    # The rule 5432 + crc32(slug) % 1000 yields distinct ports for the two
+    # Examples slugs (shopsystem -> 5829, dummyco -> 5714). Verify the rule
+    # is per-slug deterministic and that the two scenario slugs differ.
+    p_shop = 5432 + (zlib.crc32(b"shopsystem") % 1000)
+    p_dummy = 5432 + (zlib.crc32(b"dummyco") % 1000)
+    assert p_shop != p_dummy, (
+        f"crc32 rule yields colliding ports for shopsystem/dummyco "
+        f"({p_shop} == {p_dummy})"
+    )
+    assert int(port) in (p_shop, p_dummy), (
+        f"rendered port {port} is not one of the per-slug computed ports "
+        f"{{shopsystem: {p_shop}, dummyco: {p_dummy}}}"
+    )
+
+
+# -- Scenario cb1e585684ff4a14 (six-file set, not under .claude/) -------
+
+
+@then(
+    parsers.re(
+        r'after the invocation the target directory contains a top-level '
+        r'file named "(?P<name>[^"]+)" not under any "\.claude/" subdirectory'
+    )
+)
+def then_top_level_file_named_not_under_claude(
+    name: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    path = real / name
+    assert path.is_file(), f"expected top-level file {path!s} to exist"
+    assert ".claude" not in path.relative_to(real).parts, (
+        f"{name} is under a .claude/ subdirectory: {path!s}"
+    )
+
+
+@then(
+    parsers.re(
+        r'after the invocation the target directory contains a file at '
+        r'"(?P<rel>[^"]+)" not under any "\.claude/" subdirectory'
+    )
+)
+def then_file_at_rel_not_under_claude(rel: str, context: dict) -> None:
+    real = _ops_target(context)
+    path = real / rel
+    assert path.is_file(), f"expected file {path!s} to exist"
+    assert ".claude" not in path.relative_to(real).parts, (
+        f"{rel} is under a .claude/ subdirectory: {path!s}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the directory at "(?P<dirpath>[^"]+)" does not contain a file '
+        r'named "(?P<n1>[^"]+)", "(?P<n2>[^"]+)", "(?P<n3>[^"]+)", '
+        r'"(?P<n4>[^"]+)", "(?P<n5>[^"]+)", or "(?P<n6>[^"]+)"'
+    )
+)
+def then_canonical_dir_lacks_six(
+    dirpath: str,
+    n1: str,
+    n2: str,
+    n3: str,
+    n4: str,
+    n5: str,
+    n6: str,
+    context: dict,
+) -> None:
+    real = _ops_target(context)
+    rel = dirpath.split("/tmp/example-lead-shop/", 1)[-1].rstrip("/")
+    cdir = real / rel
+    for n in (n1, n2, n3, n4, n5, n6):
+        assert not (cdir / n).exists(), (
+            f"{cdir!s} unexpectedly contains {n!r}"
+        )
+
+
+# -- Scenario 1b6dbe8a0095fb8f (non-default render: no shopsystem/fleet) -
+
+
+@then(
+    parsers.re(
+        r'the byte contents of "(?P<rel>[^"]+)" in the target directory '
+        r'contain no case-insensitive occurrence of the literal substring '
+        r'"(?P<a>[^"]+)" and no case-insensitive occurrence of the literal '
+        r'substring "(?P<b>[^"]+)"'
+    )
+)
+def then_byte_contents_no_ci_two(
+    rel: str, a: str, b: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    raw = (real / rel).read_bytes().decode("utf-8", errors="replace").lower()
+    for needle in (a, b):
+        assert needle.lower() not in raw, (
+            f"{rel} contains a case-insensitive occurrence of {needle!r}"
+        )
+
+
+@then(
+    parsers.parse(
+        'the target directory contains no top-level file named "{name}"'
+    )
+)
+def then_no_top_level_file_named(name: str, context: dict) -> None:
+    real = _ops_target(context)
+    path = real / name
+    assert not path.exists(), (
+        f"expected NO top-level file named {name!r} under {real!s}, but it "
+        f"exists"
     )

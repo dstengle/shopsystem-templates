@@ -11,7 +11,7 @@
 # script never collides with a second product running alongside it.
 #
 # ZERO-HOST-COUPLING (ADR-028): credentials are sourced exclusively through
-# the agent-vault broker — there are NO host ~/.claude / ~/.gitconfig mounts.
+# the agent-vault broker — NO host credential or config dotfiles are mounted.
 # Outbound traffic routes through the broker proxy (HTTPS_PROXY at
 # agent-vault:14322), which injects the real secrets on the wire. Only the
 # git IDENTITY (author/committer name+email — not a secret) is forwarded from
@@ -35,6 +35,15 @@ mkdir -p "${{OPS_SLUG_UPPER}}_DATA/pgdata"
 
 # Bring up postgres (and the agent-vault broker) if not already running.
 docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres agent-vault
+
+# Confirm the slug-scoped compose containers are actually running by name
+# before proceeding. The container names are product-scoped ({{OPS_SLUG}}-*)
+# so a second product's postgres/agent-vault never satisfies this check.
+if ! docker ps --format '{{.Names}}' | grep -Eq '^{{OPS_SLUG}}-postgres$|^{{OPS_SLUG}}-agent-vault$'; then
+  echo "bin/shop-shell: expected the slug-scoped compose containers ({{OPS_SLUG}}-postgres / {{OPS_SLUG}}-agent-vault) to be running, but neither was found." >&2
+  echo "  Check 'docker compose -f $REPO_ROOT/compose.yaml ps'. Aborting." >&2
+  exit 1
+fi
 
 # -----------------------------------------------------------------------
 # Broker credential acquisition (ADR-028 zero-host-coupling).

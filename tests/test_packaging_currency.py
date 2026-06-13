@@ -36,7 +36,7 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 7, 0)
+MIN_VERSION = (0, 8, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
@@ -141,6 +141,17 @@ COMPOSE_SH_HEALTHCHECK_PROBE = "nc"
 # dependency so the published artifact's lazy import resolves on a clean install.
 # The delivered pyproject must declare `scenarios` as a project dependency.
 SCENARIOS_DEP_TOKEN = "scenarios"
+
+# v0.8.0 ships the lead-l95x credential-key rename (2936c70): the delivered
+# ops/agent-vault-provision must use SCREAMING_SNAKE_CASE credential keys
+# (`GITHUB_PAT_USER` / `GITHUB_PAT`) and MUST NOT carry the old kebab-case
+# `github-pat` / `github-pat-user` credential keys. agent-vault rejects
+# kebab credential keys, so a tag-install that poured the old casing would
+# crash the dummyco spike (lead-jdfb) at `vault credential set`. The
+# `--username-key GITHUB_PAT_USER --password-key GITHUB_PAT` service-add
+# references must ride along too.
+PROVISION_SCREAMING_SNAKE_KEYS = ["GITHUB_PAT_USER", "GITHUB_PAT"]
+PROVISION_FORBIDDEN_KEBAB_KEYS = ["github-pat-user", "github-pat"]
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -520,4 +531,28 @@ def test_delivered_pyproject_declares_scenarios_dependency(built_sdist):
         f"delivered pyproject does not declare the {SCENARIOS_DEP_TOKEN!r} "
         f"dependency (lead-ld7i); a clean tag-install would leave bc-emit's lazy "
         f"scenarios import unresolved"
+    )
+
+
+def test_delivered_provision_uses_screaming_snake_credential_keys(built_sdist):
+    """lead-l95x (2936c70): v0.8.0 ships the agent-vault-provision credential-key
+    rename from kebab-case to SCREAMING_SNAKE_CASE. The delivered
+    ops/agent-vault-provision must carry the SCREAMING_SNAKE credential keys
+    (`GITHUB_PAT_USER`, `GITHUB_PAT`) — both in the `vault credential set` store
+    and the `vault service add --username-key/--password-key` references — and
+    MUST NOT carry the old kebab-case `github-pat` / `github-pat-user` credential
+    keys, which agent-vault rejects. A tag-install that poured the stale kebab
+    casing would crash the dummyco spike (lead-jdfb) at credential set time."""
+    body = _sdist_member(built_sdist, PROVISION_REL)
+    missing = [k for k in PROVISION_SCREAMING_SNAKE_KEYS if k not in body]
+    assert not missing, (
+        f"delivered ops/agent-vault-provision lacks the SCREAMING_SNAKE "
+        f"credential keys {missing} (lead-l95x rename 2936c70); a tag-install "
+        f"would pour the stale kebab-cased provision script"
+    )
+    present_kebab = [k for k in PROVISION_FORBIDDEN_KEBAB_KEYS if k in body]
+    assert not present_kebab, (
+        f"delivered ops/agent-vault-provision still carries kebab-case credential "
+        f"keys {present_kebab}; agent-vault rejects kebab credential keys and the "
+        f"lead-l95x rename (2936c70) replaced them with SCREAMING_SNAKE_CASE"
     )

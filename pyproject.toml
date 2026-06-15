@@ -55,4 +55,9 @@ shop_templates = [
     # dotfiles (lead-llc1 / tmpl-263).
     "templates/ops/.env.example",
     "templates/skills/**/*",
+    # The canonical LEAD skill-group (bring-up-bc, create-bc). A distinct
+    # package-data subtree from templates/skills/; lead bootstrap/update pour
+    # it. Must ship in the sdist+wheel or lead shops pour an empty group
+    # (lead-5mr5).
+    "templates/lead_skills/**/*",
 ]

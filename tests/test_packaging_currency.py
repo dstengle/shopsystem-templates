@@ -36,7 +36,7 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 11, 0)
+MIN_VERSION = (0, 12, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
@@ -210,6 +210,35 @@ PROVISION_SCOPED_SESSION_TOKENS = [
 GITIGNORE_TEMPLATE_REL = "templates/gitignore.template"
 GITIGNORE_ENV_IGNORE_TOKENS = [".env"]
 GITIGNORE_ENV_EXAMPLE_NEGATION = "!.env.example"
+
+# v0.12.0 ships the lead-xgs0 authoring-time @scenario_hash move (59d2b93): the
+# canonical lead-po template now writes the `@scenario_hash` tag at AUTHORING
+# time as an explicit step (the PO owns the hash and computes it with
+# `scenarios hash` as part of authoring), and the prohibition that the hash is
+# "not yours" / "do NOT add @scenario_hash" is GONE. The `@bc:<name>` tag stays
+# dispatch-time (CLI/Architect-added at assignment). This is delivery-currency:
+# the reframed lead-po only reaches launched lead shops after the published
+# version advances past 0.11.0 and the artifact actually carries the
+# authoring-time hash step. We assert against the BUILT ARTIFACT so a
+# tag-install that dropped or omitted the reframed template is caught.
+LEAD_PO_REL = "templates/lead-po.md"
+# The authoring-time hash step must be present: the PO computes
+# `@scenario_hash` with `scenarios hash` AS PART OF AUTHORING.
+LEAD_PO_AUTHORING_HASH_TOKENS = ["@scenario_hash", "scenarios hash"]
+LEAD_PO_AUTHORING_PHRASE = "as part of authoring"
+# The removed prohibition: the delivered lead-po must NOT tell the PO to leave
+# the hash to someone else (e.g. "do NOT add @scenario_hash" / "hash
+# computation is ... not yours" against the scenario_hash tag).
+LEAD_PO_FORBIDDEN_PROHIBITIONS = [
+    "do not add `@scenario_hash`",
+    "do not add @scenario_hash",
+    "hash computation is not yours",
+    "@scenario_hash` is not yours",
+    "@scenario_hash is not yours",
+]
+# The `@bc` tag must remain dispatch-time (Architect / assignment / CLI-added),
+# not authored by the PO.
+LEAD_PO_BC_DISPATCH_TOKEN = "@bc"
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -753,4 +782,51 @@ def test_delivered_gitignore_ignores_dotenv_but_tracks_example(
     assert _wheel_has_member(built_wheel, GITIGNORE_TEMPLATE_REL), (
         f"delivered wheel is missing {GITIGNORE_TEMPLATE_REL!r}; a clean install "
         f"would pour no top-level .gitignore"
+    )
+
+
+def test_delivered_lead_po_moves_scenario_hash_to_authoring_time(built_sdist):
+    """lead-xgs0 (59d2b93): v0.12.0 ships the authoring-time @scenario_hash move.
+    The delivered `templates/lead-po.md` must instruct the PO to write the
+    `@scenario_hash` tag at AUTHORING time as an explicit step (compute it with
+    `scenarios hash` as part of authoring), and MUST NOT carry the old
+    prohibition that the hash is "not yours" / "do NOT add @scenario_hash". The
+    `@bc:<name>` tag must remain dispatch-time (Architect/assignment-added).
+
+    This is delivery-currency: the reframed lead-po only reaches launched lead
+    shops once the published version advances past 0.11.0 and the artifact
+    actually carries the authoring-time hash step. Asserts against the BUILT
+    ARTIFACT so a tag-install that omitted the reframed template is caught."""
+    body = _sdist_member(built_sdist, LEAD_PO_REL)
+    lowered = body.lower()
+
+    missing = [t for t in LEAD_PO_AUTHORING_HASH_TOKENS if t not in body]
+    assert not missing, (
+        f"delivered {LEAD_PO_REL} lacks the authoring-time @scenario_hash "
+        f"vocabulary {missing} (lead-xgs0 59d2b93); a tag-install would pour a "
+        f"lead-po that does not own the hash at authoring time"
+    )
+    assert LEAD_PO_AUTHORING_PHRASE in lowered, (
+        f"delivered {LEAD_PO_REL} does not frame @scenario_hash computation as "
+        f"'{LEAD_PO_AUTHORING_PHRASE}' (lead-xgs0); the authoring-time hash step "
+        f"is the load-bearing reframe this release delivers"
+    )
+
+    present_prohibitions = [
+        p for p in LEAD_PO_FORBIDDEN_PROHIBITIONS if p in lowered
+    ]
+    assert not present_prohibitions, (
+        f"delivered {LEAD_PO_REL} still carries the removed prohibition "
+        f"{present_prohibitions} against authoring @scenario_hash; lead-xgs0 "
+        f"(59d2b93) moved the hash to authoring time and removed it"
+    )
+
+    # The @bc tag must remain dispatch/assignment-time, not PO-authored.
+    assert LEAD_PO_BC_DISPATCH_TOKEN in body, (
+        f"delivered {LEAD_PO_REL} no longer references the {LEAD_PO_BC_DISPATCH_TOKEN!r} "
+        f"tag; the reframe keeps @bc as a dispatch-time (Architect-added) tag"
+    )
+    assert "assignment time" in lowered or "dispatch" in lowered, (
+        f"delivered {LEAD_PO_REL} does not keep @bc as a dispatch/assignment-time "
+        f"tag (lead-xgs0); only @scenario_hash moved to authoring time"
     )

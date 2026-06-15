@@ -36,7 +36,7 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 8, 0)
+MIN_VERSION = (0, 9, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
@@ -152,6 +152,20 @@ SCENARIOS_DEP_TOKEN = "scenarios"
 # GITHUB_USERNAME --password-key GITHUB_TOKEN` service-add references ride along.
 PROVISION_SCREAMING_SNAKE_KEYS = ["GITHUB_USERNAME", "GITHUB_TOKEN"]
 PROVISION_FORBIDDEN_KEBAB_KEYS = ["github-pat-user", "github-pat", "github-username", "github-token"]
+
+# v0.9.0 ships the lead-8jar five-live-fleet-service provision rewrite (4797c35,
+# folds lead-eqzi + lead-71tq). The delivered ops/agent-vault-provision must
+# register the Claude broker services — in particular `claude-api` against host
+# `api.anthropic.com` attaching the `CLAUDE_OAUTH` bearer credential — so a fresh
+# dummyco provision (spike iter-7) wires the full broker set and the iter-6
+# Claude-401 is fixed. The human-gate prompt must reference the credential by its
+# authoritative SCREAMING_SNAKE name `CLAUDE_OAUTH` and MUST NOT carry the old
+# kebab `claude-oauth` (agent-vault rejects kebab credential keys). The .env
+# writeback must reference both AGENT_VAULT_VAULT and AGENT_VAULT_CA_PEM so the
+# provisioned broker address/vault/CA ride into the launched shop's .env.
+PROVISION_CLAUDE_SERVICE_TOKENS = ["claude-api", "api.anthropic.com", "CLAUDE_OAUTH"]
+PROVISION_FORBIDDEN_KEBAB_OAUTH = "claude-oauth"
+PROVISION_ENV_WRITEBACK_KEYS = ["AGENT_VAULT_VAULT", "AGENT_VAULT_CA_PEM"]
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -555,4 +569,55 @@ def test_delivered_provision_uses_screaming_snake_credential_keys(built_sdist):
         f"delivered ops/agent-vault-provision still carries kebab-case credential "
         f"keys {present_kebab}; agent-vault rejects kebab credential keys and the "
         f"lead-l95x rename (2936c70) replaced them with SCREAMING_SNAKE_CASE"
+    )
+
+
+def test_delivered_provision_registers_claude_broker_service(built_sdist):
+    """lead-8jar (4797c35): v0.9.0 ships the five-live-fleet-service provision
+    rewrite. The delivered ops/agent-vault-provision must register the Claude
+    broker service `claude-api` against host `api.anthropic.com` attaching the
+    `CLAUDE_OAUTH` bearer credential, so a fresh dummyco provision (spike iter-7)
+    wires the full broker service set rather than crashing the iter-6 Claude-401.
+    A tag-install that poured a provision without these service-add calls would
+    leave the broker unable to attach the OAuth bearer to Anthropic requests."""
+    body = _sdist_member(built_sdist, PROVISION_REL)
+    missing = [t for t in PROVISION_CLAUDE_SERVICE_TOKENS if t not in body]
+    assert not missing, (
+        f"delivered ops/agent-vault-provision is missing the Claude broker "
+        f"service-registration tokens {missing} (lead-8jar 4797c35); a fresh "
+        f"dummyco provision would not wire claude-api -> api.anthropic.com with "
+        f"the CLAUDE_OAUTH bearer and would reproduce the iter-6 Claude-401"
+    )
+
+
+def test_delivered_human_gate_uses_screaming_snake_claude_oauth(built_sdist):
+    """lead-8jar: the delivered provision human-gate prompt must reference the
+    OAuth credential by its authoritative SCREAMING_SNAKE name `CLAUDE_OAUTH`
+    and MUST NOT carry the old kebab `claude-oauth` — agent-vault rejects kebab
+    credential keys, so a tag-install that poured the kebab name would crash the
+    dummyco spike at credential set time."""
+    body = _sdist_member(built_sdist, PROVISION_REL)
+    assert "CLAUDE_OAUTH" in body, (
+        "delivered ops/agent-vault-provision human-gate does not reference the "
+        "SCREAMING_SNAKE credential name CLAUDE_OAUTH (lead-8jar)"
+    )
+    assert PROVISION_FORBIDDEN_KEBAB_OAUTH not in body, (
+        f"delivered ops/agent-vault-provision still carries the forbidden kebab "
+        f"credential name {PROVISION_FORBIDDEN_KEBAB_OAUTH!r}; agent-vault rejects "
+        f"kebab credential keys and lead-8jar uses CLAUDE_OAUTH"
+    )
+
+
+def test_delivered_provision_env_writeback_references_vault_and_ca(built_sdist):
+    """lead-8jar: the delivered provision .env writeback must reference both
+    AGENT_VAULT_VAULT and AGENT_VAULT_CA_PEM so the provisioned broker
+    vault/CA ride into the launched shop's .env (folds lead-eqzi + lead-71tq).
+    A tag-install whose provision omitted these writeback keys would leave a
+    bootstrapped shop without the broker vault selector or the CA pin."""
+    body = _sdist_member(built_sdist, PROVISION_REL)
+    missing = [k for k in PROVISION_ENV_WRITEBACK_KEYS if k not in body]
+    assert not missing, (
+        f"delivered ops/agent-vault-provision .env writeback is missing "
+        f"{missing} (lead-8jar); a bootstrapped shop's .env would lack the broker "
+        f"vault selector / CA pin"
     )

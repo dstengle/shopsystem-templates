@@ -183,6 +183,22 @@ PROVISION_PROPOSAL_GATE_TOKENS = ["proposal create", "proposal approve"]
 PROVISION_OAUTH_TYPE_FORMS = ['type:oauth', '"type": "oauth"', '"type":"oauth"']
 PROVISION_FORBIDDEN_FLAT_OAUTH_SET = "credential set CLAUDE_OAUTH"
 
+# v0.11.0 corrected-behavior (lead-9qdn / WALL-2): proposal create/approve run
+# in AGENT mode on agent-vault 0.32.0 and REQUIRE a vault-scoped session — the
+# owner session that authorized vault create / credential set / service add is
+# insufficient ("Error: Session requires vault scope"). The delivered provision
+# must mint a vault-scoped session via `vault token --vault` BEFORE the proposal
+# step, and run the proposal subcommands under it with the three env vars
+# (AGENT_VAULT_TOKEN=<scoped> / AGENT_VAULT_ADDR=http://localhost:14321 /
+# AGENT_VAULT_VAULT). A tag-install that poured the pre-fix owner-session
+# proposal step would die on "Session requires vault scope" at provision time.
+PROVISION_SCOPED_SESSION_TOKENS = [
+    "vault token --vault",
+    "-e AGENT_VAULT_TOKEN=",
+    "-e AGENT_VAULT_ADDR=http://localhost:14321",
+    "-e AGENT_VAULT_VAULT=",
+]
+
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
     m = re.match(r"(\d+)\.(\d+)\.(\d+)", raw.strip())
@@ -672,4 +688,14 @@ def test_delivered_provision_uses_oauth_proposal_gate_not_flat_credential_set(
         f"{PROVISION_FORBIDDEN_FLAT_OAUTH_SET!r} fallback; lead-yrex (d47c110) "
         f"replaced it with the OAuth-typed proposal gate, and a flat static set "
         f"would store a non-refreshing CLAUDE_OAUTH bearer"
+    )
+    # CORRECTED BEHAVIOR (lead-9qdn / WALL-2): the proposal gate must run under a
+    # vault-scoped session, not the bare owner session. This EXTENDS the gate
+    # assertion above (it does not relax the proposal-verb / number-parse pins).
+    missing_scope = [t for t in PROVISION_SCOPED_SESSION_TOKENS if t not in body]
+    assert not missing_scope, (
+        f"delivered ops/agent-vault-provision is missing the vault-scoped session "
+        f"wiring {missing_scope} (lead-9qdn / WALL-2); proposal create/approve run "
+        f"in agent mode and need a vault-scoped session, else a tag-install dies on "
+        f'"Session requires vault scope" at provision time'
     )

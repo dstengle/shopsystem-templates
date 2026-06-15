@@ -36,7 +36,7 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 9, 0)
+MIN_VERSION = (0, 10, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
@@ -166,6 +166,22 @@ PROVISION_FORBIDDEN_KEBAB_KEYS = ["github-pat-user", "github-pat", "github-usern
 PROVISION_CLAUDE_SERVICE_TOKENS = ["claude-api", "api.anthropic.com", "CLAUDE_OAUTH"]
 PROVISION_FORBIDDEN_KEBAB_OAUTH = "claude-oauth"
 PROVISION_ENV_WRITEBACK_KEYS = ["AGENT_VAULT_VAULT", "AGENT_VAULT_CA_PEM"]
+
+# v0.10.0 ships the lead-yrex Claude-OAuth human-gate rewrite (d47c110): the
+# delivered ops/agent-vault-provision must drive the CLAUDE_OAUTH credential
+# through a PRE-POPULATED OAuth-TYPED credential-slot PROPOSAL — the operator
+# only APPROVES it, rather than the script hand-creating the credential with a
+# flat `vault credential set CLAUDE_OAUTH=...`. The proposal path preserves the
+# refresh machinery (type:oauth + token_url) which a flat static credential set
+# would destroy. So the delivered provision must carry the proposal verbs
+# (`proposal create` + `proposal approve`) and the OAuth type marker (`type:oauth`
+# or `"type": "oauth"`), and MUST NOT carry a flat `credential set CLAUDE_OAUTH`
+# fallback. A tag-install that poured a flat-credential-set provision would
+# store a non-refreshing CLAUDE_OAUTH and reproduce the broker token-expiry that
+# lead-yrex fixed.
+PROVISION_PROPOSAL_GATE_TOKENS = ["proposal create", "proposal approve"]
+PROVISION_OAUTH_TYPE_FORMS = ['type:oauth', '"type": "oauth"', '"type":"oauth"']
+PROVISION_FORBIDDEN_FLAT_OAUTH_SET = "credential set CLAUDE_OAUTH"
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -620,4 +636,40 @@ def test_delivered_provision_env_writeback_references_vault_and_ca(built_sdist):
         f"delivered ops/agent-vault-provision .env writeback is missing "
         f"{missing} (lead-8jar); a bootstrapped shop's .env would lack the broker "
         f"vault selector / CA pin"
+    )
+
+
+def test_delivered_provision_uses_oauth_proposal_gate_not_flat_credential_set(
+    built_sdist,
+):
+    """lead-yrex (d47c110): v0.10.0 ships the Claude-OAuth human-gate rewrite.
+    The delivered ops/agent-vault-provision must drive the CLAUDE_OAUTH
+    credential through a PRE-POPULATED OAuth-TYPED credential-slot PROPOSAL —
+    it must carry the proposal verbs (`proposal create` + `proposal approve`)
+    and an OAuth type marker (`type:oauth` / `"type": "oauth"`), and MUST NOT
+    carry a flat `credential set CLAUDE_OAUTH` fallback.
+
+    The proposal path preserves the refresh machinery (type:oauth + token_url);
+    a flat static `credential set CLAUDE_OAUTH=<token>` would store a
+    non-refreshing bearer and reproduce the broker token-expiry lead-yrex fixed.
+    A tag-install that poured the pre-d47c110 flat-credential-set provision
+    would crash the dummyco spike's long-lived Claude broker once the pasted
+    token expired."""
+    body = _sdist_member(built_sdist, PROVISION_REL)
+    missing_verbs = [t for t in PROVISION_PROPOSAL_GATE_TOKENS if t not in body]
+    assert not missing_verbs, (
+        f"delivered ops/agent-vault-provision is missing the OAuth-proposal gate "
+        f"verbs {missing_verbs} (lead-yrex d47c110); a tag-install would not pour "
+        f"the proposal-based CLAUDE_OAUTH human gate"
+    )
+    assert any(form in body for form in PROVISION_OAUTH_TYPE_FORMS), (
+        f"delivered ops/agent-vault-provision carries no OAuth type marker "
+        f"(one of {PROVISION_OAUTH_TYPE_FORMS}); the lead-yrex proposal must set "
+        f"type:oauth so the slot keeps its refresh machinery"
+    )
+    assert PROVISION_FORBIDDEN_FLAT_OAUTH_SET not in body, (
+        f"delivered ops/agent-vault-provision still carries the flat "
+        f"{PROVISION_FORBIDDEN_FLAT_OAUTH_SET!r} fallback; lead-yrex (d47c110) "
+        f"replaced it with the OAuth-typed proposal gate, and a flat static set "
+        f"would store a non-refreshing CLAUDE_OAUTH bearer"
     )

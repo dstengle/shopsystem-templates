@@ -143,15 +143,15 @@ COMPOSE_SH_HEALTHCHECK_PROBE = "nc"
 SCENARIOS_DEP_TOKEN = "scenarios"
 
 # v0.8.0 ships the lead-l95x credential-key rename (2936c70): the delivered
-# ops/agent-vault-provision must use SCREAMING_SNAKE_CASE credential keys
-# (`GITHUB_PAT_USER` / `GITHUB_PAT`) and MUST NOT carry the old kebab-case
-# `github-pat` / `github-pat-user` credential keys. agent-vault rejects
-# kebab credential keys, so a tag-install that poured the old casing would
-# crash the dummyco spike (lead-jdfb) at `vault credential set`. The
-# `--username-key GITHUB_PAT_USER --password-key GITHUB_PAT` service-add
-# references must ride along too.
-PROVISION_SCREAMING_SNAKE_KEYS = ["GITHUB_PAT_USER", "GITHUB_PAT"]
-PROVISION_FORBIDDEN_KEBAB_KEYS = ["github-pat-user", "github-pat"]
+# ops/agent-vault-provision must use SCREAMING_SNAKE_CASE credential keys and
+# MUST NOT carry kebab-case credential keys. agent-vault rejects kebab
+# credential keys, so a tag-install that poured the old casing would crash the
+# dummyco spike (lead-jdfb) at `vault credential set`. lead-8jar CORRECTS the
+# key NAMES to the live `fleet` vault's authoritative keys (GITHUB_USERNAME /
+# GITHUB_TOKEN) — still SCREAMING_SNAKE, no kebab — and the `--username-key
+# GITHUB_USERNAME --password-key GITHUB_TOKEN` service-add references ride along.
+PROVISION_SCREAMING_SNAKE_KEYS = ["GITHUB_USERNAME", "GITHUB_TOKEN"]
+PROVISION_FORBIDDEN_KEBAB_KEYS = ["github-pat-user", "github-pat", "github-username", "github-token"]
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:

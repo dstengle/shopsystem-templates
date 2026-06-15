@@ -380,32 +380,120 @@ def test_dummyco_agent_vault_provision_is_slug_scoped_and_human_gated(tmp_path):
 
 
 def test_agent_vault_provision_credential_keys_are_screaming_snake(tmp_path):
-    # lead-l95x: agent-vault 0.32.0 `vault credential set` REJECTS kebab-case
-    # credential KEY names — they must be SCREAMING_SNAKE_CASE. The rendered
-    # provision script must therefore store + reference GITHUB_PAT_USER /
-    # GITHUB_PAT as credential keys, with NO kebab `github-pat` key surviving
-    # in the credential-set args, the --*-key refs, or comments quoting them.
+    # lead-l95x established the SCREAMING_SNAKE invariant (agent-vault 0.32.0
+    # `vault credential set` REJECTS kebab-case credential KEY names). lead-8jar
+    # CORRECTS the key NAMES to the live vault's authoritative keys
+    # (GITHUB_USERNAME / GITHUB_TOKEN) — still SCREAMING_SNAKE, no kebab. The
+    # test's intent (no kebab credential keys) is preserved with corrected names.
     body = render_ops_template("agent-vault-provision", "dummyco")
 
     # the credential KEY names stored via `vault credential set` are
-    # SCREAMING_SNAKE_CASE (key=value form, value still ${GITHUB_PAT...}).
-    assert "GITHUB_PAT_USER=${GITHUB_PAT_USER}" in body, (
+    # SCREAMING_SNAKE_CASE (key=value form).
+    assert "GITHUB_USERNAME=${GITHUB_USERNAME}" in body, (
         "provision must store the username under the SCREAMING_SNAKE key "
-        "GITHUB_PAT_USER"
+        "GITHUB_USERNAME"
     )
-    assert "GITHUB_PAT=${GITHUB_PAT}" in body, (
-        "provision must store the PAT under the SCREAMING_SNAKE key GITHUB_PAT"
+    assert "GITHUB_TOKEN=${GITHUB_TOKEN}" in body, (
+        "provision must store the token under the SCREAMING_SNAKE key GITHUB_TOKEN"
     )
     # the service-add step references the SCREAMING_SNAKE keys.
-    assert "--username-key GITHUB_PAT_USER" in body, (
-        "service add must reference --username-key GITHUB_PAT_USER"
+    assert "--username-key GITHUB_USERNAME" in body, (
+        "service add must reference --username-key GITHUB_USERNAME"
     )
-    assert "--password-key GITHUB_PAT" in body, (
-        "service add must reference --password-key GITHUB_PAT"
+    assert "--password-key GITHUB_TOKEN" in body, (
+        "service add must reference --password-key GITHUB_TOKEN"
     )
     # NO kebab credential key remains ANYWHERE (args, --*-key refs, comments).
     assert "github-pat" not in body, (
         f"provision leaked a kebab-case credential key 'github-pat':\n{body}"
+    )
+
+
+def test_provision_registers_all_five_live_fleet_services(tmp_path):
+    # lead-8jar (WS-2 / dummyco spike iter-6): the rendered provision script
+    # registered only ONE service (github basic) -> a fresh BC's Claude calls
+    # 401 because no claude-api service attaches the OAuth bearer. The live
+    # `fleet` vault carries FIVE services; the rendered script must mirror them
+    # (slug-clean, vault selector is $VAULT not the literal "fleet").
+    body = render_ops_template("agent-vault-provision", "dummyco")
+
+    # 1. github-git — the PRESERVED existing clone/git service (basic).
+    assert "--name github-git" in body, (
+        "the existing github clone/git service must be preserved as github-git"
+    )
+    assert "--host github.com" in body
+    assert "--auth-type basic" in body
+    assert "--username-key GITHUB_USERNAME" in body
+    assert "--password-key GITHUB_TOKEN" in body
+
+    # 2. github-api — bearer GITHUB_TOKEN against api.github.com.
+    assert "--name github-api" in body, "must add github-api service"
+    assert "--host api.github.com" in body
+    assert "--token-key GITHUB_TOKEN" in body
+
+    # 3/4/5. the three claude-* bearer services keyed on CLAUDE_OAUTH.
+    assert "--name claude-api" in body, "must add claude-api service"
+    assert "--host api.anthropic.com" in body
+    assert "--name claude-platform" in body, "must add claude-platform service"
+    assert "--host platform.claude.com" in body
+    assert "--name claude-mcp-proxy" in body, "must add claude-mcp-proxy service"
+    assert "--host mcp-proxy.anthropic.com" in body
+    assert "--token-key CLAUDE_OAUTH" in body, (
+        "claude-* services must bearer-attach the CLAUDE_OAUTH credential"
+    )
+
+    # slug-clean: the rendered vault selector is $VAULT, never the literal
+    # live-fleet vault name "fleet" hard-coded into a service-add.
+    assert "--vault fleet" not in body, (
+        "rendered provision must use the slug-derived $VAULT, not literal 'fleet'"
+    )
+
+
+def test_provision_github_credential_keys_are_authoritative(tmp_path):
+    # lead-8jar: the live vault's AUTHORITATIVE github credential KEYS are
+    # GITHUB_USERNAME / GITHUB_TOKEN (corrects the prior GITHUB_PAT_USER /
+    # GITHUB_PAT phrasing). They remain SCREAMING_SNAKE; the prior PAT keys
+    # must NOT survive anywhere (credential set, --*-key refs, shell vars).
+    body = render_ops_template("agent-vault-provision", "dummyco")
+    assert "GITHUB_USERNAME=${GITHUB_USERNAME}" in body, (
+        "credential set must store the username under GITHUB_USERNAME"
+    )
+    assert "GITHUB_TOKEN=${GITHUB_TOKEN}" in body, (
+        "credential set must store the token under GITHUB_TOKEN"
+    )
+    assert "GITHUB_PAT" not in body, (
+        f"provision must not carry the stale GITHUB_PAT* keys:\n{body}"
+    )
+
+
+def test_provision_human_gate_actionable_name_is_screaming_snake(tmp_path):
+    # FOLD-IN lead-eqzi (P1): agent-vault enforces SCREAMING_SNAKE credential
+    # KEYS. The human-gate's ACTIONABLE credential name the operator is told to
+    # create must be CLAUDE_OAUTH (not kebab claude-oauth). Prose descriptions
+    # ("Claude-OAuth") are fine; the actionable kebab key must be gone.
+    body = render_ops_template("agent-vault-provision", "dummyco")
+    assert "CLAUDE_OAUTH" in body, (
+        "human-gate must instruct creating the CLAUDE_OAUTH credential"
+    )
+    assert "claude-oauth" not in body, (
+        f"human-gate must not name a kebab 'claude-oauth' credential:\n{body}"
+    )
+
+
+def test_provision_env_writeback_includes_vault_and_ca_pem(tmp_path):
+    # FOLD-IN lead-71tq (P2): the provision .env writeback must add the launch
+    # vault selector AGENT_VAULT_VAULT and the broker CA AGENT_VAULT_CA_PEM
+    # (fetched via `agent-vault ca fetch`) so a plain launch from .env trusts
+    # the MITM proxy.
+    body = render_ops_template("agent-vault-provision", "dummyco")
+    assert "AGENT_VAULT_VAULT=" in body, (
+        ".env writeback must set AGENT_VAULT_VAULT (launch vault selector)"
+    )
+    assert "AGENT_VAULT_CA_PEM=" in body, (
+        ".env writeback must set AGENT_VAULT_CA_PEM (broker CA)"
+    )
+    assert "ca fetch" in body, (
+        "provision must fetch the broker CA via `agent-vault ca fetch`"
     )
 
 

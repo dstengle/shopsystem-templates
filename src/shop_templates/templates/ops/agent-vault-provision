@@ -68,11 +68,13 @@ ENV_FILE="${AGENT_VAULT_ENV_FILE:-.env}"
 OWNER_EMAIL="${AGENT_VAULT_OWNER_EMAIL:-owner@${SLUG}.local}"
 OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-}"
 
-# GitHub Basic-auth identity. For github.com over Basic the PAT is the
-# password; the username is the GitHub login (or the PAT itself — GitHub
-# accepts any non-empty username when a PAT is the password). Defaults to
-# the conventional token-as-username form when unset.
-GITHUB_PAT_USER="${GITHUB_PAT_USER:-x-access-token}"
+# GitHub Basic-auth identity. For github.com over Basic the token is the
+# password; the username is the GitHub login (or the token itself — GitHub
+# accepts any non-empty username when a token is the password). Defaults to
+# the conventional token-as-username form when unset. The credential KEY
+# names mirror the live fleet vault's AUTHORITATIVE keys: GITHUB_USERNAME /
+# GITHUB_TOKEN (SCREAMING_SNAKE — agent-vault rejects kebab credential keys).
+GITHUB_USERNAME="${GITHUB_USERNAME:-x-access-token}"
 
 echo "agent-vault-provision: provisioning broker '$CONTAINER' (vault '$VAULT', network '$NETWORK')."
 
@@ -117,32 +119,76 @@ echo "agent-vault-provision: ensuring vault '$VAULT' exists on '$CONTAINER'."
 # vault is non-fatal (we still need it to exist).
 "${DEXEC[@]}" agent-vault vault create "$VAULT" 2>/dev/null || true
 
-GITHUB_PAT="${GITHUB_PAT:-}"
-if [[ -n "$GITHUB_PAT" ]]; then
-  echo "agent-vault-provision: storing GitHub PAT credential into vault '$VAULT' on '$CONTAINER'."
-  # `vault credential set <key=value> ...` — the github username + PAT are
-  # stored as named credential keys the service references by key.
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+if [[ -n "$GITHUB_TOKEN" ]]; then
+  echo "agent-vault-provision: storing GitHub credential into vault '$VAULT' on '$CONTAINER'."
+  # `vault credential set <key=value> ...` — the github username + token are
+  # stored under the live fleet vault's AUTHORITATIVE SCREAMING_SNAKE keys.
   "${DEXEC[@]}" agent-vault vault credential set \
-    "GITHUB_PAT_USER=${GITHUB_PAT_USER}" \
-    "GITHUB_PAT=${GITHUB_PAT}" \
+    "GITHUB_USERNAME=${GITHUB_USERNAME}" \
+    "GITHUB_TOKEN=${GITHUB_TOKEN}" \
     --vault "$VAULT"
 
-  echo "agent-vault-provision: wiring github.com Basic service over the MITM proxy (:$PROXY_PORT)."
-  # `vault service add` upserts the service by name. github.com is brokered
-  # with Basic auth: username-key + password-key reference the credentials
-  # stored above. Both legs broker over the single proxy listener at
-  # :$PROXY_PORT (ADR-026 D2).
+  echo "agent-vault-provision: wiring github-git (github.com Basic) over the MITM proxy (:$PROXY_PORT)."
+  # `vault service add` upserts the service by name. The PRESERVED existing
+  # clone/git service is named github-git: github.com brokered with Basic
+  # auth, username-key + password-key referencing the credentials stored
+  # above. Both legs broker over the single proxy listener (ADR-026 D2).
   "${DEXEC[@]}" agent-vault vault service add \
-    --name github \
+    --name github-git \
     --host github.com \
     --auth-type basic \
-    --username-key GITHUB_PAT_USER \
-    --password-key GITHUB_PAT \
+    --username-key GITHUB_USERNAME \
+    --password-key GITHUB_TOKEN \
+    --vault "$VAULT"
+
+  echo "agent-vault-provision: wiring github-api (api.github.com Bearer) over the MITM proxy."
+  # github-api: the REST/GraphQL API host attaches GITHUB_TOKEN as a Bearer.
+  "${DEXEC[@]}" agent-vault vault service add \
+    --name github-api \
+    --host api.github.com \
+    --auth-type bearer \
+    --token-key GITHUB_TOKEN \
     --vault "$VAULT"
 else
-  echo "agent-vault-provision: GITHUB_PAT not set in the environment; skipping the"
-  echo "  scripted GitHub-PAT store. Export GITHUB_PAT and re-run to provision it."
+  echo "agent-vault-provision: GITHUB_TOKEN not set in the environment; skipping the"
+  echo "  scripted GitHub credential store + github-git/github-api service-adds."
+  echo "  Export GITHUB_TOKEN (and optionally GITHUB_USERNAME) and re-run."
 fi
+
+# -----------------------------------------------------------------------
+# (1b) Claude broker service mappings (lead-8jar / WS-2). The live fleet
+#      vault carries three Claude services that attach the refreshing
+#      CLAUDE_OAUTH credential as a Bearer. Without these the broker never
+#      attaches the OAuth bearer to api.anthropic.com requests, so a fresh
+#      BC's Claude calls return 401 (dummyco spike iter-6).
+#
+#      These `service add` calls only DECLARE the host -> CLAUDE_OAUTH
+#      mapping; the CLAUDE_OAUTH credential VALUE is supplied later via the
+#      human gate (dashboard paste). agent-vault upserts the service mapping
+#      independently of whether the credential value exists yet, so these run
+#      UNCONDITIONALLY (the mapping is what makes the bearer attach once the
+#      human-gated value lands).
+# -----------------------------------------------------------------------
+echo "agent-vault-provision: wiring the Claude broker services (bearer CLAUDE_OAUTH) over the MITM proxy."
+"${DEXEC[@]}" agent-vault vault service add \
+  --name claude-api \
+  --host api.anthropic.com \
+  --auth-type bearer \
+  --token-key CLAUDE_OAUTH \
+  --vault "$VAULT"
+"${DEXEC[@]}" agent-vault vault service add \
+  --name claude-platform \
+  --host platform.claude.com \
+  --auth-type bearer \
+  --token-key CLAUDE_OAUTH \
+  --vault "$VAULT"
+"${DEXEC[@]}" agent-vault vault service add \
+  --name claude-mcp-proxy \
+  --host mcp-proxy.anthropic.com \
+  --auth-type bearer \
+  --token-key CLAUDE_OAUTH \
+  --vault "$VAULT"
 
 # -----------------------------------------------------------------------
 # (2) Mint the <slug>-fleet agent token (ADR-026 D2 / Brief 011 Step 4).
@@ -164,20 +210,35 @@ if [[ -z "$FLEET_TOKEN" ]]; then
   exit 1
 fi
 
-# Write the real broker addr + fleet token into .env, REPLACING the
-# placeholder values so no <changeme> survives for these two keys.
+# Fetch the broker root CA the in-network clients need to trust the MITM
+# proxy (lead-71tq). `agent-vault ca fetch` prints the root CA PEM. The PEM
+# is multi-line and unsafe to inline in a .env value, so we write it to a
+# CA file next to the .env and point AGENT_VAULT_CA_PEM at that PATH — the
+# form shop-shell/launch installs into the client trust store. (If the
+# launch path ever expects inline PEM instead, switch this to capture the
+# PEM into the value with proper escaping; path is the safer default.)
+CA_PEM_FILE="${AGENT_VAULT_CA_PEM:-agent-vault-ca.pem}"
+echo "agent-vault-provision: fetching broker root CA into '$CA_PEM_FILE'."
+"${DEXEC[@]}" agent-vault ca fetch > "$CA_PEM_FILE"
+
+# Write the real broker addr + fleet token + vault selector + CA path into
+# .env, REPLACING the placeholder values so no <changeme> survives for these.
 if [[ -f "$ENV_FILE" ]]; then
-  echo "agent-vault-provision: writing AGENT_VAULT_ADDR + AGENT_VAULT_TOKEN into '$ENV_FILE'."
+  echo "agent-vault-provision: writing AGENT_VAULT_ADDR + AGENT_VAULT_TOKEN + AGENT_VAULT_VAULT + AGENT_VAULT_CA_PEM into '$ENV_FILE'."
   # Replace the placeholder lines in place (BSD/GNU-portable: rewrite via a
   # temp file). The .env.example ships these as:
   #   AGENT_VAULT_ADDR=<changeme-broker-address>
   #   AGENT_VAULT_TOKEN=<changeme-broker-token>
+  #   AGENT_VAULT_VAULT=<changeme-broker-vault>
+  #   AGENT_VAULT_CA_PEM=<changeme-broker-ca-pem>
   tmp_env="$(mktemp)"
   while IFS= read -r line || [[ -n "$line" ]]; do
     case "$line" in
-      AGENT_VAULT_ADDR=*)  printf 'AGENT_VAULT_ADDR=%s\n' "$BROKER_ADDR" ;;
-      AGENT_VAULT_TOKEN=*) printf 'AGENT_VAULT_TOKEN=%s\n' "$FLEET_TOKEN" ;;
-      *)                   printf '%s\n' "$line" ;;
+      AGENT_VAULT_ADDR=*)   printf 'AGENT_VAULT_ADDR=%s\n' "$BROKER_ADDR" ;;
+      AGENT_VAULT_TOKEN=*)  printf 'AGENT_VAULT_TOKEN=%s\n' "$FLEET_TOKEN" ;;
+      AGENT_VAULT_VAULT=*)  printf 'AGENT_VAULT_VAULT=%s\n' "$VAULT" ;;
+      AGENT_VAULT_CA_PEM=*) printf 'AGENT_VAULT_CA_PEM=%s\n' "$CA_PEM_FILE" ;;
+      *)                    printf '%s\n' "$line" ;;
     esac
   done < "$ENV_FILE" > "$tmp_env"
   mv "$tmp_env" "$ENV_FILE"
@@ -186,6 +247,8 @@ else
   {
     printf 'AGENT_VAULT_ADDR=%s\n' "$BROKER_ADDR"
     printf 'AGENT_VAULT_TOKEN=%s\n' "$FLEET_TOKEN"
+    printf 'AGENT_VAULT_VAULT=%s\n' "$VAULT"
+    printf 'AGENT_VAULT_CA_PEM=%s\n' "$CA_PEM_FILE"
   } >> "$ENV_FILE"
 fi
 
@@ -207,7 +270,9 @@ cat <<EOF
 
     1. Open the agent-vault dashboard for broker '$CONTAINER'
        (vault '$VAULT', network '$NETWORK').
-    2. Add a credential of type 'claude-oauth' (the refreshing OAuth type).
+    2. Add a credential named CLAUDE_OAUTH (the refreshing OAuth type).
+       agent-vault enforces SCREAMING_SNAKE credential keys — the claude-*
+       services above attach this credential via --token-key CLAUDE_OAUTH.
     3. Paste the Claude-OAuth credential value into the dashboard form
        and save it into vault '$VAULT'.
 

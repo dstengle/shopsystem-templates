@@ -151,3 +151,100 @@ def test_gitignore_template_lists_worktrees_dir():
     assert ".worktrees/" in body, (
         "gitignore.template does not list .worktrees/"
     )
+
+
+def test_gitignore_template_ignores_env_but_keeps_example_tracked():
+    """Cold-walkthrough GAP-1 (lead-7if5): INSTALL Step 2 states emphatically
+    that .env (holding AGENT_VAULT_MASTER_PASSWORD, later AGENT_VAULT_TOKEN /
+    owner secrets) is gitignored and must never be committed. The rendered
+    .gitignore must honor that claim: ignore the bare .env file and .env.*
+    secret variants, while keeping the shipped .env.example scaffold TRACKED
+    via a `!.env.example` negation so `cp .env.example .env` still works."""
+    body = read_gitignore_template()
+    lines = [ln.strip() for ln in body.splitlines()]
+    assert ".env" in lines, "gitignore.template does not ignore the bare .env"
+    assert ".env.*" in lines, (
+        "gitignore.template does not ignore .env.* secret variants"
+    )
+    assert "!.env.example" in lines, (
+        "gitignore.template lacks the !.env.example negation that keeps the "
+        "shipped scaffold tracked"
+    )
+    # Negation ordering is load-bearing: .env.* must precede !.env.example so
+    # the re-include actually un-ignores the scaffold.
+    assert lines.index(".env.*") < lines.index("!.env.example"), (
+        "!.env.example negation must come AFTER .env.* to re-include the "
+        "scaffold"
+    )
+
+
+def test_bootstrapped_repo_ignores_env_keeps_example_and_preserves_entries(
+    tmp_path,
+):
+    """Behavioral pin (lead-7if5 acceptance pin 2): in a freshly-bootstrapped
+    product git repo, `git check-ignore .env` matches a .gitignore rule
+    (exit 0) while `git check-ignore .env.example` does NOT match (exit 1 —
+    the scaffold stays tracked). Also confirms every pre-existing .gitignore
+    entry survives (acceptance pin 3)."""
+    import argparse
+    import subprocess
+
+    from shop_templates.cli import _cmd_bootstrap
+
+    target = tmp_path / "product"
+    target.mkdir()
+    subprocess.run(
+        ["git", "init", "-q"], cwd=str(target), check=True
+    )
+
+    rc = _cmd_bootstrap(
+        argparse.Namespace(
+            shop_type="bc",
+            shop_name="example-bc",
+            target=str(target),
+        )
+    )
+    assert rc == 0, f"bootstrap returned non-zero exit {rc}"
+
+    gitignore = target / ".gitignore"
+    assert gitignore.is_file(), "bootstrap did not write a .gitignore"
+
+    # .env is ignored (exit 0 == matched).
+    env_check = subprocess.run(
+        ["git", "check-ignore", "-v", ".env"],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+    )
+    assert env_check.returncode == 0, (
+        f".env is NOT git-ignored in the bootstrapped repo; "
+        f"check-ignore stdout={env_check.stdout!r} stderr={env_check.stderr!r}"
+    )
+
+    # .env.example is NOT ignored (exit 1 == not matched) — stays tracked.
+    example_check = subprocess.run(
+        ["git", "check-ignore", ".env.example"],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+    )
+    assert example_check.returncode == 1, (
+        ".env.example must stay tracked (not matched by any ignore rule), "
+        f"but check-ignore matched it: stdout={example_check.stdout!r}"
+    )
+
+    # All pre-existing entries preserved (acceptance pin 3).
+    body = gitignore.read_text()
+    for entry in (
+        "__pycache__/",
+        "*.py[cod]",
+        ".dolt/",
+        "*.db",
+        ".beads-credential-key",
+        "/inbox/",
+        "/outbox/",
+        ".worktrees/",
+    ):
+        assert entry in body, (
+            f"pre-existing .gitignore entry {entry!r} was dropped"
+        )

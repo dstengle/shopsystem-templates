@@ -18,3 +18,10 @@ dist/
 
 # Per-work_id BC role-subagent git worktrees (kept inside the project root)
 .worktrees/
+
+# Local environment secrets (AGENT_VAULT_MASTER_PASSWORD, AGENT_VAULT_TOKEN,
+# owner secrets) — never commit. The shipped .env.example scaffold stays
+# tracked via the negation (operators run `cp .env.example .env`).
+.env
+.env.*
+!.env.example

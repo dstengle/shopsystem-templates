@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shop-templates"
-version = "0.11.0"
+version = "0.12.0"
 description = "Validated role-prompt templates for shops in the shop-system. Distributed as package data; consumed via the `shop-templates` CLI rather than read from a known filesystem path."
 requires-python = ">=3.10"
 license = {text = "MIT"}

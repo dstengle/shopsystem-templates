@@ -36,7 +36,7 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 10, 0)
+MIN_VERSION = (0, 11, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
@@ -198,6 +198,18 @@ PROVISION_SCOPED_SESSION_TOKENS = [
     "-e AGENT_VAULT_ADDR=http://localhost:14321",
     "-e AGENT_VAULT_VAULT=",
 ]
+
+# v0.11.0 corrected-behavior (lead-7if5 / af58736): the bootstrap-poured
+# top-level .gitignore must ignore `.env` (and `.env.*`) while keeping the
+# `.env.example` scaffold tracked via a `!.env.example` negation, closing the
+# master-password-commit gap. The CLI pours `templates/gitignore.template`
+# verbatim into a launched shop's `.gitignore`, so the DELIVERED template must
+# carry the `.env` ignore rule AND the `!.env.example` negation. A tag-install
+# that poured the pre-fix template would let an operator's `.env` (holding the
+# AGENT_VAULT_MASTER_PASSWORD / broker token) be committed.
+GITIGNORE_TEMPLATE_REL = "templates/gitignore.template"
+GITIGNORE_ENV_IGNORE_TOKENS = [".env"]
+GITIGNORE_ENV_EXAMPLE_NEGATION = "!.env.example"
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -698,4 +710,47 @@ def test_delivered_provision_uses_oauth_proposal_gate_not_flat_credential_set(
         f"wiring {missing_scope} (lead-9qdn / WALL-2); proposal create/approve run "
         f"in agent mode and need a vault-scoped session, else a tag-install dies on "
         f'"Session requires vault scope" at provision time'
+    )
+
+
+def test_delivered_gitignore_ignores_dotenv_but_tracks_example(
+    built_sdist, built_wheel
+):
+    """lead-7if5 (af58736): v0.11.0 ships the bootstrap `.gitignore` fix. The
+    delivered `templates/gitignore.template` — which the CLI pours verbatim into
+    a launched shop's top-level `.gitignore` — must ignore `.env` while keeping
+    the `.env.example` scaffold tracked via a `!.env.example` negation.
+
+    This is the master-password-commit gap: an operator runs `cp .env.example
+    .env` and populates the real `.env` with AGENT_VAULT_MASTER_PASSWORD / broker
+    token; without a `.env` ignore rule that secret-bearing file is a `git add`
+    away from being committed. The negation keeps the shipped `.env.example`
+    scaffold tracked so the bootstrap render path still finds it.
+
+    Asserts against the BUILT ARTIFACTS (sdist + wheel), not the source tree, so
+    a tag-install that dropped or omitted the template from the package is caught
+    — the same delivery-currency discipline the rest of this module applies."""
+    sdist_body = _sdist_member(built_sdist, GITIGNORE_TEMPLATE_REL)
+    missing = [t for t in GITIGNORE_ENV_IGNORE_TOKENS if t not in sdist_body]
+    assert not missing, (
+        f"delivered {GITIGNORE_TEMPLATE_REL} lacks the .env ignore rule(s) "
+        f"{missing} (lead-7if5 af58736); a tag-install would pour a .gitignore "
+        f"that leaves an operator's secret-bearing .env a `git add` away from "
+        f"being committed"
+    )
+    assert GITIGNORE_ENV_EXAMPLE_NEGATION in sdist_body, (
+        f"delivered {GITIGNORE_TEMPLATE_REL} lacks the "
+        f"{GITIGNORE_ENV_EXAMPLE_NEGATION!r} negation (lead-7if5); the shipped "
+        f".env.example scaffold must stay tracked so the bootstrap render path "
+        f"still finds it"
+    )
+    # The template must actually ride along in BOTH built artifacts, or a clean
+    # install pours no top-level .gitignore at all.
+    assert _sdist_has_member(built_sdist, GITIGNORE_TEMPLATE_REL), (
+        f"delivered sdist is missing {GITIGNORE_TEMPLATE_REL!r}; a clean install "
+        f"would pour no top-level .gitignore"
+    )
+    assert _wheel_has_member(built_wheel, GITIGNORE_TEMPLATE_REL), (
+        f"delivered wheel is missing {GITIGNORE_TEMPLATE_REL!r}; a clean install "
+        f"would pour no top-level .gitignore"
     )

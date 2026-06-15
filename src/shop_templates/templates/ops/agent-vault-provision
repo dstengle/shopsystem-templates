@@ -282,7 +282,35 @@ fi
 # server rejects a stored token for oauth creds — tokens arrive via the
 # approve/connect flow). This REPLACES the prior manual hand-paste step.
 # -----------------------------------------------------------------------
-echo "agent-vault-provision: creating the CLAUDE_OAUTH OAuth-typed credential-slot proposal on vault '$VAULT'."
+# VAULT-SCOPED SESSION (lead-9qdn / WALL-2). agent-vault 0.32.0 runs proposal
+# create/approve in AGENT mode: they require a vault-SCOPED session, even though
+# the owner session that authorized `vault create` / `credential set` /
+# `service add` above succeeded. The owner session alone yields
+# "Error: Session requires vault scope". So before the proposal step we mint a
+# vault-scoped session token (`vault token --vault <vault>` prints an
+# `av_sess_...` to stdout, authorized off the in-container owner session) and run
+# every proposal subcommand under it via AGENT_VAULT_TOKEN/_ADDR/_VAULT env vars.
+# (CLI surface verified against agent-vault 0.32.0; fix proven live against a
+# throwaway broker.)
+echo "agent-vault-provision: minting a vault-scoped session for the proposal step on vault '$VAULT'."
+_SCOPED_SESSION="$("${DEXEC[@]}" agent-vault vault token --vault "$VAULT" | tr -d '\r\n')"
+if [[ -z "$_SCOPED_SESSION" ]]; then
+  echo "agent-vault-provision: failed to mint a vault-scoped session for vault '$VAULT'." >&2
+  echo "  proposal create/approve require a vault-scoped session on agent-vault 0.32.0." >&2
+  exit 1
+fi
+
+# The scoped exec runs proposal subcommands under the vault-scoped session. The
+# three env vars are exactly: the minted scoped session as AGENT_VAULT_TOKEN, the
+# broker's OWN API port (http://localhost:14321 — proposal runs INSIDE the
+# container, so localhost), and the vault selector. NOT the bare owner session.
+DEXEC_SCOPED=(docker exec -i \
+  -e AGENT_VAULT_TOKEN="$_SCOPED_SESSION" \
+  -e AGENT_VAULT_ADDR=http://localhost:14321 \
+  -e AGENT_VAULT_VAULT="$VAULT" \
+  "$CONTAINER")
+
+echo "agent-vault-provision: creating the CLAUDE_OAUTH OAuth-typed credential-slot proposal on vault '$VAULT' (vault-scoped session)."
 
 # Render the proposal JSON from the script vars (so an Anthropic-endpoint
 # change is a one-line edit above). action:set + type:oauth + the oauth block
@@ -298,7 +326,7 @@ EOF
 # `vault proposal create -f -` reads the JSON body from stdin and (with --json)
 # prints the created proposal as JSON; capture it so we can surface the proposal
 # number/URL in the approve prompt below.
-_proposal_out="$(printf '%s' "$_oauth_proposal_json" | "${DEXEC[@]}" agent-vault vault proposal create -f - --json --vault "$VAULT")"
+_proposal_out="$(printf '%s' "$_oauth_proposal_json" | "${DEXEC_SCOPED[@]}" agent-vault vault proposal create -f - --json --vault "$VAULT")"
 
 # Surface the proposal number for the operator. The number is parsed from the
 # `proposal create --json` output (a "number"/"id" field); if the exact field
@@ -306,7 +334,7 @@ _proposal_out="$(printf '%s' "$_oauth_proposal_json" | "${DEXEC[@]}" agent-vault
 # (Most robust portable parse: pull the first integer after a number/id key.)
 PROPOSAL_NUM="$(printf '%s' "$_proposal_out" | grep -oE '"(number|id)"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
 if [[ -z "$PROPOSAL_NUM" ]]; then
-  PROPOSAL_NUM="$("${DEXEC[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null \
+  PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null \
     | grep -oE '[0-9]+' | tail -n1)"
 fi
 
@@ -321,10 +349,19 @@ cat <<EOF
   vault '$VAULT' (broker '$CONTAINER'). It already carries the OAuth config
   (token_url + client_id); only the real token is missing.
 
-  Approve it now — supply the real secret AT APPROVE TIME (ADR-026 D4):
+  Approve it now — supply the real secret AT APPROVE TIME (ADR-026 D4).
+  proposal approve runs in AGENT mode (agent-vault 0.32.0) and therefore needs
+  a VAULT-SCOPED session — run it under the scoped session env (NOT the bare
+  owner session), exactly as proposal create was run above:
 
-    # Token paste (the Claude case): pass the accessToken to approve.
-    agent-vault vault proposal approve ${PROPOSAL_NUM:-<number>} CLAUDE_OAUTH=<accessToken> --yes --vault '$VAULT'
+    # Token paste (the Claude case): pass the accessToken to approve. The three
+    # -e env vars carry the same vault-scoped session the script minted.
+    docker exec -i \\
+      -e AGENT_VAULT_TOKEN=$_SCOPED_SESSION \\
+      -e AGENT_VAULT_ADDR=http://localhost:14321 \\
+      -e AGENT_VAULT_VAULT='$VAULT' \\
+      '$CONTAINER' \\
+      agent-vault vault proposal approve ${PROPOSAL_NUM:-<number>} CLAUDE_OAUTH=<accessToken> --yes --vault '$VAULT'
 
   (Or open the printed approve URL and Connect.) agent-vault enforces
   SCREAMING_SNAKE credential keys — the claude-* services above attach this
@@ -345,7 +382,8 @@ if "${DEXEC[@]}" agent-vault vault credential list --vault "$VAULT" 2>/dev/null 
   echo "agent-vault-provision: CLAUDE_OAUTH present; provisioning complete for vault '$VAULT' on '$CONTAINER'."
 else
   echo "agent-vault-provision: CLAUDE_OAUTH not found in vault '$VAULT' — approve the proposal" >&2
-  echo "  (agent-vault vault proposal approve ${PROPOSAL_NUM:-<number>} CLAUDE_OAUTH=<accessToken> --yes --vault '$VAULT')" >&2
-  echo "  and re-run, or check 'agent-vault vault proposal list --vault $VAULT'." >&2
+  echo "  under the vault-scoped session (agent-mode approve needs vault scope):" >&2
+  echo "  docker exec -i -e AGENT_VAULT_TOKEN=$_SCOPED_SESSION -e AGENT_VAULT_ADDR=http://localhost:14321 -e AGENT_VAULT_VAULT='$VAULT' '$CONTAINER' agent-vault vault proposal approve ${PROPOSAL_NUM:-<number>} CLAUDE_OAUTH=<accessToken> --yes --vault '$VAULT'" >&2
+  echo "  then re-run, or check 'agent-vault vault proposal list --vault $VAULT'." >&2
   exit 1
 fi

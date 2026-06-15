@@ -366,16 +366,20 @@ def test_dummyco_agent_vault_provision_is_slug_scoped_and_human_gated(tmp_path):
         f"dummyco provision leaked a shopsystem literal:\n{body}"
     )
     assert "shopsystem-agent-vault-1" not in body
-    # the Claude-OAuth dashboard paste is preserved as the one HUMAN GATE:
-    # the script STOPs for the dashboard step (does not automate it).
+    # the Claude-OAuth credential is the one HUMAN GATE (CORRECTED, lead-yrex):
+    # provision now CREATES a pre-populated OAuth-typed proposal and STOPs for
+    # the operator to APPROVE it (token paste at the approve URL) — replacing
+    # the old manual dashboard-paste hand-create.
     low = body.lower()
-    assert "dashboard" in low, "provision must reference the OAuth dashboard step"
-    assert ("oauth" in low) or ("claude" in low), (
-        "provision must reference the Claude-OAuth credential paste"
+    assert "vault proposal approve" in body, (
+        "provision must instruct the operator to APPROVE the printed OAuth proposal"
     )
-    # an explicit human-gated halt for the dashboard step
+    assert ("oauth" in low) or ("claude" in low), (
+        "provision must reference the Claude-OAuth credential approval"
+    )
+    # an explicit human-gated halt for the approval step
     assert any(tok in body for tok in ("read -r", "read -p", 'read ')), (
-        "provision must STOP/await for the human dashboard paste"
+        "provision must STOP/await for the operator to approve the OAuth proposal"
     )
 
 

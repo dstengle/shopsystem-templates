@@ -189,15 +189,22 @@ def test_provision_writes_addr_and_token_to_env():
 
 
 def test_provision_preserves_claude_oauth_human_gate():
-    """ADR-026 D2/D4: the refreshing Claude-OAuth credential has NO CLI path
-    in 0.32.0; the manual dashboard paste is the ONE documented human gate
-    and must be preserved with its read-prompt structure."""
+    """ADR-026 D4 (CORRECTED, lead-yrex): the refreshing Claude-OAuth credential
+    IS scriptable on 0.32.0 via the `vault proposal create -f -` credential-slot
+    path. The human gate is no longer a manual dashboard paste — it is the
+    operator APPROVING the pre-populated OAuth proposal (token paste at the
+    approve URL). The HUMAN GATE banner + a blocking read-prompt structure are
+    preserved; the gate now references Claude-OAuth and instructs approve."""
     body = _provision()
     assert "HUMAN GATE" in body, "Claude-OAuth human gate banner must be preserved"
-    assert "claude-oauth" in body.lower(), "human gate must reference claude-oauth"
-    # the read-prompt that blocks for the operator's dashboard paste
+    assert "claude-oauth" in body.lower(), "human gate must reference Claude-OAuth"
+    # the gate now instructs the operator to APPROVE the printed proposal.
+    assert "vault proposal approve" in body, (
+        "human gate must instruct the operator to approve the printed proposal"
+    )
+    # the read-prompt that blocks for the operator's approval still gates the script
     assert re.search(r"\bread\b.*-p", body) or "read -r -p" in body, (
-        "human gate read-prompt structure must be preserved"
+        "human gate read-prompt (blocking on operator approval) must be preserved"
     )
 
 

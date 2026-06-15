@@ -76,6 +76,11 @@ _CLAUDE_TEMPLATES_PKG = "shop_templates.templates.claude"
 _CLAUDE_BODY_TEMPLATES_PKG = "shop_templates.templates.claude_body"
 _CLAUDE_SETTINGS_PKG = "shop_templates.templates.claude_settings"
 _SKILLS_PKG = "shop_templates.templates.skills"
+# The canonical LEAD skill-group — a package-data subtree DISTINCT from the BC
+# skill tree (_SKILLS_PKG). A "lead" shop pours ONLY this group into
+# .claude/skills/; a "bc" shop pours the BC tree. They never mix. (lead-5mr5,
+# scenarios 75f86e53/c20785332/cc520034/f75eb04e/e803b4c9/4a008549/a14e5a0a.)
+_LEAD_SKILLS_PKG = "shop_templates.templates.lead_skills"
 
 # The canonical role-set assignment per shop type. The bootstrap surface
 # uses this to decide which role files to pour into .claude/agents/ for
@@ -222,6 +227,55 @@ def iter_skill_files():
                 yield rel, child.read_bytes()
 
     yield from _walk(root, "")
+
+
+def iter_lead_skill_files():
+    """Yield (relative_posix_path, content_bytes) for every file under the
+    canonical LEAD skill-group package-data tree, recursively. Relative path
+    rooted at templates/lead_skills/ (e.g. "bring-up-bc/SKILL.md"). Served from
+    importlib.resources package data — never read from a filesystem path under
+    the product working directory.
+
+    This is the lead analogue of iter_skill_files(): the lead skill-group is a
+    separate canonical-managed surface that lead bootstrap pours into
+    .claude/skills/ and `shop-templates update` mirrors+prunes for lead shops.
+    (lead-5mr5.)"""
+    root = files(_LEAD_SKILLS_PKG)
+
+    def _walk(node, prefix):
+        for child in node.iterdir():
+            rel = child.name if prefix == "" else f"{prefix}/{child.name}"
+            if child.is_dir():
+                yield from _walk(child, rel)
+            elif child.is_file():
+                yield rel, child.read_bytes()
+
+    yield from _walk(root, "")
+
+
+def canonical_skill_group(shop_type: str) -> tuple[tuple[str, bytes], ...]:
+    """Return the canonical skill-group for a shop type as the public
+    template-access surface: a tuple of (member_name, SKILL.md bytes), one per
+    skill-group member, served from package data byte-for-byte.
+
+    Parallel to read_claude_md_primer / canonical_role_set: a pure pass-through
+    over package data, never a filesystem read under the product working
+    directory. The "lead" group is the canonical LEAD skill-group
+    (bring-up-bc, create-bc); the "bc" group is the BC skill tree. (lead-5mr5,
+    scenario c207853320920de7.)"""
+    if shop_type not in _CANONICAL_ROLE_SETS:
+        raise ValueError(
+            f"unknown shop type {shop_type!r}; accepted values: "
+            f"{', '.join(_SHOP_TYPES)}"
+        )
+    iterator = iter_lead_skill_files if shop_type == "lead" else iter_skill_files
+    members: dict[str, bytes] = {}
+    for rel, body in iterator():
+        # Each member is the top-level directory carrying a SKILL.md.
+        head, _, tail = rel.partition("/")
+        if tail == "SKILL.md":
+            members[head] = body
+    return tuple(sorted(members.items()))
 
 
 # -----------------------------------------------------------------------
@@ -375,21 +429,35 @@ def _ops_target_rel(rel_path: str, slug: str) -> str:
     return rel_path
 
 
-def _pour_skills(target: Path) -> None:
-    """Mirror the skills package-data tree into <target>/.claude/skills/."""
+def _skill_iterator_for(shop_type: str):
+    """Return the package-data skill iterator for a shop type. A "lead" shop
+    owns the canonical LEAD skill-group (templates/lead_skills/); a "bc" shop
+    owns the BC skill tree (templates/skills/). (lead-5mr5.)"""
+    return iter_lead_skill_files if shop_type == "lead" else iter_skill_files
+
+
+def _pour_skills(target: Path, iterator=iter_skill_files) -> None:
+    """Mirror a skills package-data tree into <target>/.claude/skills/.
+
+    `iterator` selects which canonical skill set is poured — the BC skill tree
+    (default) or the LEAD skill-group — so a lead shop pours its own group and a
+    bc shop pours the BC tree."""
     skills_root = target / ".claude" / "skills"
-    for rel, body in iter_skill_files():
+    for rel, body in iterator():
         dest = skills_root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(body)
 
 
-def _mirror_skills(target: Path) -> None:
-    """Mirror skills package data into <target>/.claude/skills/: re-pour
+def _mirror_skills(target: Path, iterator=iter_skill_files) -> None:
+    """Mirror a skills package-data tree into <target>/.claude/skills/: re-pour
     drifted/missing (idempotent on byte-equality), remove managed files no
-    longer shipped, prune empty dirs."""
+    longer shipped, prune empty dirs.
+
+    `iterator` selects the canonical skill set (BC tree or LEAD group) so update
+    mirrors the set that matches the shop type."""
     skills_root = target / ".claude" / "skills"
-    shipped = dict(iter_skill_files())
+    shipped = dict(iterator())
     for rel, body in shipped.items():
         dest = skills_root / rel
         if dest.exists() and dest.read_bytes() == body:
@@ -745,10 +813,12 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
         read_claude_settings_template(shop_type)
     )
 
-    # Pour canonical skills into .claude/skills/ for bc shops only.
-    # Lead shops pour no skills.
-    if shop_type == "bc":
-        _pour_skills(target)
+    # Pour canonical skills into .claude/skills/. A "bc" shop pours the BC skill
+    # tree; a "lead" shop pours the canonical LEAD skill-group (bring-up-bc,
+    # create-bc) and NOTHING else. The two sets are distinct package-data
+    # subtrees and never mix. (lead-5mr5, supersedes "lead shops pour no
+    # skills".)
+    _pour_skills(target, _skill_iterator_for(shop_type))
 
     # Lead-shop ops scaffolding (PDR-003 path F — shop-owned). For a
     # "lead" shop, render the three ops files (compose.yaml,
@@ -1040,11 +1110,11 @@ def _cmd_update(args: argparse.Namespace) -> int:
     else:
         primer_file.write_text(canonical_primer)
 
-    # Step 6: mirror canonical skills into .claude/skills/ for bc shops;
-    # re-pour drifted/missing files, remove managed files no longer shipped,
-    # prune empty dirs. Lead shops own no skills.
-    if shop_type == "bc":
-        _mirror_skills(target)
+    # Step 6: mirror canonical skills into .claude/skills/; re-pour
+    # drifted/missing files, remove managed files no longer shipped, prune empty
+    # dirs. A "bc" shop mirrors the BC skill tree; a "lead" shop mirrors the
+    # canonical LEAD skill-group. (lead-5mr5.)
+    _mirror_skills(target, _skill_iterator_for(shop_type))
 
     # Step 7: surface (without modifying) drift in .claude/shop/name.md.
     # Per scenario 97245affb1dbe5e4 (ADR-018 / ADR-007): name.md is the

@@ -11618,10 +11618,13 @@ def then_skills_poured(context):
         assert dest.read_bytes() == body, f"skill file content drift: {rel}"
 
 
-@then(parsers.parse('the target directory contains no ".claude/skills/" directory'))
-def then_no_skills_dir(context):
-    ws = Path(context["bootstrap_workspace"])
-    assert not (ws / ".claude" / "skills").exists()
+# NOTE (lead-5mr5): the step def for 'the target directory contains no
+# ".claude/skills/" directory' was RETIRED here. It backed the superseded
+# "bootstrapping a lead shop pours no skills" scenario, which lead-5mr5
+# replaced — a lead shop now pours the canonical LEAD skill-group
+# (bring-up-bc, create-bc) into .claude/skills/. The scenario was NOT
+# hash-pinned, so this is a clean scenario replacement, not an ADR-010 hash
+# retirement.
 
 
 # -----------------------------------------------------------------------

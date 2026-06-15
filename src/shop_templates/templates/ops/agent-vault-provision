@@ -28,11 +28,18 @@
 # — the fleet token wires shop-shell + the BC launches).
 #
 # HUMAN GATE (ADR-026 D4 / PDR-017): the Claude-OAuth credential is a
-# refreshing credential type that agent-vault 0.32.0 has NO CLI path to
-# provision (verified live, lead-5jbc). This script therefore STOPS at the
-# dashboard step and waits for a human to paste the OAuth credential into the
-# agent-vault dashboard by hand. It is the ONE documented manual step; do not
-# automate it.
+# refreshing OAuth credential type. On agent-vault 0.32.0 it IS scriptable via
+# the structured credential-slot path: `vault proposal create -f -` (stdin
+# JSON) creates a pre-populated OAuth-typed CLAUDE_OAUTH credential SLOT
+# (carrying the token_url refresh machinery), and the operator's role drops to
+# APPROVING that proposal — pasting the real token at the printed approve URL
+# (or Connect). This CORRECTS the prior lead-5jbc note that the OAuth type was
+# unscriptable: that probe only tested the flat `--credential KEY=desc` (static)
+# path, not the JSON-mode oauth slot (verified lead-yrex against a throwaway
+# infisical/agent-vault broker, same image as the live fleet broker). ADR-026
+# D4 is preserved: a human still supplies the real secret, AT APPROVE TIME.
+# This script therefore CREATES the proposal and STOPS for the operator to
+# approve it; it is the ONE documented human step (approval, not a hand paste).
 set -euo pipefail
 
 # -----------------------------------------------------------------------
@@ -75,6 +82,16 @@ OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-}"
 # names mirror the live fleet vault's AUTHORITATIVE keys: GITHUB_USERNAME /
 # GITHUB_TOKEN (SCREAMING_SNAKE — agent-vault rejects kebab credential keys).
 GITHUB_USERNAME="${GITHUB_USERNAME:-x-access-token}"
+
+# Claude-OAuth config (lead-yrex). The refreshing CLAUDE_OAUTH credential is
+# provisioned as an OAuth-TYPED credential-slot PROPOSAL; these vars fill the
+# oauth block the broker validates (token_url is REQUIRED on 0.32.0). Defaults
+# are the values verified from the live broker's working OAuth form; a future
+# Anthropic-endpoint change is a one-line override here.
+CLAUDE_OAUTH_TOKEN_URL="${CLAUDE_OAUTH_TOKEN_URL:-https://console.anthropic.com/v1/oauth/token}"
+CLAUDE_OAUTH_CLIENT_ID="${CLAUDE_OAUTH_CLIENT_ID:-9d1c250a-e61b-44d9-88ed-5944d1962f5e}"
+# Anthropic's token endpoint required no scopes in the live form; empty default.
+CLAUDE_OAUTH_SCOPES="${CLAUDE_OAUTH_SCOPES:-}"
 
 echo "agent-vault-provision: provisioning broker '$CONTAINER' (vault '$VAULT', network '$NETWORK')."
 
@@ -164,11 +181,11 @@ fi
 #      BC's Claude calls return 401 (dummyco spike iter-6).
 #
 #      These `service add` calls only DECLARE the host -> CLAUDE_OAUTH
-#      mapping; the CLAUDE_OAUTH credential VALUE is supplied later via the
-#      human gate (dashboard paste). agent-vault upserts the service mapping
-#      independently of whether the credential value exists yet, so these run
-#      UNCONDITIONALLY (the mapping is what makes the bearer attach once the
-#      human-gated value lands).
+#      mapping; the CLAUDE_OAUTH credential itself is supplied later via the
+#      OAuth-proposal human gate (step 3, the operator approves the proposal).
+#      agent-vault upserts the service mapping independently of whether the
+#      credential exists yet, so these run UNCONDITIONALLY (the mapping is what
+#      makes the bearer attach once the human-gated approval lands).
 # -----------------------------------------------------------------------
 echo "agent-vault-provision: wiring the Claude broker services (bearer CLAUDE_OAUTH) over the MITM proxy."
 "${DEXEC[@]}" agent-vault vault service add \
@@ -255,31 +272,80 @@ fi
 # -----------------------------------------------------------------------
 # (3) Claude-OAuth refreshing credential — THE HUMAN GATE (ADR-026 D4).
 #
-# agent-vault 0.32.0 has no CLI path for the refreshing OAuth credential
-# type (verified live, lead-5jbc). We STOP here and wait for a human to paste
-# the credential into the dashboard by hand. Do NOT automate this step.
+# On agent-vault 0.32.0 the refreshing OAuth credential type IS scriptable via
+# the structured credential-slot path (verified lead-yrex). We CREATE a
+# pre-populated OAuth-TYPED CLAUDE_OAUTH credential SLOT proposal via the CLI
+# JSON mode `vault proposal create -f -` (stdin), then STOP for the operator to
+# APPROVE it — pasting the real token at the printed approve URL (ADR-026 D4: a
+# human still supplies the secret, at approve time). The slot carries
+# oauth.token_url (the refresh machinery); the slot stores no token yet (the
+# server rejects a stored token for oauth creds — tokens arrive via the
+# approve/connect flow). This REPLACES the prior manual hand-paste step.
 # -----------------------------------------------------------------------
+echo "agent-vault-provision: creating the CLAUDE_OAUTH OAuth-typed credential-slot proposal on vault '$VAULT'."
+
+# Render the proposal JSON from the script vars (so an Anthropic-endpoint
+# change is a one-line edit above). action:set + type:oauth + the oauth block
+# (token_url REQUIRED, client_id pre-filled, scopes); the slot stores no token
+# (server-rejected for oauth creds); the interactive consent URL is omitted so
+# approval shows the token-paste path (the realistic Claude case — we approve
+# with a pasted token).
+_oauth_proposal_json="$(cat <<EOF
+{"credentials":[{"action":"set","key":"CLAUDE_OAUTH","type":"oauth","oauth":{"token_url":"${CLAUDE_OAUTH_TOKEN_URL}","client_id":"${CLAUDE_OAUTH_CLIENT_ID}","scopes":"${CLAUDE_OAUTH_SCOPES}"},"description":"Claude OAuth","obtain_instructions":"paste accessToken+refreshToken from ~/.claude/.credentials.json at approve time"}],"message":"Provision the refreshing CLAUDE_OAUTH credential for the claude-* broker services (vault ${VAULT})."}
+EOF
+)"
+
+# `vault proposal create -f -` reads the JSON body from stdin and (with --json)
+# prints the created proposal as JSON; capture it so we can surface the proposal
+# number/URL in the approve prompt below.
+_proposal_out="$(printf '%s' "$_oauth_proposal_json" | "${DEXEC[@]}" agent-vault vault proposal create -f - --json --vault "$VAULT")"
+
+# Surface the proposal number for the operator. The number is parsed from the
+# `proposal create --json` output (a "number"/"id" field); if the exact field
+# shape varies, fall back to the newest pending proposal in `proposal list`.
+# (Most robust portable parse: pull the first integer after a number/id key.)
+PROPOSAL_NUM="$(printf '%s' "$_proposal_out" | grep -oE '"(number|id)"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
+if [[ -z "$PROPOSAL_NUM" ]]; then
+  PROPOSAL_NUM="$("${DEXEC[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null \
+    | grep -oE '[0-9]+' | tail -n1)"
+fi
+
 cat <<EOF
 
   ┌──────────────────────────────────────────────────────────────────────┐
-  │ HUMAN GATE — Claude-OAuth dashboard paste (one-time, manual)          │
+  │ HUMAN GATE — approve the Claude-OAuth proposal (one-time)             │
   └──────────────────────────────────────────────────────────────────────┘
 
-  agent-vault 0.32.0 cannot provision the refreshing Claude-OAuth credential
-  from the CLI. Provision it by hand now:
+  A pre-populated OAuth-typed CLAUDE_OAUTH credential-slot proposal
+  (#${PROPOSAL_NUM:-<see 'agent-vault vault proposal list'>}) was created on
+  vault '$VAULT' (broker '$CONTAINER'). It already carries the OAuth config
+  (token_url + client_id); only the real token is missing.
 
-    1. Open the agent-vault dashboard for broker '$CONTAINER'
-       (vault '$VAULT', network '$NETWORK').
-    2. Add a credential named CLAUDE_OAUTH (the refreshing OAuth type).
-       agent-vault enforces SCREAMING_SNAKE credential keys — the claude-*
-       services above attach this credential via --token-key CLAUDE_OAUTH.
-    3. Paste the Claude-OAuth credential value into the dashboard form
-       and save it into vault '$VAULT'.
+  Approve it now — supply the real secret AT APPROVE TIME (ADR-026 D4):
 
-  This script will WAIT until you confirm the dashboard paste is complete.
+    # Token paste (the Claude case): pass the accessToken to approve.
+    agent-vault vault proposal approve ${PROPOSAL_NUM:-<number>} CLAUDE_OAUTH=<accessToken> --yes --vault '$VAULT'
+
+  (Or open the printed approve URL and Connect.) agent-vault enforces
+  SCREAMING_SNAKE credential keys — the claude-* services above attach this
+  credential via --token-key CLAUDE_OAUTH. After approval the stored
+  CLAUDE_OAUTH is the refresh-capable oauth type (it carries token_url), NOT a
+  static credential.
+
+  This script will WAIT until you confirm the proposal is approved.
 
 EOF
 
-read -r -p "Press ENTER once the Claude-OAuth credential is saved in the dashboard... " _ack
+read -r -p "Press ENTER once the Claude-OAuth proposal is approved... " _ack
 
-echo "agent-vault-provision: dashboard paste acknowledged; provisioning complete for vault '$VAULT' on '$CONTAINER'."
+# ADR-026 D4 post-gate verification (adapted): confirm the APPROVED oauth
+# credential actually landed in the vault before declaring provisioning done.
+echo "agent-vault-provision: verifying the approved CLAUDE_OAUTH credential landed in vault '$VAULT'."
+if "${DEXEC[@]}" agent-vault vault credential list --vault "$VAULT" 2>/dev/null | grep -q "CLAUDE_OAUTH"; then
+  echo "agent-vault-provision: CLAUDE_OAUTH present; provisioning complete for vault '$VAULT' on '$CONTAINER'."
+else
+  echo "agent-vault-provision: CLAUDE_OAUTH not found in vault '$VAULT' — approve the proposal" >&2
+  echo "  (agent-vault vault proposal approve ${PROPOSAL_NUM:-<number>} CLAUDE_OAUTH=<accessToken> --yes --vault '$VAULT')" >&2
+  echo "  and re-run, or check 'agent-vault vault proposal list --vault $VAULT'." >&2
+  exit 1
+fi

@@ -276,10 +276,17 @@ For each scenario in the outbound message:
    clarify round trip and produces incorrect implementation guidance.
    Neither the PO nor the BC Implementer is positioned to catch this
    before the clarify; the Architect is.
-3. **The scenario carries the right tags** — the CLI's `--bc-tag` flag
-   adds `@bc:<name>`; the CLI's hash-computation step adds
-   `@scenario_hash:<hash>` via `scenarios hash`. You do not add either
-   tag by hand to the body file.
+3. **The scenario carries the right tags** — `@bc:<name>` is yours to add
+   at dispatch (the CLI's `--bc-tag` flag adds it based on the
+   scenario-to-BC mapping). `@scenario_hash:<hash>` is NOT yours to
+   introduce: the PO authors it at authoring time. Your job is to
+   **verify, not introduce** — recompute `scenarios hash` over the scenario
+   block (block-only canonicalization) and confirm it reproduces the
+   authored `@scenario_hash:<hash>` tag the PO wrote. This is
+   defense-in-depth: the PO introduces the hash at authoring; you confirm
+   it on the way out. If the authored tag does not reproduce, send the
+   scenario back to the PO rather than silently re-tagging it. Do not add
+   `@bc` by hand to the body file; the `--bc-tag` flag adds it.
 4. **The work_id is a lead beads issue ID.** It is the single source of
    truth; it flows outward from the lead shop and is never minted by a BC.
 

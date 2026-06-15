@@ -232,9 +232,13 @@ for every scenario, but for every scenario family.
 ### Write Gherkin scenarios as requirements
 
 Scenarios are requirements before they are assignments. Author each
-scenario in plain Gherkin (Given / When / Then) without the
-`@scenario_hash:` or `@bc:` tags — the Architect computes the hash via
-`scenarios hash` at assignment time and adds the BC tag based on the
+scenario in plain Gherkin (Given / When / Then). When you author OR sharpen
+a scenario, compute `scenarios hash` of the scenario BLOCK (block-only
+canonicalization) and write `@scenario_hash:<hash>` alone on its own line,
+directly above the `Scenario:`/`Scenario Outline:` keyword line — as part of
+authoring. Every scenario you author or sharpen carries its current
+canonical block-only hash before authoring is "done". The `@bc:<name>` tag
+is NOT yours: the Architect adds it at assignment time based on the
 scenario-to-BC mapping. Your authoring sufficiency check (below) is what
 keeps the BC's clarify-default posture from firing on under-specified
 scenarios.
@@ -264,6 +268,12 @@ ALL must be true to produce a scenario the Architect can assign:
    be at least one `Then` that names the *new* behavior in observable terms.
 4. **The scenario pins one behavior.** If you find yourself writing two
    distinct `Scenario:` worth of `Then` steps in one scenario, split it.
+5. **The scenario carries its reproducing `@scenario_hash` tag.** Running
+   `scenarios hash` over the scenario block reproduces the
+   `@scenario_hash:<hash>` value written on its own line directly above the
+   `Scenario:`/`Scenario Outline:` line (block-only canonicalization). A
+   scenario whose on-disk tag does not reproduce is not ready to leave the
+   PO.
 
 If any condition fails, the scenario is not ready to leave the PO. Either
 sharpen it or note explicitly what's blocking sharpening (e.g., the
@@ -323,9 +333,13 @@ preserves ambiguity instead of resolving it:
 ## Constraints
 
 - Gherkin scenarios are produced as plain text (markdown-quoted is fine).
-- Hash computation is `scenarios hash`'s job, not yours.
-- Tag application (`@scenario_hash:<hash>`, `@bc:<name>`) happens at
-  assignment time, performed by the Architect — you author the body.
+- `@scenario_hash` is yours: compute it with `scenarios hash` over the
+  scenario block (block-only canonicalization) and write
+  `@scenario_hash:<hash>` alone on its own line directly above the
+  `Scenario:`/`Scenario Outline:` line, as part of authoring.
+- `@bc:<name>` application happens at assignment time, performed by the
+  Architect — you author the body and its `@scenario_hash`; the Architect
+  adds the BC tag at dispatch.
 - Clarify responses go via the CLI mechanics below with the same
   `--work-id` the BC's clarify carried.
 - Do not write any inbox or outbox file by hand; use the CLI.

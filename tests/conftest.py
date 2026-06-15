@@ -15398,3 +15398,420 @@ def then_env_example_is_additive(context: dict) -> None:
         assert env_path.resolve() not in six_paths, (
             ".env.example must be a distinct file outside the six-file set"
         )
+
+
+# -----------------------------------------------------------------------
+# Step definitions — canonical LEAD skill-group (lead-5mr5)
+#
+# Scenarios 75f86e53/c20785332/cc520034/f75eb04e (bootstrap + access) and
+# e803b4c9/4a008549/a14e5a0a (update). The lead skill-group is a distinct
+# package-data subtree (templates/lead_skills/) from the BC skill tree
+# (templates/skills/); lead bootstrap pours ONLY the lead group, bc
+# bootstrap continues to pour the BC tree.
+# -----------------------------------------------------------------------
+
+from shop_templates.cli import (  # noqa: E402
+    iter_lead_skill_files as _iter_lead_skill_files,
+    canonical_skill_group as _canonical_skill_group,
+)
+
+
+def _lead_skill_group_members() -> dict:
+    """Return {member_name: SKILL.md bytes} for the canonical lead group."""
+    members = {}
+    for rel, body in _iter_lead_skill_files():
+        # rel is "<name>/SKILL.md"
+        name = rel.split("/", 1)[0]
+        if rel == f"{name}/SKILL.md":
+            members[name] = body
+    return members
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'with no ".claude/skills/" directory'
+    )
+)
+def given_existing_git_repo_no_skills_dir(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    skills = real / ".claude" / "skills"
+    assert not skills.exists(), (
+        f"premise of Given violated: {skills!s} unexpectedly exists"
+    )
+
+
+@then(
+    parsers.parse(
+        'for every skill "{skill_ph}" in the canonical lead skill-group the '
+        'target directory contains a file at ".claude/skills/{skill_ph2}/SKILL.md"'
+    )
+)
+def then_every_lead_skill_poured(skill_ph, skill_ph2, context: dict) -> None:
+    real = context["last_invocation_target"]
+    members = _lead_skill_group_members()
+    assert members, "the canonical lead skill-group is empty"
+    for name in members:
+        dest = real / ".claude" / "skills" / name / "SKILL.md"
+        assert dest.is_file(), (
+            f"lead-skill-group member {name!r} not poured at {dest!s}"
+        )
+
+
+@then(
+    parsers.parse(
+        'the content of each such ".claude/skills/{skill_ph}/SKILL.md" file '
+        'equals the package-data file contents of that canonical lead skill '
+        'template byte-for-byte'
+    )
+)
+def then_each_lead_skill_byte_for_byte(skill_ph, context: dict) -> None:
+    real = context["last_invocation_target"]
+    for name, body in _lead_skill_group_members().items():
+        dest = real / ".claude" / "skills" / name / "SKILL.md"
+        assert dest.read_bytes() == body, (
+            f"poured lead-skill {name!r} content drifts from package data"
+        )
+
+
+@then(
+    'the directory ".claude/skills/" in the target directory contains no '
+    'skill directories other than the members of the canonical lead skill-group'
+)
+def then_no_skills_outside_lead_group(context: dict) -> None:
+    real = context["last_invocation_target"]
+    skills_root = real / ".claude" / "skills"
+    poured_dirs = {
+        p.name for p in skills_root.iterdir() if p.is_dir()
+    } if skills_root.exists() else set()
+    members = set(_lead_skill_group_members())
+    extra = poured_dirs - members
+    assert not extra, (
+        f"lead .claude/skills/ contains non-lead-group skill dirs: {sorted(extra)}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/{name}/SKILL.md" names launching a '
+        'BC via "{phrase}"'
+    )
+)
+def then_skill_names_launch(name, phrase, context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / name / "SKILL.md").read_text()
+    assert phrase in body, (
+        f"{name}/SKILL.md does not name launching via {phrase!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/{name}/SKILL.md" names setting '
+        '"{phrase}" for a devcontainer with a bind-mounted home'
+    )
+)
+def then_skill_names_host_home(name, phrase, context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / name / "SKILL.md").read_text()
+    assert phrase in body, f"{name}/SKILL.md does not name {phrase!r}"
+    lc = body.lower()
+    assert "devcontainer" in lc and "bind-mount" in lc, (
+        f"{name}/SKILL.md does not name the bind-mounted-home devcontainer fact"
+    )
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/{name}/SKILL.md" names verifying the '
+        'BC reaches "{state}" via "{phrase}"'
+    )
+)
+def then_skill_names_status(name, state, phrase, context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / name / "SKILL.md").read_text()
+    assert phrase in body, f"{name}/SKILL.md does not name {phrase!r}"
+    assert state in body, f"{name}/SKILL.md does not name the {state!r} state"
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/{name}/SKILL.md" names scaffolding a '
+        'new BC via "{phrase}"'
+    )
+)
+def then_skill_names_scaffold(name, phrase, context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / name / "SKILL.md").read_text()
+    assert phrase in body, f"{name}/SKILL.md does not name {phrase!r}"
+
+
+@then(
+    'the content of ".claude/skills/create-bc/SKILL.md" names creating the '
+    'remote via "gh repo create" and pushing, and names prompting the user '
+    'for the GitHub org/owner and the public/private visibility rather than '
+    'hardcoding them'
+)
+def then_create_bc_names_remote(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / "create-bc" / "SKILL.md").read_text()
+    lc = body.lower()
+    assert "gh repo create" in body, "create-bc does not name `gh repo create`"
+    assert "push" in lc, "create-bc does not name pushing"
+    assert "org" in lc or "owner" in lc, (
+        "create-bc does not name prompting for GitHub org/owner"
+    )
+    assert "public" in lc and "private" in lc and "visibility" in lc, (
+        "create-bc does not name prompting for public/private visibility"
+    )
+    assert "hardcod" in lc or "not hardcoded" in lc or "rather than hardcoding" in lc, (
+        "create-bc does not name that org/visibility are prompted, not hardcoded"
+    )
+
+
+@then(
+    'the content of ".claude/skills/create-bc/SKILL.md" names registering the '
+    'BC in "bc-manifest.yaml" via "bc-container manifest"'
+)
+def then_create_bc_names_manifest(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / "create-bc" / "SKILL.md").read_text()
+    assert "bc-manifest.yaml" in body, "create-bc does not name bc-manifest.yaml"
+    assert "bc-container manifest" in body, (
+        "create-bc does not name `bc-container manifest`"
+    )
+
+
+@then(
+    'the content of ".claude/skills/create-bc/SKILL.md" names launching via '
+    '"bc-container launch" with the brokered flags "--repo-url", "--image" at '
+    'bc-base "v0.3.1+" rather than ":latest", "--network", '
+    '"--agent-vault-broker", and "--env-file", and cross-references the '
+    '"bring-up-bc" skill for the launch leg'
+)
+def then_create_bc_names_launch(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / "create-bc" / "SKILL.md").read_text()
+    for flag in ("bc-container launch", "--repo-url", "--image", "--network",
+                 "--agent-vault-broker", "--env-file"):
+        assert flag in body, f"create-bc does not name {flag!r}"
+    assert "v0.3.1" in body, "create-bc does not name bc-base v0.3.1+"
+    assert ":latest" in body, "create-bc does not contrast :latest"
+    assert "bring-up-bc" in body, "create-bc does not cross-reference bring-up-bc"
+
+
+@then(
+    'the content of ".claude/skills/create-bc/SKILL.md" names the gotchas '
+    'that "AGENT_VAULT_VAULT" is the plain "<product>" not "<product>:proxy", '
+    'that credential keys are SCREAMING_SNAKE, and that bc-base is pinned to '
+    '"v0.3.1+"'
+)
+def then_create_bc_names_gotchas(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / "create-bc" / "SKILL.md").read_text()
+    assert "AGENT_VAULT_VAULT" in body, "create-bc does not name AGENT_VAULT_VAULT"
+    assert ":proxy" in body, "create-bc does not name the :proxy gotcha"
+    assert "SCREAMING_SNAKE" in body, "create-bc does not name SCREAMING_SNAKE keys"
+    assert "v0.3.1" in body, "create-bc does not name the bc-base v0.3.1+ pin"
+
+
+@then(
+    'the content of ".claude/skills/create-bc/SKILL.md" names that the full '
+    'scaffold-to-repo-to-launch flow is experimental and not yet verified '
+    'end-to-end, so the lead narrates and confirms with the user as it proceeds'
+)
+def then_create_bc_names_experimental(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / "create-bc" / "SKILL.md").read_text()
+    lc = body.lower()
+    assert "experimental" in lc, "create-bc does not name the flow as experimental"
+    assert "end-to-end" in lc or "end to end" in lc, (
+        "create-bc does not name 'not yet verified end-to-end'"
+    )
+    assert "narrat" in lc and "confirm" in lc, (
+        "create-bc does not name narrate-and-confirm-with-user"
+    )
+
+
+# --- Access-surface scenario c207853320920de7 ---
+
+@given(parsers.parse('the installed "shop-templates" distribution'))
+def given_installed_distribution(context: dict) -> None:
+    context["dist_present"] = True
+
+
+@when(
+    parsers.parse(
+        'I query the "shop-templates" public template-access surface for the '
+        'canonical "{shop_type}" skill-group'
+    )
+)
+def when_query_skill_group(shop_type: str, context: dict) -> None:
+    context["queried_skill_group"] = _canonical_skill_group(shop_type)
+
+
+@then("the access surface reports the skill-group has at least one member")
+def then_skill_group_nonempty(context: dict) -> None:
+    group = context["queried_skill_group"]
+    assert len(group) >= 1, "access surface reports an empty lead skill-group"
+
+
+@then(parsers.parse('the member named "{member}" is present in the reported skill-group'))
+def then_member_present(member: str, context: dict) -> None:
+    group = context["queried_skill_group"]
+    names = {m for m, _ in group}
+    assert member in names, (
+        f"member {member!r} absent from reported skill-group {sorted(names)}"
+    )
+
+
+@then(
+    'for each reported member the access surface returns package-data '
+    '"SKILL.md" contents byte-for-byte'
+)
+def then_each_member_byte_for_byte(context: dict) -> None:
+    group = context["queried_skill_group"]
+    shipped = dict(_iter_lead_skill_files())
+    for member, body in group:
+        rel = f"{member}/SKILL.md"
+        assert rel in shipped, f"member {member!r} has no package-data SKILL.md"
+        assert body == shipped[rel], (
+            f"member {member!r} access-surface bytes differ from package data"
+        )
+
+
+# --- Update scenarios e803b4c9 / 4a008549 / a14e5a0a ---
+
+@given(
+    parsers.parse(
+        'the file at ".claude/skills/{name}/SKILL.md" in the target directory '
+        'equals the current canonical "{name2}" lead-skill template '
+        'package-data file contents byte-for-byte'
+    )
+)
+def given_lead_skill_equals_canonical(name, name2, context: dict) -> None:
+    assert name == name2, f"scenario inconsistency: {name!r} vs {name2!r}"
+    real = _resolve_single_target(context)
+    target_file = real / ".claude" / "skills" / name / "SKILL.md"
+    shipped = dict(_iter_lead_skill_files())
+    expected = shipped[f"{name}/SKILL.md"]
+    assert target_file.read_bytes() == expected, (
+        f"premise of Given violated: {target_file!s} differs from canonical"
+    )
+
+
+@given(
+    parsers.parse(
+        'the file at ".claude/skills/{name}/SKILL.md" in the target directory '
+        'holds an older version of the "{name2}" canonical lead-skill template '
+        'content'
+    )
+)
+def given_lead_skill_older(name, name2, context: dict) -> None:
+    assert name == name2
+    real = _resolve_single_target(context)
+    target_file = real / ".claude" / "skills" / name / "SKILL.md"
+    older = b"OLDER LEAD SKILL MARKER not in canonical\n" + target_file.read_bytes()
+    target_file.write_bytes(older)
+    context.setdefault("scenario_pre_state", {})[str(target_file)] = older
+
+
+@given(
+    parsers.parse(
+        'the current canonical "{name}" lead-skill template package-data file '
+        'contents differ from that older version'
+    )
+)
+def given_lead_canonical_differs(name, context: dict) -> None:
+    real = _resolve_single_target(context)
+    target_file = real / ".claude" / "skills" / name / "SKILL.md"
+    older = context["scenario_pre_state"][str(target_file)]
+    shipped = dict(_iter_lead_skill_files())
+    expected = shipped[f"{name}/SKILL.md"]
+    assert expected != older, (
+        "premise of Given violated: canonical equals the older version"
+    )
+
+
+@given(
+    'every skill in the ".claude/skills/" directory equals its current '
+    'canonical lead-skill template package-data file contents byte-for-byte'
+)
+def given_every_lead_skill_equals_canonical(context: dict) -> None:
+    real = _resolve_single_target(context)
+    skills_root = real / ".claude" / "skills"
+    shipped = dict(_iter_lead_skill_files())
+    context["lead_skill_dir_set_pre"] = {
+        p.name for p in skills_root.iterdir() if p.is_dir()
+    }
+    for rel, body in shipped.items():
+        dest = skills_root / rel
+        assert dest.read_bytes() == body, (
+            f"premise of Given violated: {dest!s} differs from canonical"
+        )
+
+
+@then(
+    parsers.parse(
+        'after the invocation the file at ".claude/skills/{name}/SKILL.md" in '
+        'the target directory still equals the current canonical "{name2}" '
+        'lead-skill template package-data file contents byte-for-byte'
+    )
+)
+def then_lead_skill_still_equals(name, name2, context: dict) -> None:
+    assert name == name2
+    real = context["last_invocation_target"]
+    target_file = real / ".claude" / "skills" / name / "SKILL.md"
+    shipped = dict(_iter_lead_skill_files())
+    assert target_file.read_bytes() == shipped[f"{name}/SKILL.md"], (
+        f"{target_file!s} no longer equals canonical after update"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the invocation the file at ".claude/skills/{name}/SKILL.md" in '
+        'the target directory equals the current canonical "{name2}" '
+        'lead-skill template package-data file contents byte-for-byte'
+    )
+)
+def then_lead_skill_equals(name, name2, context: dict) -> None:
+    assert name == name2
+    real = context["last_invocation_target"]
+    target_file = real / ".claude" / "skills" / name / "SKILL.md"
+    shipped = dict(_iter_lead_skill_files())
+    assert target_file.read_bytes() == shipped[f"{name}/SKILL.md"], (
+        f"{target_file!s} was not re-poured to canonical by update"
+    )
+
+
+@then(
+    'after the invocation every skill in the ".claude/skills/" directory '
+    'still equals its current canonical lead-skill template package-data '
+    'file contents byte-for-byte'
+)
+def then_every_lead_skill_still_equals(context: dict) -> None:
+    real = context["last_invocation_target"]
+    skills_root = real / ".claude" / "skills"
+    shipped = dict(_iter_lead_skill_files())
+    for rel, body in shipped.items():
+        assert (skills_root / rel).read_bytes() == body, (
+            f"{rel} no longer equals canonical after idempotent update"
+        )
+
+
+@then(
+    'the set of skill directories under ".claude/skills/" in the target '
+    'directory is unchanged'
+)
+def then_lead_skill_dir_set_unchanged(context: dict) -> None:
+    real = context["last_invocation_target"]
+    skills_root = real / ".claude" / "skills"
+    now = {p.name for p in skills_root.iterdir() if p.is_dir()}
+    pre = context["lead_skill_dir_set_pre"]
+    assert now == pre, (
+        f"skill directory set changed: before={sorted(pre)} after={sorted(now)}"
+    )

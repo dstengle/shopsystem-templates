@@ -36,7 +36,7 @@ import pytest
 # hard block of session start when the tracker is unhealthy.
 HEALTH_VOCAB = ["health", "dolt"]
 
-MIN_VERSION = (0, 12, 0)
+MIN_VERSION = (0, 13, 0)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BC_ROUTER_REL = "templates/skills/bc-router/SKILL.md"
@@ -239,6 +239,27 @@ LEAD_PO_FORBIDDEN_PROHIBITIONS = [
 # The `@bc` tag must remain dispatch-time (Architect / assignment / CLI-added),
 # not authored by the PO.
 LEAD_PO_BC_DISPATCH_TOKEN = "@bc"
+
+# v0.13.0 IS the release vehicle for lead-5mr5 (25fa894): lead bootstrap now
+# pours the canonical lead skill-group (bring-up-bc + create-bc). This is
+# delivery-currency: the skill-group only reaches launched lead shops once the
+# published version advances past 0.12.0 AND the built artifact actually carries
+# both SKILL.md files. We assert against the BUILT ARTIFACTS (sdist + wheel) so a
+# tag-install that dropped them from the `templates/lead_skills/**/*` package-data
+# glob is caught. The create-bc body must name the BC-creation mechanism it
+# drives: `shop-templates bootstrap --shop-type bc`, `gh repo create`, and the
+# bc-container launch flags — otherwise a poured create-bc cannot stand up a BC.
+LEAD_SKILLS_RELS = [
+    "templates/lead_skills/create-bc/SKILL.md",
+    "templates/lead_skills/bring-up-bc/SKILL.md",
+]
+CREATE_BC_REL = "templates/lead_skills/create-bc/SKILL.md"
+CREATE_BC_BODY_TOKENS = [
+    "shop-templates bootstrap --shop-type bc",
+    "gh repo create",
+    "bc-container launch",
+    "--repo-url",
+]
 
 
 def _parse_version(raw: str) -> tuple[int, int, int]:
@@ -829,4 +850,49 @@ def test_delivered_lead_po_moves_scenario_hash_to_authoring_time(built_sdist):
     assert "assignment time" in lowered or "dispatch" in lowered, (
         f"delivered {LEAD_PO_REL} does not keep @bc as a dispatch/assignment-time "
         f"tag (lead-xgs0); only @scenario_hash moved to authoring time"
+    )
+
+
+def test_delivered_artifact_ships_lead_skill_group(built_sdist, built_wheel):
+    """lead-5mr5 (25fa894): v0.13.0 ships the canonical lead skill-group. The
+    lead bootstrap pours `.claude/skills/{create-bc,bring-up-bc}/SKILL.md`, so
+    both SKILL.md files must ride along in BOTH the built sdist and the built
+    wheel (under `templates/lead_skills/`), or a clean tag-install + `shop-templates
+    bootstrap --shop-type lead` would pour an empty / missing skill-group.
+
+    This is delivery-currency: the skill-group only reaches launched lead shops
+    once the published version advances past 0.12.0 AND the package-data glob
+    (`templates/lead_skills/**/*`) actually carries both SKILL.md files. Asserts
+    against the BUILT ARTIFACTS, not the source tree, because the defect this
+    guards (a glob that fails to sweep the nested SKILL.md files) is invisible
+    from an editable / PYTHONPATH=src run."""
+    sdist_missing = [
+        rel for rel in LEAD_SKILLS_RELS if not _sdist_has_member(built_sdist, rel)
+    ]
+    wheel_missing = [
+        rel for rel in LEAD_SKILLS_RELS if not _wheel_has_member(built_wheel, rel)
+    ]
+    assert not sdist_missing and not wheel_missing, (
+        f"delivered lead skill-group is incomplete in the BUILT ARTIFACT — a "
+        f"fresh pip install + `shop-templates bootstrap --shop-type lead` would "
+        f"pour a missing skill-group. sdist missing: {sdist_missing}; wheel "
+        f"missing: {wheel_missing}. (Check the `templates/lead_skills/**/*` "
+        f"package-data glob.)"
+    )
+
+
+def test_delivered_create_bc_skill_names_bc_creation_mechanism(built_sdist):
+    """lead-5mr5: the delivered create-bc SKILL.md body must name the BC-creation
+    mechanism it drives — `shop-templates bootstrap --shop-type bc`, `gh repo
+    create`, and the bc-container launch flags (`bc-container launch`,
+    `--repo-url`). A poured create-bc that does not name these cannot stand up a
+    BC, so a tag-install would deliver a hollow skill. Asserts against the BUILT
+    ARTIFACT so a stale/empty create-bc shipped in the package is caught."""
+    body = _sdist_member(built_sdist, CREATE_BC_REL)
+    missing = [t for t in CREATE_BC_BODY_TOKENS if t not in body]
+    assert not missing, (
+        f"delivered {CREATE_BC_REL} does not name the BC-creation mechanism "
+        f"tokens {missing} (lead-5mr5); a poured create-bc skill could not stand "
+        f"up a BC (shop-templates bootstrap --shop-type bc / gh repo create / "
+        f"bc-container launch flags)"
     )

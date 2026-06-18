@@ -89,6 +89,36 @@ if [[ -z "${AGENT_VAULT_TOKEN:-}" ]]; then
 fi
 export AGENT_VAULT_ADDR AGENT_VAULT_TOKEN AGENT_VAULT_VAULT AGENT_VAULT_CA_PEM
 
+# -----------------------------------------------------------------------
+# Agent-vault MITM CA (self-source + fail-loud).
+#
+# claude's outbound TLS to the agent-vault :14322 MITM proxy is validated
+# against the broker's CA. If AGENT_VAULT_CA_PEM is empty/unset at this
+# point (the broker-credential acquisition above does not always carry the
+# CA), claude would be launched with an EMPTY CA and silently fail cert
+# validation. Self-source the CA before launching:
+#   (1) ask the broker to emit it via `agent-vault ca fetch`; else
+#   (2) read the host file ./agent-vault-ca.pem (the broker writes the CA
+#       there; it is gitignored).
+# If the CA still cannot be obtained, ERROR OUT — do NOT launch claude with
+# an empty CA (the silent-MITM-failure this guard exists to prevent).
+# -----------------------------------------------------------------------
+if [[ -z "${AGENT_VAULT_CA_PEM:-}" ]]; then
+  # (1) self-source from the broker.
+  AGENT_VAULT_CA_PEM="$(agent-vault ca fetch 2>/dev/null || true)"
+  # (2) fall back to the host CA file the broker writes alongside the repo.
+  if [[ -z "${AGENT_VAULT_CA_PEM:-}" && -f "$REPO_ROOT/agent-vault-ca.pem" ]]; then
+    AGENT_VAULT_CA_PEM="$(cat "$REPO_ROOT/agent-vault-ca.pem")"
+  fi
+  export AGENT_VAULT_CA_PEM
+fi
+
+if [[ -z "${AGENT_VAULT_CA_PEM:-}" ]]; then
+  echo "bin/shop-shell: could not obtain the agent-vault MITM CA (tried 'agent-vault ca fetch' and $REPO_ROOT/agent-vault-ca.pem)." >&2
+  echo "  Launching claude with an empty CA would silently fail TLS to the :14322 broker proxy. Aborting." >&2
+  exit 1
+fi
+
 # Route outbound traffic through the broker proxy so it can inject the real
 # secrets on the wire.
 HTTPS_PROXY="${HTTPS_PROXY:-http://agent-vault:14322}"

@@ -716,29 +716,61 @@ class _BdConfigError(Exception):
 def _bd_dolt_push_smoke_test(target: Path, remote: str) -> int:
     """Run a `bd dolt push` smoke-test against the configured dolt remote.
 
-    Per scenario 62eb2a8b9b617f4b. The dolt push remote is configured upstream
-    by `_configure_bd_dolt_remote` (`bd dolt remote add <name> <url>`, scenario
+    Per scenario 5ae67969a7f205d5 (corrected re-dispatch, supersedes the retired
+    62eb2a8b9b617f4b). The dolt push remote is configured upstream by
+    `_configure_bd_dolt_remote` (`bd dolt remote add <name> <url>`, scenario
     0636fba2c1445f9f); this smoke-test proves the freshly-wired tracker can
     actually reach that remote by pushing to it. On success it reports success
-    (stdout); on a non-zero push it returns the failing exit code with a
-    diagnostic on stderr that names the failed smoke-test — so a misconfigured
-    or unreachable remote is caught at bootstrap time rather than at the first
-    mid-work work_done emission.
+    (stdout) and returns 0; on a non-zero push it returns the failing exit code
+    with a diagnostic on stderr that names the failed smoke-test — so a
+    misconfigured or unreachable remote is caught at bootstrap time rather than
+    at the first mid-work work_done emission.
 
     The REAL `bd dolt push` contract (verified via `bd dolt push --help` /
     `bd dolt remote --help`) takes NO positional argument: a Dolt remote must
     first be CONFIGURED by NAME via `bd dolt remote add <name> <url>` (which the
     config step now owns), and only then can `bd dolt push` (which targets the
-    configured/default remote) reach it. Passing the remote URL as a positional
-    to `bd dolt push` is a no-op — bd ignores it, finds no configured remote,
-    prints "No remote is configured — skipping" and exits 0 — so the smoke-test
-    could never catch a misconfigured or unreachable remote. This function
-    therefore runs a bare `bd dolt push` and captures the REAL exit code.
+    configured/default remote) reach it.
+
+    CRITICAL: a bare `bd dolt push` against a tracker with NO dolt remote
+    configured is a no-op — real bd prints "No remote is configured — skipping"
+    and EXITS 0. A bare push could therefore silently PASS the smoke-test on a
+    misconfigured tracker, defeating its entire purpose. So this function first
+    GUARDS the push: it reads `bd dolt remote list` and, if no dolt remote is
+    configured, FAILS LOUD (returns non-zero) with a diagnostic that NAMES the
+    missing dolt remote (the expected remote name and URL) — rather than running
+    a push that would no-op to exit 0. Only when a remote is configured does it
+    run the bare `bd dolt push` and capture its REAL exit code.
 
     Like `_bd_init_in`, this spawns the `bd` subprocess and never imports the
     bd / beads Python internals (scenario 0c6f1c5d9bc4226e).
     """
-    # Push to the already-configured remote. `bd dolt push` takes no positional
+    # Guard: a `bd dolt push` against an unconfigured tracker no-ops and exits
+    # 0, so verify a dolt remote is actually configured before trusting the
+    # push's exit code. `bd dolt remote list` prints each configured remote;
+    # empty output means no remote is configured.
+    remote_list = subprocess.run(
+        ["bd", "dolt", "remote", "list"],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+    )
+    if remote_list.returncode != 0 or not remote_list.stdout.strip():
+        print(
+            f"shop-templates bootstrap: `bd dolt push` smoke-test FAILED — no "
+            f"dolt remote is configured. The expected dolt remote "
+            f"{_BD_DOLT_REMOTE_NAME!r} -> {remote!r} is missing from "
+            f"`bd dolt remote list` in {target!s} "
+            f"(list exit {remote_list.returncode}; stdout: "
+            f"{remote_list.stdout.strip()!r}). A bare `bd dolt push` against an "
+            f"unconfigured tracker no-ops and exits 0, so the missing remote "
+            f"would otherwise pass silently. Configure it via "
+            f"`bd dolt remote add {_BD_DOLT_REMOTE_NAME} {remote}`.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # A remote is configured. Push to it. `bd dolt push` takes no positional
     # argument; it targets the default/configured remote.
     result = subprocess.run(
         ["bd", "dolt", "push"],
@@ -749,14 +781,14 @@ def _bd_dolt_push_smoke_test(target: Path, remote: str) -> int:
     if result.returncode != 0:
         print(
             f"shop-templates bootstrap: `bd dolt push` smoke-test failed "
-            f"against the configured sync.remote {remote!r} in {target!s} "
+            f"against the configured dolt remote {remote!r} in {target!s} "
             f"(exit {result.returncode}); stderr:\n{result.stderr}",
             file=sys.stderr,
         )
     else:
         print(
             f"shop-templates bootstrap: `bd dolt push` smoke-test success "
-            f"against the configured sync.remote {remote!r}."
+            f"against the configured dolt remote {remote!r}."
         )
     return result.returncode
 
@@ -988,8 +1020,11 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
         return exc.returncode
 
     # Smoke-test the freshly-wired tracker: run `bd dolt push` against the
-    # configured dolt remote (scenario 62eb2a8b9b617f4b). On a non-zero push,
-    # bootstrap exits non-zero with a diagnostic so a misconfigured /
+    # configured dolt remote (scenario 5ae67969a7f205d5, supersedes the retired
+    # 62eb2a8b9b617f4b). The smoke-test first guards that a dolt remote is
+    # actually configured (a bare push against an unconfigured tracker no-ops
+    # and exits 0), failing loud with a diagnostic naming the missing remote;
+    # on a non-zero push it likewise exits non-zero — so a misconfigured /
     # unreachable remote is caught here, not at the first mid-work work_done
     # emission.
     rc = _bd_dolt_push_smoke_test(target, remote)

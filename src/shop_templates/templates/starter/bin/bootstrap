@@ -30,7 +30,7 @@ cd "$REPO_ROOT"
 
 # The published bc-base/bc-launcher image. It floats on :latest (ADR-040 D3);
 # bin/bootstrap resolves the floating tag at run time below and records it.
-BC_BASE_IMAGE="${BC_BASE_IMAGE:-ghcr.io/dstengle/bc-base:latest}"
+BC_BASE_IMAGE="${BC_BASE_IMAGE:-ghcr.io/dstengle/shopsystem-bc-base:latest}"
 RUN_ENV="${RUN_ENV:-$REPO_ROOT/.env}"
 
 # =======================================================================

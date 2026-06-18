@@ -2832,10 +2832,28 @@ def _make_bd_shim_dir(tmp_path: Path, context: dict) -> Path:
     # side-effect bootstrap callers depend on.
     #
     # For the `bd dolt push` smoke-test (scenario 62eb2a8b9b617f4b) the shim
-    # supports a failure-injection toggle: if context["bd_shim_fail_dolt_push"]
-    # is truthy, the shim writes a sentinel file whose presence makes any
-    # `bd dolt push` invocation exit non-zero (after printing a stderr line),
-    # so tests can drive the smoke-test's failure path without a real remote.
+    # models the REAL bd dolt contract (verified against bd via
+    # `bd dolt push --help` / `bd dolt remote --help`), NOT a permissive
+    # echo-anything stub:
+    #
+    #   * `bd dolt remote add <name> <url>` configures a named remote. The
+    #     shim records the configured (name, url) pair in a state file so the
+    #     push path can resolve the default remote, exactly as real bd does
+    #     ("The remote must already exist (see 'bd dolt remote add')").
+    #   * `bd dolt push` / `bd dolt push --remote <name>` take NO positional
+    #     argument. The real `bd dolt push <url>` invocation does not exist;
+    #     the shim REJECTS any `dolt push` carrying a bare positional token
+    #     (a non-flag arg that is not the value of `--remote`) with a non-zero
+    #     exit, so a test shaped to the old buggy `bd dolt push <url>` call
+    #     can no longer pass.
+    #   * A bare `bd dolt push` with no remote configured prints
+    #     "No remote is configured — skipping" and exits 0 (real-bd no-op
+    #     behavior). To actually push, a remote must have been configured
+    #     first via `bd dolt remote add`.
+    #
+    # The failure-injection toggle (context["bd_shim_fail_dolt_push"]) drives
+    # a CONFIGURED-remote push to a real non-zero exit, so tests exercise the
+    # smoke-test's failure path without contacting a real remote.
     fail_dolt_marker = shim_dir / "_fail_dolt_push"
     if context.get("bd_shim_fail_dolt_push"):
         fail_dolt_marker.write_text("fail")
@@ -2845,14 +2863,53 @@ def _make_bd_shim_dir(tmp_path: Path, context: dict) -> Path:
         "#!/usr/bin/env bash\n"
         f"log={log}\n"
         f"fail_dolt_marker={fail_dolt_marker}\n"
+        'remote_state="$PWD/.beads/__shim_remotes__"\n'
         'echo "$@|cwd=$PWD" >> "$log"\n'
         'if [[ "$1" == "init" ]]; then\n'
         '  mkdir -p .beads\n'
         '  : > .beads/__shim_init__\n'
+        '  exit 0\n'
         'fi\n'
-        'if [[ "$1" == "dolt" && "$2" == "push" && -f "$fail_dolt_marker" ]]; then\n'
-        '  echo "bd dolt push: simulated remote failure" >&2\n'
-        '  exit 1\n'
+        'if [[ "$1" == "dolt" && "$2" == "remote" && "$3" == "add" ]]; then\n'
+        '  # bd dolt remote add <name> <url>\n'
+        '  if [[ -z "$4" || -z "$5" ]]; then\n'
+        '    echo "bd dolt remote add: requires <name> <url>" >&2\n'
+        '    exit 2\n'
+        '  fi\n'
+        '  mkdir -p .beads\n'
+        '  echo "$4 $5" >> "$remote_state"\n'
+        '  exit 0\n'
+        'fi\n'
+        'if [[ "$1" == "dolt" && "$2" == "push" ]]; then\n'
+        '  # bd dolt push [flags] — NO positional argument exists. Scan the\n'
+        '  # args after "push": --remote takes one value; any other non-flag\n'
+        '  # token is an illegal positional (the old buggy <url> shape).\n'
+        '  shift 2\n'
+        '  named_remote=""\n'
+        '  while [[ $# -gt 0 ]]; do\n'
+        '    case "$1" in\n'
+        '      --remote)\n'
+        '        named_remote="$2"; shift 2 ;;\n'
+        '      --remote=*)\n'
+        '        named_remote="${1#--remote=}"; shift ;;\n'
+        '      --force|--json|--quiet|-q|--verbose|-v|--sandbox|--readonly|--global)\n'
+        '        shift ;;\n'
+        '      -*)\n'
+        '        shift ;;\n'
+        '      *)\n'
+        '        echo "bd dolt push: unknown command \\"$1\\" — push takes no positional argument (use bd dolt remote add)" >&2\n'
+        '        exit 2 ;;\n'
+        '    esac\n'
+        '  done\n'
+        '  if [[ -f "$fail_dolt_marker" ]]; then\n'
+        '    echo "bd dolt push: simulated remote failure" >&2\n'
+        '    exit 1\n'
+        '  fi\n'
+        '  if [[ ! -s "$remote_state" ]]; then\n'
+        '    echo "No remote is configured — skipping"\n'
+        '    exit 0\n'
+        '  fi\n'
+        '  exit 0\n'
         'fi\n'
         "exit 0\n"
     )
@@ -16102,11 +16159,32 @@ def then_smoke_test_performs_dolt_push_and_reports_success(
         f"expected success-path bootstrap to exit 0; got "
         f"{context['cli_returncode']} (stderr: {context['cli_stderr']!r})"
     )
-    # A `bd dolt push` subprocess must have run against the configured remote.
     invocations = _bd_invocations(context)
     expected_remote = _expected_product_beads_remote(
         context["last_invocation_shop_name"]
     )
+    # Per the REAL bd dolt contract (verified via `bd dolt remote --help`),
+    # a remote must be CONFIGURED before it can be pushed to: bootstrap must
+    # have run `bd dolt remote add <name> <url>` with the rendered sync.remote
+    # URL. The URL is the value of `bd dolt remote add` — NOT a positional on
+    # `bd dolt push` (which the old buggy impl used and which does not exist).
+    remote_adds = [
+        inv for inv in invocations if inv[:3] == ["dolt", "remote", "add"]
+    ]
+    assert remote_adds, (
+        f"expected a `bd dolt remote add <name> <url>` subprocess invocation "
+        f"to configure the remote before pushing; got bd invocations: "
+        f"{invocations!r}"
+    )
+    assert any(
+        expected_remote in inv[3:] for inv in remote_adds
+    ), (
+        f"expected `bd dolt remote add` to configure the rendered sync.remote "
+        f"URL {expected_remote!r}; got remote-add invocations: {remote_adds!r}"
+    )
+    # A `bd dolt push` subprocess must have run — and per the real contract it
+    # takes NO positional argument, so the rendered remote URL must NOT appear
+    # as a push argv token (that was the defect).
     dolt_pushes = [
         inv for inv in invocations if inv[:2] == ["dolt", "push"]
     ]
@@ -16114,10 +16192,28 @@ def then_smoke_test_performs_dolt_push_and_reports_success(
         f"expected a `bd dolt push` subprocess invocation; got bd "
         f"invocations: {invocations!r}"
     )
-    assert any(expected_remote in inv for inv in dolt_pushes), (
-        f"expected a `bd dolt push` against the configured sync.remote "
-        f"{expected_remote!r}; got dolt-push invocations: {dolt_pushes!r}"
-    )
+    for push in dolt_pushes:
+        push_args = push[2:]
+        # No bare positional token may appear after `dolt push`. The only
+        # legal non-flag value is the argument to `--remote`.
+        idx = 0
+        while idx < len(push_args):
+            tok = push_args[idx]
+            if tok == "--remote":
+                idx += 2
+                continue
+            if tok.startswith("-"):
+                idx += 1
+                continue
+            raise AssertionError(
+                f"`bd dolt push` carries an illegal positional argument "
+                f"{tok!r}; the real contract takes no positional (use "
+                f"`bd dolt remote add`). push invocation: {push!r}"
+            )
+        assert expected_remote not in push_args, (
+            f"`bd dolt push` must not carry the remote URL as a positional "
+            f"token (the defect); got push invocation: {push!r}"
+        )
     # Bootstrap reports the smoke-test success on stdout.
     combined = context["cli_stdout"] + context["cli_stderr"]
     assert "dolt push" in combined and "success" in combined.lower(), (

@@ -68,12 +68,14 @@ def _make_bd_shim(shim_dir: Path) -> None:
     These ops tests assert only on the rendered ops scaffolding (compose.yaml,
     bin/shop-shell, Dockerfile); they do not exercise bd's real Dolt push. The
     bootstrap flow, however, now runs a genuine `bd dolt push` smoke-test
-    (scenario 62eb2a8b9b617f4b) that configures a Dolt remote and pushes to it
-    — real network I/O that would otherwise reach github.com/dstengle/*-beads
-    and make these tests non-hermetic (and flaky on 429 / diverged history).
-    The shim models the real bd dolt contract well enough for bootstrap:
-    `bd init` creates .beads/, `bd dolt remote add <name> <url>` succeeds, and a
-    bare `bd dolt push` exits 0. It rejects the non-existent
+    (scenario 5ae67969a7f205d5, supersedes 62eb2a8b9b617f4b) that configures a
+    Dolt remote and pushes to it — real network I/O that would otherwise reach
+    github.com/dstengle/*-beads and make these tests non-hermetic (and flaky on
+    429 / diverged history). The shim models the real bd dolt contract well
+    enough for bootstrap: `bd init` creates .beads/, `bd dolt remote add <name>
+    <url>` persists the remote, `bd dolt remote list` reports it (so the
+    smoke-test's missing-remote guard sees the configured remote), and a bare
+    `bd dolt push` exits 0. It rejects the non-existent
     `bd dolt push <positional-url>` shape so a regression to the old buggy call
     would still surface here.
     """
@@ -81,13 +83,20 @@ def _make_bd_shim(shim_dir: Path) -> None:
     bd_path = shim_dir / "bd"
     bd_path.write_text(
         "#!/usr/bin/env bash\n"
+        'remote_state="$PWD/.beads/.shim_remotes"\n'
         'if [[ "$1" == "init" ]]; then\n'
         '  mkdir -p .beads\n'
         '  : > .beads/.shim_init\n'
         '  exit 0\n'
         'fi\n'
+        'if [[ "$1" == "dolt" && "$2" == "remote" && "$3" == "list" ]]; then\n'
+        '  [[ -s "$remote_state" ]] && cat "$remote_state"\n'
+        '  exit 0\n'
+        'fi\n'
         'if [[ "$1" == "dolt" && "$2" == "remote" && "$3" == "add" ]]; then\n'
         '  [[ -n "$4" && -n "$5" ]] || { echo "remote add needs <name> <url>" >&2; exit 2; }\n'
+        '  mkdir -p .beads\n'
+        '  echo "$4 $5" >> "$remote_state"\n'
         '  exit 0\n'
         'fi\n'
         'if [[ "$1" == "dolt" && "$2" == "push" ]]; then\n'

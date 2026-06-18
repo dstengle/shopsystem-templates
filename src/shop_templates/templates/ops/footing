@@ -13,6 +13,13 @@
 # after a human has confirmed the footing. This script is the deterministic,
 # pre-agent runway up to that line and no further.
 #
+# NO-AGENT CONTRACT: the footing phase launches NO agent. No `claude` session,
+# no `bin/shop-shell` daily-driver shell, no `bc-launcher` (the downstream
+# PM/Discovery BC launch) — nothing that starts a Claude or PM agent session
+# appears as a step here. The runway is deterministic end to end; its ONLY
+# non-deterministic step is the single human auth gate below. Agent sessions
+# begin only AFTER a human confirms this footing, downstream of this script.
+#
 # PRODUCT-SCOPED: the data root, docker network, container-name greps, and
 # the "{{OPS_SLUG}}-lead-beads" product beads repo all derive from the
 # bootstrap product slug ({{OPS_SLUG}}) so this script never collides with a

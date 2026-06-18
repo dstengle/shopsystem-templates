@@ -17671,3 +17671,85 @@ def then_y4pg_rendered_footing_runnable_before_invoke(context: dict) -> None:
         "the rendered bin/footing must be runnable before invoke (bash invoke "
         "or chmod +x)"
     )
+
+
+# ---- Scenario 3646efa06051fcac: delegate to rendered footing (to green) ----
+
+
+def _y4pg_footing_body() -> str:
+    from shop_templates.cli import render_ops_template
+
+    return render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@given(
+    parsers.parse(
+        'an adopter fork in which bootstrap has already rendered "bin/footing"'
+    )
+)
+def given_y4pg_fork_with_rendered_footing(context: dict) -> None:
+    # bootstrap renders bin/footing from templates/ops/footing; the rendered
+    # body is what control passes to. Load both the bootstrap body (to assert
+    # delegation) and the rendered footing body (to assert the sequence).
+    context["y4pg_bootstrap"] = _y4pg_bootstrap_body()
+    context["y4pg_footing"] = _y4pg_footing_body()
+    context["y4pg_footing_slug"] = _FOOTING_EXAMPLE_SLUG
+
+
+@when(parsers.parse('bootstrap invokes the rendered "bin/footing"'))
+def when_y4pg_bootstrap_invokes_footing(context: dict) -> None:
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    # Delegation: bootstrap hands control to the rendered footing via `bash`.
+    assert re.search(r"bash\s+\./bin/footing", code), (
+        "bootstrap must delegate control to the rendered bin/footing via "
+        "`bash ./bin/footing`"
+    )
+
+
+@then(
+    parsers.parse(
+        'control passes to "bin/footing", which runs the single up-front auth '
+        'gate, pours the lead structure, creates the "<product>-lead-beads" '
+        'repository, wires the git and beads remotes, and runs a "bd dolt '
+        'push" smoke-test'
+    )
+)
+def then_y4pg_footing_runs_sequence(context: dict) -> None:
+    bootstrap = _y4pg_code_text(context["y4pg_bootstrap"])
+    footing = context["y4pg_footing"]
+    slug = context["y4pg_footing_slug"]
+
+    # REUSE, not fork: bootstrap delegates the sequence internals to footing —
+    # it must not itself create the beads repo or wire the beads remote.
+    assert "gh repo create" not in bootstrap, (
+        "bootstrap must delegate beads-repo creation to footing, not fork it"
+    )
+    assert "bd dolt remote add" not in bootstrap, (
+        "bootstrap must delegate beads-remote wiring to footing, not fork it"
+    )
+
+    # The rendered footing runs the full sequence.
+    lowered = footing.lower()
+    assert "auth gate" in lowered, "footing must run the single up-front auth gate"
+    assert "shop-templates bootstrap" in footing, "footing must pour the lead structure"
+    assert f"{slug}-lead-beads" in footing, (
+        "footing must create the <product>-lead-beads repository (slug-scoped)"
+    )
+    assert "git remote" in footing and "bd dolt remote add" in footing, (
+        "footing must wire the git and beads remotes"
+    )
+    assert "bd dolt push" in footing, "footing must run the `bd dolt push` smoke-test"
+
+
+@then(
+    parsers.parse(
+        '"bin/footing" stops at solid footing demonstrated by a successful '
+        '"git push" and a successful "bd dolt push"'
+    )
+)
+def then_y4pg_footing_stops_at_green(context: dict) -> None:
+    footing = context["y4pg_footing"]
+    assert "git push" in footing, "footing must reach a green `git push`"
+    assert "bd dolt push" in footing, "footing must reach a green `bd dolt push`"

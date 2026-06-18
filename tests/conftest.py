@@ -15427,6 +15427,84 @@ def then_env_example_is_additive(context: dict) -> None:
         )
 
 
+# -- Scenario f02f9491b3a43753 (tmpl-4k7: .env.example documents the run
+# credentials — additive pin layered on the d8b53704ce2e6584 scaffold) ---
+
+
+@then(
+    parsers.re(
+        r'the target directory contains a file "(?P<name>\.env\.example)" '
+        r'documenting the run environment variables including the agent-vault '
+        r'master password and proxy token'
+    )
+)
+def then_env_example_documents_run_credentials(name: str, context: dict) -> None:
+    target = context["last_invocation_target"]
+    path = target / name
+    assert path.is_file(), (
+        f"bootstrap did not render a top-level {name} at {target}"
+    )
+    text = path.read_text()
+
+    # The scaffold must carry an assignment line for each run credential the
+    # operator supplies (so `cp .env.example .env` is executable as written).
+    assign_keys = {
+        ln.split("=", 1)[0].strip()
+        for ln in text.splitlines()
+        if ln.strip() and not ln.lstrip().startswith("#") and "=" in ln
+    }
+    # The agent-vault master password — the broker auto-unseal credential.
+    assert "AGENT_VAULT_MASTER_PASSWORD" in assign_keys, (
+        f"{name} does not document the agent-vault master password "
+        f"(AGENT_VAULT_MASTER_PASSWORD); assignment keys={sorted(assign_keys)}"
+    )
+    # The proxy token — the broker token bin/shop-shell presents and exports
+    # to wire the HTTPS proxy. Reuse the existing credential vocabulary
+    # (AGENT_VAULT_TOKEN); do not invent a new variable name.
+    assert "AGENT_VAULT_TOKEN" in assign_keys, (
+        f"{name} does not document the proxy token (AGENT_VAULT_TOKEN); "
+        f"assignment keys={sorted(assign_keys)}"
+    )
+
+    # The scaffold must DOCUMENT each variable — not merely assign it. Each of
+    # the master password and the proxy token carries an explanatory comment on
+    # its OWN documentation line(s) (the comment block immediately preceding the
+    # assignment), naming the variable's role. We attribute each leading comment
+    # block to the assignment it precedes.
+    lines = text.splitlines()
+    doc_for: dict[str, str] = {}
+    pending: list[str] = []
+    for ln in lines:
+        stripped = ln.strip()
+        if stripped.startswith("#"):
+            pending.append(stripped.lstrip("#").strip())
+        elif "=" in stripped and stripped and not stripped.startswith("#"):
+            key = stripped.split("=", 1)[0].strip()
+            doc_for[key] = " ".join(pending).lower()
+            pending = []
+        elif not stripped:
+            # Blank line ends a free-standing header block; do not attribute it
+            # to the next assignment.
+            pending = []
+
+    mp_doc = doc_for.get("AGENT_VAULT_MASTER_PASSWORD", "")
+    assert "master password" in mp_doc, (
+        f"{name} assigns AGENT_VAULT_MASTER_PASSWORD but its documentation does "
+        f"not name it as the master password:\n{text}"
+    )
+    # "proxy token": the token's OWN documentation must name its role in wiring
+    # the proxy, so the operator understands AGENT_VAULT_TOKEN is the credential
+    # the shop-shell presents on the HTTPS-proxy path (not merely "broker
+    # auth"). This is the additive guarantee this scenario pins — the prior
+    # d8b53704 scaffold documented AGENT_VAULT_TOKEN only as "broker auth".
+    token_doc = doc_for.get("AGENT_VAULT_TOKEN", "")
+    assert "proxy" in token_doc, (
+        f"{name} documents AGENT_VAULT_TOKEN but its own documentation does not "
+        f"name it as the proxy token (the token wiring the HTTPS proxy); "
+        f"doc={token_doc!r}\n{text}"
+    )
+
+
 # -----------------------------------------------------------------------
 # Step definitions — canonical LEAD skill-group (lead-5mr5)
 #

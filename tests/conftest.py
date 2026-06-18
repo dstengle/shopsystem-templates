@@ -3454,6 +3454,14 @@ def when_invoke_bootstrap(
     if shop_name == "<slug>":
         _llc1_bootstrap_both_slugs(shop_type, alias, context, tmp_path)
         return
+    # tmpl-4k7 / scenario 9e15d8cfd55b9541 carries the literal "<shop_name>"
+    # placeholder as the shop name, standing for "the product shop name". Bind
+    # it to the canonical lead-shop example name every other lead scenario uses
+    # so the .beads/config.yaml Then steps can derive the expected product
+    # beads remote / issue prefix from the bound name. (No real scenario passes
+    # a literal "<shop_name>" to bootstrap; this branch is inert otherwise.)
+    if shop_name == "<shop_name>":
+        shop_name = "shopsystem-product"
     real = _real_target_for_alias(alias, context)
     result = _run_shop_templates_with_bd_shim(
         [
@@ -15817,4 +15825,85 @@ def then_lead_skill_dir_set_unchanged(context: dict) -> None:
     pre = context["lead_skill_dir_set_pre"]
     assert now == pre, (
         f"skill directory set changed: before={sorted(pre)} after={sorted(now)}"
+    )
+
+
+# =======================================================================
+# tmpl-4k7 — bootstrap renders .beads/config.yaml with the product beads
+# remote (sync.remote) and the product-derived issue prefix (issue_prefix).
+# Scenario 9e15d8cfd55b9541.
+#
+# "the product beads remote" and "the product-derived prefix" are derived
+# from the bound --shop-name using the conventions already observable in the
+# shop-system: the beads remote mirrors the committed convention
+# `git+https://github.com/dstengle/<shop-name>-beads.git` (the value this very
+# repo's .beads/config.yaml carries for shop name "shopsystem-templates"), and
+# the issue prefix is the product slug (the --shop-name with a single trailing
+# "-product" suffix stripped — the same _ops_slug derivation the ops
+# scaffolding uses). These expectations are computed here independently of the
+# src so the test pins behavior rather than re-deriving against the
+# implementation.
+# =======================================================================
+
+
+def _expected_product_beads_remote(shop_name: str) -> str:
+    return f"git+https://github.com/dstengle/{shop_name}-beads.git"
+
+
+def _expected_product_issue_prefix(shop_name: str) -> str:
+    suffix = "-product"
+    if shop_name.endswith(suffix) and len(shop_name) > len(suffix):
+        return shop_name[: -len(suffix)]
+    return shop_name
+
+
+@then(
+    parsers.parse(
+        'the file ".beads/config.yaml" in the target directory sets '
+        '"sync.remote" to the product beads remote'
+    )
+)
+def then_beads_config_sets_sync_remote(context: dict) -> None:
+    real = context["last_invocation_target"]
+    config_path = real / ".beads" / "config.yaml"
+    assert config_path.exists(), (
+        f"expected {config_path!s} to exist after bootstrap; it does not"
+    )
+    data = _parse_yaml_via_subprocess(config_path)
+    assert isinstance(data, dict), (
+        f"{config_path!s} did not parse to a YAML mapping; got {type(data)!r}"
+    )
+    expected = _expected_product_beads_remote(
+        context["last_invocation_shop_name"]
+    )
+    got = data.get("sync.remote")
+    assert got == expected, (
+        f"expected .beads/config.yaml sync.remote == {expected!r}; "
+        f"got {got!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the file ".beads/config.yaml" in the target directory sets '
+        '"issue_prefix" to the product-derived prefix'
+    )
+)
+def then_beads_config_sets_issue_prefix(context: dict) -> None:
+    real = context["last_invocation_target"]
+    config_path = real / ".beads" / "config.yaml"
+    assert config_path.exists(), (
+        f"expected {config_path!s} to exist after bootstrap; it does not"
+    )
+    data = _parse_yaml_via_subprocess(config_path)
+    assert isinstance(data, dict), (
+        f"{config_path!s} did not parse to a YAML mapping; got {type(data)!r}"
+    )
+    expected = _expected_product_issue_prefix(
+        context["last_invocation_shop_name"]
+    )
+    got = data.get("issue_prefix")
+    assert got == expected, (
+        f"expected .beads/config.yaml issue_prefix == {expected!r}; "
+        f"got {got!r}"
     )

@@ -17405,3 +17405,151 @@ def then_footing_does_not_require_refork(context: dict) -> None:
             f"template on a name mismatch; found {forbidden!r} in the "
             "rendered script"
         )
+
+
+# -----------------------------------------------------------------------
+# tmpl-3gz / lead-9bvd (@scenario_hash db2131f49c170bc8): the footing
+# bootstrap script FORCES every tooling-created repository under the DERIVED
+# product slug. Behaviors 1 & 2 derive PRODUCT from the actual "<name>-lead"
+# fork name; this behavior pins the forced-naming CONTRACT that governs every
+# repository tooling creates off that derived slug:
+#
+#   1. The beads repository footing CREATES is named from the runtime-derived
+#      product slug -> "$PRODUCT-lead-beads" (NOT the render-time {{OPS_SLUG}}
+#      literal where it concerns the product identity).
+#   2. The forced-naming contract for any BC repository: a BC named "<bc>" is
+#      forced to "$PRODUCT-<bc>" with its beads repository "$PRODUCT-<bc>-beads".
+#      (Footing itself creates NO BC — see @e69c18dd25104b5e — so this is the
+#      governing RULE/guard declared in the script, not a BC-creation step.)
+#   3. No tooling-created repository can be named outside the "$PRODUCT-*"
+#      shape (a guard/assertion in the script enforcing/declaring this).
+#
+# As with behaviors 1 & 2, with no live git/network in the suite the runtime
+# statements are reduced to assertions on the RENDERED footing-script BODY.
+# The slug "acme" in the scenario is ILLUSTRATIVE: every name must be DERIVED
+# from the runtime $PRODUCT, so the assertions are GENERIC and forbid the
+# illustrative literal "acme" from appearing baked into the rendered script.
+# -----------------------------------------------------------------------
+
+
+@given(parsers.parse('the bootstrap script has derived the product slug "{slug}"'))
+def given_footing_has_derived_product_slug(context: dict, slug: str) -> None:
+    # The slug "acme" is illustrative; the rendered footing body must FORCE
+    # every tooling-created repo name off the runtime-derived $PRODUCT, never
+    # off any baked-in literal. Load the rendered body to assert against.
+    from shop_templates.cli import render_ops_template
+
+    context["footing_derived_slug"] = slug
+    context["footing_slug"] = _FOOTING_EXAMPLE_SLUG
+    context["footing_body"] = render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@when(
+    "the script creates the beads repository and any BC repository for the "
+    "product"
+)
+def when_footing_creates_repos_for_product(context: dict) -> None:
+    assert context.get("footing_body"), (
+        "footing-script body must be available before asserting forced naming"
+    )
+
+
+@then('the beads repository is named "acme-lead-beads"')
+def then_footing_beads_repo_named_from_product(context: dict) -> None:
+    exec_body = _footing_executable_lines(context["footing_body"])
+    # The beads repository footing CREATES must be named from the RUNTIME
+    # product slug -> "$PRODUCT-lead-beads", NOT the render-time {{OPS_SLUG}}
+    # literal where it concerns the product identity. The idiomatic shape is
+    # the $PRODUCT variable interpolated into the "-lead-beads" suffix.
+    assert "$PRODUCT-lead-beads" in exec_body or "${PRODUCT}-lead-beads" in exec_body, (
+        "footing must name the beads repository it creates from the "
+        "runtime-derived product slug -> \"$PRODUCT-lead-beads\" (executable "
+        "code, not a comment)"
+    )
+    # The product-scoped beads repo name must NOT be the render-time
+    # {{OPS_SLUG}} literal where it carries the product identity: the beads
+    # repo footing creates is the product's own, so its name must track the
+    # DERIVED $PRODUCT, not the example render slug.
+    assert f"{_FOOTING_EXAMPLE_SLUG}-lead-beads" not in exec_body, (
+        "the beads repository footing creates must be named from the "
+        "runtime-derived $PRODUCT, not the render-time {{OPS_SLUG}} literal "
+        f"(found the baked-in {_FOOTING_EXAMPLE_SLUG!r}-lead-beads)"
+    )
+    # The illustrative literal "acme" must never appear baked into the body.
+    assert "acme" not in exec_body.lower(), (
+        "the beads repository name must be DERIVED from the runtime product "
+        "slug, never hardcoded to the illustrative literal \"acme\""
+    )
+
+
+@then(
+    'any BC repository named "<bc>" is created as "acme-<bc>" with its beads '
+    'repository "acme-<bc>-beads"'
+)
+def then_footing_forced_bc_repo_naming(context: dict) -> None:
+    exec_body = _footing_executable_lines(context["footing_body"])
+    # The forced-naming CONTRACT for any BC repository must be declared in the
+    # script as a guarded convention: a BC "<bc>" is forced to "$PRODUCT-<bc>"
+    # with its beads repo "$PRODUCT-<bc>-beads". GENERIC: assert the
+    # $PRODUCT-scoped BC repo shape and its beads-repo shape appear, derived
+    # from the runtime $PRODUCT (never the illustrative "acme").
+    assert "$PRODUCT-" in exec_body or "${PRODUCT}" in exec_body, (
+        "footing must force BC repository names under the runtime-derived "
+        "$PRODUCT slug (executable code, not a comment)"
+    )
+    # The BC repo forced shape: "$PRODUCT-<bc>" — the per-BC name slot follows
+    # the product prefix. Accept the idiomatic "$PRODUCT-${bc}" / "$PRODUCT-$bc"
+    # interpolation forms.
+    assert (
+        "$PRODUCT-${" in exec_body
+        or "${PRODUCT}-${" in exec_body
+        or "$PRODUCT-$" in exec_body
+    ), (
+        "footing must declare the forced BC repository shape \"$PRODUCT-<bc>\" "
+        "(the per-BC name forced under the product prefix)"
+    )
+    # The BC beads repo forced shape: "$PRODUCT-<bc>-beads".
+    assert "-beads" in exec_body, (
+        "footing must declare the forced BC beads repository shape "
+        "\"$PRODUCT-<bc>-beads\""
+    )
+    bc_beads_present = any(
+        marker in exec_body
+        for marker in (
+            "$PRODUCT-${",
+            "${PRODUCT}-${",
+            "$PRODUCT-$",
+        )
+    ) and "-beads" in exec_body
+    assert bc_beads_present, (
+        "footing must declare the forced BC beads repository as "
+        "\"$PRODUCT-<bc>-beads\", derived from the runtime $PRODUCT"
+    )
+    assert "acme" not in exec_body.lower(), (
+        "the forced BC repository names must be DERIVED from the runtime "
+        "$PRODUCT, never hardcoded to the illustrative literal \"acme\""
+    )
+
+
+@then('no tooling-created repository can be named outside the "acme-*" shape')
+def then_footing_no_repo_outside_product_shape(context: dict) -> None:
+    exec_body = _footing_executable_lines(context["footing_body"])
+    # The script must carry a guard/assertion ENFORCING or DECLARING that no
+    # tooling-created repository may be named outside the "$PRODUCT-*" shape.
+    # GENERIC: the guard names the product-prefix shape and rejects/forbids any
+    # name that does not match it.
+    assert "$PRODUCT-*" in exec_body or "${PRODUCT}-*" in exec_body, (
+        "footing must guard that no tooling-created repository is named "
+        "outside the \"$PRODUCT-*\" shape (executable code, not a comment)"
+    )
+    lowered = exec_body.lower()
+    assert "outside" in lowered or "must not" in lowered or "forbid" in lowered or (
+        "not" in lowered and "match" in lowered
+    ), (
+        "footing must declare/enforce that names outside the \"$PRODUCT-*\" "
+        "shape are rejected"
+    )
+    assert "acme" not in lowered, (
+        "the product-scope guard must be DERIVED from the runtime $PRODUCT, "
+        "never hardcoded to the illustrative literal \"acme\""
+    )

@@ -642,7 +642,7 @@ def _product_beads_remote(shop_name: str) -> str:
     return f"git+https://github.com/dstengle/{shop_name}-beads.git"
 
 
-def _render_beads_config(target: Path, shop_name: str) -> None:
+def _render_beads_config(target: Path, shop_name: str) -> str:
     """Render .beads/config.yaml in the target with the product beads remote
     (`sync.remote`) and the product-derived issue prefix (`issue_prefix`).
 
@@ -662,6 +662,9 @@ def _render_beads_config(target: Path, shop_name: str) -> None:
     Any config.yaml content `bd init` already produced is preserved: the two
     managed keys are appended (the rendered file is the existing body plus the
     two keys), so this augments rather than clobbers what bd wrote.
+
+    Returns the `sync.remote` value written, so the caller can run the
+    `bd dolt push` smoke-test against the freshly-configured remote.
     """
     config_path = target / ".beads" / "config.yaml"
     remote = _product_beads_remote(shop_name)
@@ -678,6 +681,43 @@ def _render_beads_config(target: Path, shop_name: str) -> None:
     else:
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(managed)
+    return remote
+
+
+def _bd_dolt_push_smoke_test(target: Path, remote: str) -> int:
+    """Run a `bd dolt push` smoke-test against the configured `sync.remote`.
+
+    Per tmpl-4k7 / scenario 62eb2a8b9b617f4b. After `_render_beads_config`
+    wires the new shop's bd tracker to the product beads remote, bootstrap
+    proves the tracker can actually reach that remote by running `bd dolt push`
+    as a subprocess in the target. On success it reports success (stdout); on a
+    non-zero push it returns the failing exit code with a diagnostic on stderr
+    that names the failed smoke-test — so a misconfigured or unreachable remote
+    is caught at bootstrap time rather than at the first mid-work work_done
+    emission.
+
+    Like `_bd_init_in`, this spawns the `bd` subprocess and never imports the
+    bd / beads Python internals (scenario 0c6f1c5d9bc4226e).
+    """
+    result = subprocess.run(
+        ["bd", "dolt", "push", remote],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"shop-templates bootstrap: `bd dolt push` smoke-test failed "
+            f"against the configured sync.remote {remote!r} in {target!s} "
+            f"(exit {result.returncode}); stderr:\n{result.stderr}",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"shop-templates bootstrap: `bd dolt push` smoke-test success "
+            f"against the configured sync.remote {remote!r}."
+        )
+    return result.returncode
 
 
 def _validate_shop_type(shop_type: str | None, command: str) -> str | None:
@@ -896,7 +936,16 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     # product beads remote (sync.remote) and stamps the product-derived
     # issue_prefix (tmpl-4k7 / scenario 9e15d8cfd55b9541). This augments what
     # `bd init` produced; it does not import bd / beads internals.
-    _render_beads_config(target, shop_name)
+    remote = _render_beads_config(target, shop_name)
+
+    # Smoke-test the freshly-wired tracker: run `bd dolt push` against the
+    # configured sync.remote (tmpl-4k7 / scenario 62eb2a8b9b617f4b). On a
+    # non-zero push, bootstrap exits non-zero with a diagnostic so a
+    # misconfigured / unreachable remote is caught here, not at the first
+    # mid-work work_done emission.
+    rc = _bd_dolt_push_smoke_test(target, remote)
+    if rc != 0:
+        return rc
 
     # Lead-shop bootstrap installs each sibling BC clone under repos/
     # editable into the product venv, per brief 003 scope item E

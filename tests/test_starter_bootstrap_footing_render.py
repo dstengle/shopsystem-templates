@@ -192,3 +192,101 @@ def test_rendered_footing_stops_at_green_git_push_and_bd_dolt_push():
     body = _footing_body()
     assert "git push" in body, "footing must reach a `git push`"
     assert "bd dolt push" in body, "footing must reach a `bd dolt push`"
+
+
+# -----------------------------------------------------------------------
+# Behavior 3 (@scenario_hash:c15aeb90b21357e5):
+# bootstrap refuses to invoke bin/footing when the render step did not produce
+# the file — it exits with a diagnostic NAMING the missing bin/footing rather
+# than running `bash ./bin/footing` against a missing file (exit-127).
+# -----------------------------------------------------------------------
+
+
+def test_bootstrap_guards_footing_existence_before_invoking():
+    """bootstrap must guard the footing invocation with an existence check on
+    bin/footing, so a render that did not produce the file is caught BEFORE the
+    `bash ./bin/footing` line runs against a missing file."""
+    code = _code_text(_bootstrap_body())
+    # An existence test on the footing path appears in the script's executed
+    # lines: `[ -f bin/footing ]` / `[ ! -f ... ]` / `test -f ...` / `[[ -e ... ]]`.
+    has_guard = re.search(
+        r"(\[\[?\s*!?\s*-[efx]\s+(\./)?bin/footing|test\s+!?\s*-[efx]\s+(\./)?bin/footing)",
+        code,
+    )
+    assert has_guard, (
+        "bootstrap must guard with a file-existence test on bin/footing (e.g. "
+        "`[ -f bin/footing ]`) before invoking it"
+    )
+
+
+def test_bootstrap_footing_guard_precedes_the_invoke():
+    """The existence guard must appear BEFORE the `bash ./bin/footing` invoke —
+    a guard placed after the invoke would not prevent the exit-127."""
+    code = _code_text(_bootstrap_body())
+    guard = re.search(r"-[efx]\s+(\./)?bin/footing", code)
+    invoke = re.search(r"bash\s+\./bin/footing", code)
+    assert guard is not None, "no footing existence guard found"
+    assert invoke is not None, "no `bash ./bin/footing` invoke found"
+    assert guard.start() < invoke.start(), (
+        "the bin/footing existence guard must precede the `bash ./bin/footing` "
+        "invoke"
+    )
+
+
+def test_bootstrap_missing_footing_diagnostic_names_the_file():
+    """When bin/footing was not produced, bootstrap must emit a diagnostic that
+    NAMES the missing bin/footing — so the failure is legible, not an opaque
+    exit-127 `No such file or directory`."""
+    body = _bootstrap_body()
+    # The diagnostic must be in the guard's FAILURE branch — i.e. it appears
+    # before the `bash ./bin/footing` invoke (a render-progress echo that also
+    # mentions "render"+"bin/footing" is NOT this diagnostic). It must be an
+    # emitted error message that names bin/footing AND describes it as
+    # absent/not-produced (NOT merely "rendering" progress).
+    code = _code_text(body)
+    invoke = re.search(r"bash\s+\./bin/footing", code)
+    assert invoke is not None, "no `bash ./bin/footing` invoke found"
+    pre_invoke = code[: invoke.start()]
+    diag_present = False
+    for raw in pre_invoke.splitlines():
+        low = raw.lower()
+        if "bin/footing" not in low:
+            continue
+        is_message = ">&2" in raw or "echo" in low
+        # Absence-describing language only — exclude the "rendering ..." /
+        # "launching ..." progress echoes which describe the happy path.
+        names_absent = any(
+            kw in low
+            for kw in ("missing", "not rendered", "not produced", "not obtained",
+                       "was not", "does not exist", "no such", "not present",
+                       "did not")
+        )
+        if is_message and names_absent:
+            diag_present = True
+            break
+    assert diag_present, (
+        "bootstrap must emit a diagnostic (before the invoke) that names the "
+        "missing bin/footing as absent/not-produced rather than failing with "
+        "exit-127"
+    )
+
+
+def test_bootstrap_does_not_rely_on_bare_exit127_for_missing_footing():
+    """bootstrap must explicitly exit non-zero from its own guard on a missing
+    footing — it must not depend on the `bash ./bin/footing` line itself
+    producing the exit-127. The guard branch carries an explicit non-zero
+    `exit`."""
+    body = _bootstrap_body()
+    # Locate the guard region and confirm an explicit `exit 1` (or non-zero)
+    # appears in the footing-missing handling. We look for an `exit` with a
+    # non-zero code somewhere after a bin/footing existence test and before the
+    # bash invoke, OR an `exit 1` on/adjacent to a line naming bin/footing.
+    code = _code_text(body)
+    guard = re.search(r"-[efx]\s+(\./)?bin/footing", code)
+    invoke = re.search(r"bash\s+\./bin/footing", code)
+    assert guard and invoke, "guard and invoke must both be present"
+    region = code[guard.start(): invoke.start()]
+    assert re.search(r"\bexit\s+[1-9]", region), (
+        "the missing-footing guard must explicitly `exit` non-zero rather than "
+        "fall through to a bare `bash ./bin/footing` exit-127"
+    )

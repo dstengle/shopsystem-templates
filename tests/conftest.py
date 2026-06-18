@@ -17553,3 +17553,312 @@ def then_footing_no_repo_outside_product_shape(context: dict) -> None:
         "the product-scope guard must be DERIVED from the runtime $PRODUCT, "
         "never hardcoded to the illustrative literal \"acme\""
     )
+
+
+# -----------------------------------------------------------------------
+# lead-y4pg (PDR-019 U1/U3, ADR-040): the starter bin/bootstrap OBTAINS
+# bin/footing by rendering it from templates/ops/footing before invoking it,
+# DELEGATES to the rendered footing for the footing sequence to green, and
+# REFUSES to invoke a footing the render step never produced (no exit-127).
+#
+# The starter forkable repo ships bin/bootstrap but NOT bin/footing (the
+# framework, footing template included, lives only in the published image).
+# These scenarios are runtime statements about an adopter run; with no live
+# docker/host CLI in the suite, they are faithfully reduced to assertions on
+# the starter bootstrap BODY served as package data (the read_starter_file
+# surface tests/test_starter_repo_body.py pins) and on the rendered footing
+# BODY (render_ops_template("footing", ...)), matching the established
+# rendered-body assertion style. Scenario hashes b05fff82d0d10f4a,
+# 3646efa06051fcac, c15aeb90b21357e5.
+# -----------------------------------------------------------------------
+
+
+def _y4pg_bootstrap_body() -> str:
+    from shop_templates.cli import iter_starter_files, read_starter_file
+
+    files = dict(iter_starter_files())
+    for cand in ("bin/bootstrap", "bootstrap"):
+        if cand in files:
+            return read_starter_file(cand)
+    raise AssertionError("no bootstrap script in starter body")
+
+
+def _y4pg_code_text(body: str) -> str:
+    """The script's executed command lines (comments and blanks stripped) — the
+    behaviors are about what bootstrap RUNS, not what its comments describe."""
+    out = []
+    for raw in body.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        out.append(raw)
+    return "\n".join(out)
+
+
+# ---- Scenario b05fff82d0d10f4a: render bin/footing before invoking it ----
+
+
+@given(
+    parsers.parse(
+        'an adopter fork created from the starter that carries "bin/bootstrap" '
+        'but no "bin/footing"'
+    )
+)
+def given_y4pg_adopter_fork_no_footing(context: dict) -> None:
+    from shop_templates.cli import iter_starter_files
+
+    files = dict(iter_starter_files())
+    assert "bin/bootstrap" in files or "bootstrap" in files, (
+        "the starter must carry bin/bootstrap"
+    )
+    assert "bin/footing" not in files, (
+        "the starter must NOT carry bin/footing — bootstrap renders it at run time"
+    )
+    context["y4pg_bootstrap"] = _y4pg_bootstrap_body()
+
+
+@when(parsers.parse('the adopter runs "bin/bootstrap"'))
+def when_y4pg_adopter_runs_bootstrap(context: dict) -> None:
+    # No live docker/host in the suite, so the run outcome is asserted against
+    # the bootstrap body, which must ENCODE the render-then-invoke discipline.
+    assert context.get("y4pg_bootstrap"), "bootstrap body must be loaded"
+    context.setdefault("y4pg_bootstrap", _y4pg_bootstrap_body())
+
+
+@then(
+    parsers.parse(
+        'bootstrap runs "shop-templates bootstrap" in-container, which renders '
+        '"bin/footing" from the "templates/ops/footing" template into the fork'
+    )
+)
+def then_y4pg_bootstrap_renders_footing(context: dict) -> None:
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    assert "shop-templates bootstrap" in code, (
+        "bootstrap must EXECUTE `shop-templates bootstrap` (a command line, not "
+        "a comment) to render bin/footing from templates/ops/footing"
+    )
+    assert re.search(r"docker\s+(run|compose\s+run|exec)", code), (
+        "the render must run in-container (the `shop-templates` CLI ships only "
+        "in the published image)"
+    )
+
+
+@then(
+    parsers.parse(
+        'the rendered "bin/footing" exists and is executable before bootstrap '
+        'invokes it'
+    )
+)
+def then_y4pg_rendered_footing_runnable_before_invoke(context: dict) -> None:
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    render_idx = code.find("shop-templates bootstrap")
+    m = re.search(r"bash\s+\./bin/footing|^\s*\./bin/footing\b", code, re.M)
+    invoke_idx = m.start() if m else -1
+    assert render_idx != -1 and invoke_idx != -1, (
+        "bootstrap must both render and invoke bin/footing"
+    )
+    assert render_idx < invoke_idx, (
+        "bootstrap must render bin/footing BEFORE invoking it"
+    )
+    # Runnable: invoked via `bash` (no +x dependency) or chmod +x first.
+    runs_via_bash = re.search(r"bash\s+\./bin/footing", code) is not None
+    chmods = re.search(r"chmod\s+\+x\s+(\./)?bin/footing", code) is not None
+    assert runs_via_bash or chmods, (
+        "the rendered bin/footing must be runnable before invoke (bash invoke "
+        "or chmod +x)"
+    )
+
+
+# ---- Scenario 3646efa06051fcac: delegate to rendered footing (to green) ----
+
+
+def _y4pg_footing_body() -> str:
+    from shop_templates.cli import render_ops_template
+
+    return render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@given(
+    parsers.parse(
+        'an adopter fork in which bootstrap has already rendered "bin/footing"'
+    )
+)
+def given_y4pg_fork_with_rendered_footing(context: dict) -> None:
+    # bootstrap renders bin/footing from templates/ops/footing; the rendered
+    # body is what control passes to. Load both the bootstrap body (to assert
+    # delegation) and the rendered footing body (to assert the sequence).
+    context["y4pg_bootstrap"] = _y4pg_bootstrap_body()
+    context["y4pg_footing"] = _y4pg_footing_body()
+    context["y4pg_footing_slug"] = _FOOTING_EXAMPLE_SLUG
+
+
+@when(parsers.parse('bootstrap invokes the rendered "bin/footing"'))
+def when_y4pg_bootstrap_invokes_footing(context: dict) -> None:
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    # Delegation: bootstrap hands control to the rendered footing via `bash`.
+    assert re.search(r"bash\s+\./bin/footing", code), (
+        "bootstrap must delegate control to the rendered bin/footing via "
+        "`bash ./bin/footing`"
+    )
+
+
+@then(
+    parsers.parse(
+        'control passes to "bin/footing", which runs the single up-front auth '
+        'gate, pours the lead structure, creates the "<product>-lead-beads" '
+        'repository, wires the git and beads remotes, and runs a "bd dolt '
+        'push" smoke-test'
+    )
+)
+def then_y4pg_footing_runs_sequence(context: dict) -> None:
+    bootstrap = _y4pg_code_text(context["y4pg_bootstrap"])
+    footing = context["y4pg_footing"]
+    slug = context["y4pg_footing_slug"]
+
+    # REUSE, not fork: bootstrap delegates the sequence internals to footing —
+    # it must not itself create the beads repo or wire the beads remote.
+    assert "gh repo create" not in bootstrap, (
+        "bootstrap must delegate beads-repo creation to footing, not fork it"
+    )
+    assert "bd dolt remote add" not in bootstrap, (
+        "bootstrap must delegate beads-remote wiring to footing, not fork it"
+    )
+
+    # The rendered footing runs the full sequence.
+    lowered = footing.lower()
+    assert "auth gate" in lowered, "footing must run the single up-front auth gate"
+    assert "shop-templates bootstrap" in footing, "footing must pour the lead structure"
+    assert f"{slug}-lead-beads" in footing, (
+        "footing must create the <product>-lead-beads repository (slug-scoped)"
+    )
+    assert "git remote" in footing and "bd dolt remote add" in footing, (
+        "footing must wire the git and beads remotes"
+    )
+    assert "bd dolt push" in footing, "footing must run the `bd dolt push` smoke-test"
+
+
+@then(
+    parsers.parse(
+        '"bin/footing" stops at solid footing demonstrated by a successful '
+        '"git push" and a successful "bd dolt push"'
+    )
+)
+def then_y4pg_footing_stops_at_green(context: dict) -> None:
+    footing = context["y4pg_footing"]
+    assert "git push" in footing, "footing must reach a green `git push`"
+    assert "bd dolt push" in footing, "footing must reach a green `bd dolt push`"
+
+
+# ---- Scenario c15aeb90b21357e5: refuse to invoke a missing bin/footing ----
+
+
+def _y4pg_real_invoke_idx(code: str) -> int:
+    """Index of the ACTUAL `bash ./bin/footing` command line (not a quoted
+    mention inside a diagnostic echo)."""
+    pos = 0
+    for line in code.splitlines():
+        if line.strip().startswith("bash ./bin/footing"):
+            return pos
+        pos += len(line) + 1
+    return -1
+
+
+# A bin/footing path reference allowing an optional quote + dir prefix.
+_Y4PG_FOOTING_PATH_RE = (
+    r"""["']?(?:\.?/|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/)*bin/footing"""
+)
+
+
+@given(
+    parsers.parse(
+        'an adopter fork that carries "bin/bootstrap" but no "bin/footing"'
+    )
+)
+def given_y4pg_fork_carries_bootstrap_no_footing(context: dict) -> None:
+    from shop_templates.cli import iter_starter_files
+
+    files = dict(iter_starter_files())
+    assert "bin/bootstrap" in files or "bootstrap" in files
+    assert "bin/footing" not in files, (
+        "the starter must NOT carry bin/footing"
+    )
+    context["y4pg_bootstrap"] = _y4pg_bootstrap_body()
+
+
+@given(
+    parsers.parse(
+        'the render step that obtains "bin/footing" did not produce the file'
+    )
+)
+def given_y4pg_render_did_not_produce_footing(context: dict) -> None:
+    # The hypothetical failure mode this scenario guards: the render ran but
+    # bin/footing is absent. The bootstrap body must encode a guard for it.
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    assert re.search(r"-[efx]\s+" + _Y4PG_FOOTING_PATH_RE, code), (
+        "bootstrap must carry a file-existence guard on bin/footing for the "
+        "render-did-not-produce-it case"
+    )
+
+
+@then(
+    parsers.parse(
+        'bootstrap does not execute "bash ./bin/footing" against a missing file'
+    )
+)
+def then_y4pg_bootstrap_does_not_invoke_missing_footing(context: dict) -> None:
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    guard = re.search(r"-[efx]\s+" + _Y4PG_FOOTING_PATH_RE, code)
+    invoke_idx = _y4pg_real_invoke_idx(code)
+    assert guard is not None, "no bin/footing existence guard found"
+    assert invoke_idx != -1, "no `bash ./bin/footing` invoke found"
+    # Guard precedes invoke, and the guard branch exits non-zero before the
+    # invoke could run against a missing file.
+    assert guard.start() < invoke_idx, (
+        "the existence guard must precede the `bash ./bin/footing` invoke"
+    )
+    region = code[guard.start():invoke_idx]
+    assert re.search(r"\bexit\s+[1-9]", region), (
+        "the missing-footing guard must `exit` non-zero before the invoke"
+    )
+
+
+@then(
+    parsers.parse(
+        'bootstrap exits with a diagnostic naming the missing "bin/footing" '
+        'instead of failing with an exit-127 "No such file or directory"'
+    )
+)
+def then_y4pg_diagnostic_names_missing_footing(context: dict) -> None:
+    body = context["y4pg_bootstrap"]
+    code = _y4pg_code_text(body)
+    invoke_idx = _y4pg_real_invoke_idx(code)
+    pre_invoke = code[:invoke_idx] if invoke_idx != -1 else code
+    diag = False
+    for raw in pre_invoke.splitlines():
+        low = raw.lower()
+        if "bin/footing" not in low:
+            continue
+        is_msg = ">&2" in raw or "echo" in low
+        names_absent = any(
+            kw in low
+            for kw in ("missing", "not rendered", "not produced", "not obtained",
+                       "was not", "does not exist", "no such", "not present",
+                       "did not")
+        )
+        if is_msg and names_absent:
+            diag = True
+            break
+    assert diag, (
+        "bootstrap must emit a diagnostic naming the missing bin/footing "
+        "rather than failing with an opaque exit-127"
+    )

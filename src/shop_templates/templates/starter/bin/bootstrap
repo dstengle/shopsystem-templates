@@ -86,26 +86,70 @@ fi
 echo "bootstrap: recorded resolved image '$RESOLVED_DIGEST' in $RUN_ENV." >&2
 
 # =======================================================================
-# (U2) Run the U3 footing orchestration inside the published image's
+# (U1/U3) OBTAIN bin/footing by RENDERING it, then DELEGATE to it.
+#
+# REUSE, NOT FORK: the U3 footing orchestration (the single up-front auth gate,
+# the lead-structure pour, the "<product>-lead-beads" creation, the git+beads
+# remote wiring, the `bd dolt push` smoke-test, and the STOP at green) lives in
+# the footing script, which is rendered from the framework's
+# templates/ops/footing template. The framework — including that template —
+# ships ONLY in the published image; the starter fork carries bin/bootstrap but
+# NOT bin/footing. So this bootstrap must first OBTAIN bin/footing by rendering
+# it, and only THEN invoke it.
+#
+# Step 1 — RENDER bin/footing from templates/ops/footing. Running
+# `shop-templates bootstrap` (the in-image CLI, zero-install on the host) pours
+# the lead structure into the fork, and that pour renders bin/footing from the
+# templates/ops/footing template. We run it in-container (the CLI ships only in
+# the published image) so the render lands bin/footing into the mounted fork.
+# =======================================================================
+echo "bootstrap: rendering bin/footing from the templates/ops/footing template via in-container 'shop-templates bootstrap' (the framework ships only in the image; the starter fork carries no bin/footing)." >&2
+docker run --rm \
+  --env-file "$RUN_ENV" \
+  -e BOOTSTRAP_MODE=interactive \
+  -e FOOTING_REPO_NAME="$REPO_NAME" \
+  -v "$REPO_ROOT:/workspace/$REPO_NAME" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -w "/workspace/$REPO_NAME" \
+  "$RESOLVED_DIGEST" \
+  shop-templates bootstrap \
+    --shop-type lead \
+    --shop-name "${PRODUCT}-product" \
+    --target "/workspace/$REPO_NAME"
+
+# =======================================================================
+# Step 2 — INVOKE the rendered bin/footing inside the published image's
 # INTERACTIVE bootstrap MODE. The footing script is the SINGLE source of the
 # auth gate — the ONE up-front consolidated human gate that collects, in one
 # place, the Claude OAuth credential (via an oauth-typed proposal
 # create->approve), the GitHub PAT, and the agent-vault owner password — plus
-# the lead-structure pour (`shop-templates bootstrap`), the
-# "<product>-lead-beads" repo creation, the git+beads remote wiring, and the
-# `bd dolt push` smoke-test. This bootstrap REUSES it — it does not fork it.
+# it pours/confirms the lead structure, creates "<product>-lead-beads", wires
+# the git+beads remotes, runs the `bd dolt push` smoke-test, and STOPS at a
+# green `git push` + `bd dolt push`. This bootstrap REUSES it — it does not
+# fork it.
 #
 # The bc-base/bc-launcher image carries `shop-templates`, `bd`, `gh`, and
 # `claude`. We run it interactively (-it) in its bootstrap MODE so the human
 # can complete the single up-front auth gate (the proposal approve step), then
-# the run is non-interactive through to solid footing.
-#
-# The footing entry point ships in this fork at bin/footing. If the fork
-# carries it directly, we invoke it inside the interactive image; the image's
-# bootstrap mode mounts the repo and runs the footing orchestration with the
-# tools on PATH.
+# the run is non-interactive through to solid footing. bin/footing was rendered
+# into the fork in Step 1 above, so it exists and is invoked via `bash` (no +x
+# dependency).
 # =======================================================================
-echo "bootstrap: launching the published bc-base/bc-launcher image in its INTERACTIVE bootstrap MODE to run footing." >&2
+# REFUSE to invoke a footing that was never obtained. The render step above is
+# the ONLY thing that produces bin/footing in this fork (the starter ships
+# none). If that render did not produce the file, invoking `bash ./bin/footing`
+# would fail opaquely with an exit-127 "No such file or directory". Guard the
+# invoke with an explicit existence check FIRST: if bin/footing is absent, emit
+# a diagnostic that NAMES the missing bin/footing and exit non-zero from here,
+# rather than falling through to a bare exit-127.
+if [[ ! -f "$REPO_ROOT/bin/footing" ]]; then
+  echo "bootstrap: bin/footing is MISSING — the render step (in-container 'shop-templates bootstrap') did not produce '$REPO_ROOT/bin/footing'." >&2
+  echo "  bootstrap will NOT run 'bash ./bin/footing' against a missing file (that would fail with an opaque exit-127 'No such file or directory')." >&2
+  echo "  Check the render step's output above and re-run ./bin/bootstrap once bin/footing has been rendered. Aborting." >&2
+  exit 1
+fi
+
+echo "bootstrap: launching the published bc-base/bc-launcher image in its INTERACTIVE bootstrap MODE to run the rendered bin/footing." >&2
 docker run --rm -it \
   --env-file "$RUN_ENV" \
   -e BOOTSTRAP_MODE=interactive \

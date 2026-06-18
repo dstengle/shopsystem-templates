@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# bin/bootstrap — shopsystem-starter adopter entry point (PDR-019 U1).
+#
+# Run ONCE in a freshly created repo made via GitHub's "Use this template"
+# from shopsystem-starter. It is the adopter's single deterministic entry
+# point and it produces their "<product>-lead" repo on SOLID FOOTING.
+#
+# ZERO-INSTALL: the only prerequisites are Docker and a GitHub account. There
+# is no `pip install`, no language toolchain to set up, and no framework
+# checkout — the framework lives ONLY in the published image. Everything this
+# script needs (the `shop-templates` CLI, `bd`, `gh`, `claude`) runs inside
+# the published bc-base/bc-launcher image, which this script pulls and runs in
+# its INTERACTIVE bootstrap MODE (U2).
+#
+# REUSE, NOT FORK (the controlling constraint): the U3 footing orchestration
+# and U4 product-naming + the single up-front auth gate are ALREADY encoded in
+# the footing script (bin/footing, rendered from templates/ops/footing). This
+# bootstrap does NOT re-implement any of that. It prepares the run — derives
+# the product identity for the human-facing checks, resolves the floating
+# image and records it in the run .env (ADR-040 D3), brings the broker up for
+# the auth gate — and then DELEGATES to footing, which runs the auth gate,
+# pours the lead structure, creates "<product>-lead-beads", wires the git +
+# beads remotes, runs the `bd dolt push` smoke-test, and STOPS at a green
+# `git push` + `bd dolt push`. Product Discovery is an explicit NEXT step the
+# human starts AFTER footing — it is NOT part of this script.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+# The published bc-base/bc-launcher image. It floats on :latest (ADR-040 D3);
+# bin/bootstrap resolves the floating tag at run time below and records it.
+BC_BASE_IMAGE="${BC_BASE_IMAGE:-ghcr.io/dstengle/bc-base:latest}"
+RUN_ENV="${RUN_ENV:-$REPO_ROOT/.env}"
+
+# =======================================================================
+# (U4) Validate the repo name against the "*-lead" shape and derive
+# <product>. The repo this template was used to create is almost never
+# already named "<product>-lead"; rather than force the human to recreate
+# the repo, offer to rename it in place via `gh repo rename`.
+#
+# (This is the human-facing, pre-flight copy of the same check footing makes
+# authoritatively. footing re-derives and re-validates <product> itself; this
+# pre-flight only surfaces the rename hint EARLY so the human fixes the name
+# before the run rather than after the broker is up.)
+# =======================================================================
+REPO_NAME="${BOOTSTRAP_REPO_NAME:-$(basename "$REPO_ROOT")}"
+case "$REPO_NAME" in
+  *-lead)
+    : # accepted — matches the "<product>-lead" lead-shop fork shape
+    ;;
+  *)
+    RENAME_TARGET="${REPO_NAME}-lead"
+    echo "bootstrap: this repository '$REPO_NAME' is not yet named in the \"<product>-lead\" shape." >&2
+    echo "  A lead-shop repo must be named '<product>-lead'. You need NOT use the template again —" >&2
+    echo "  rename this repository in place by running:" >&2
+    echo "" >&2
+    echo "    gh repo rename $RENAME_TARGET" >&2
+    echo "" >&2
+    echo "  then re-run ./bin/bootstrap from the renamed repository. Aborting." >&2
+    exit 1
+    ;;
+esac
+PRODUCT="${REPO_NAME%-lead}"
+echo "bootstrap: deriving product identity '$PRODUCT' from repo name '$REPO_NAME'." >&2
+
+# =======================================================================
+# (ADR-040 D3) Resolve the floating image tag at RUN TIME and record the
+# resolved digest in the run's .env. The committed compose.yaml pins NO tag;
+# this is the step that makes the run reproducible — the resolved digest is
+# written to .env so every container in the run uses the exact image this run
+# resolved, even though the committed file floats.
+# =======================================================================
+echo "bootstrap: resolving the floating image '$BC_BASE_IMAGE' at run time (ADR-040 D3)." >&2
+docker pull "$BC_BASE_IMAGE" >/dev/null
+RESOLVED_DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$BC_BASE_IMAGE" 2>/dev/null || true)"
+RESOLVED_DIGEST="${RESOLVED_DIGEST:-$BC_BASE_IMAGE}"
+touch "$RUN_ENV"
+# Record the run-resolved image so the run is reproducible without the
+# committed compose pinning a tag.
+if grep -q '^BC_BASE_IMAGE_RESOLVED=' "$RUN_ENV" 2>/dev/null; then
+  sed -i "s|^BC_BASE_IMAGE_RESOLVED=.*|BC_BASE_IMAGE_RESOLVED=$RESOLVED_DIGEST|" "$RUN_ENV"
+else
+  printf 'BC_BASE_IMAGE_RESOLVED=%s\n' "$RESOLVED_DIGEST" >> "$RUN_ENV"
+fi
+echo "bootstrap: recorded resolved image '$RESOLVED_DIGEST' in $RUN_ENV." >&2
+
+# =======================================================================
+# (U2) Run the U3 footing orchestration inside the published image's
+# INTERACTIVE bootstrap MODE. The footing script is the SINGLE source of the
+# auth gate — the ONE up-front consolidated human gate that collects, in one
+# place, the Claude OAuth credential (via an oauth-typed proposal
+# create->approve), the GitHub PAT, and the agent-vault owner password — plus
+# the lead-structure pour (`shop-templates bootstrap`), the
+# "<product>-lead-beads" repo creation, the git+beads remote wiring, and the
+# `bd dolt push` smoke-test. This bootstrap REUSES it — it does not fork it.
+#
+# The bc-base/bc-launcher image carries `shop-templates`, `bd`, `gh`, and
+# `claude`. We run it interactively (-it) in its bootstrap MODE so the human
+# can complete the single up-front auth gate (the proposal approve step), then
+# the run is non-interactive through to solid footing.
+#
+# The footing entry point ships in this fork at bin/footing. If the fork
+# carries it directly, we invoke it inside the interactive image; the image's
+# bootstrap mode mounts the repo and runs the footing orchestration with the
+# tools on PATH.
+# =======================================================================
+echo "bootstrap: launching the published bc-base/bc-launcher image in its INTERACTIVE bootstrap MODE to run footing." >&2
+docker run --rm -it \
+  --env-file "$RUN_ENV" \
+  -e BOOTSTRAP_MODE=interactive \
+  -e FOOTING_REPO_NAME="$REPO_NAME" \
+  -v "$REPO_ROOT:/workspace/$REPO_NAME" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -w "/workspace/$REPO_NAME" \
+  "$RESOLVED_DIGEST" \
+  bash ./bin/footing
+
+# =======================================================================
+# STOP at footing. The run reached solid footing (a green `git push` + a
+# green `bd dolt push`, proven inside footing). Product Discovery and BC
+# creation are downstream, agent-driven steps a human starts only AFTER
+# confirming this footing — they are an explicit NEXT step and are NOT part
+# of this bootstrap.
+# =======================================================================
+echo "bootstrap: solid footing reached for ${PRODUCT}-lead." >&2
+echo "bootstrap: NEXT STEP — product Discovery is an explicit, agent-driven step you start AFTER confirming this footing. It is NOT part of bootstrap." >&2

@@ -16839,3 +16839,190 @@ def then_footing_stops_without_discovery_or_bc(context: dict) -> None:
             f"footing must stop at footing — it must not create any BC "
             f"(found {forbidden!r})"
         )
+
+
+# -----------------------------------------------------------------------
+# tmpl-obj (@scenario_hash fec7842e905761c8): the footing bootstrap script
+# consolidates ALL human authentication into one up-front gate.
+#
+# Same rendered-body reduction as behavior 1 (no live docker/postgres/broker
+# in the suite): the scenario's runtime Then clauses are faithfully asserted
+# against the RENDERED footing-script BODY. The three facets are:
+#   1. ONE up-front gate that collects owner password + GitHub PAT + Claude
+#      OAuth, BEFORE any later step (services / pour / push).
+#   2. The Claude OAuth credential is captured IN-SCRIPT by creating an
+#      `agent-vault vault proposal` of type oauth + human approve, with NO
+#      agent-vault dashboard route.
+#   3. NO later step prompts the human for a credential again — the gate is
+#      the sole credential-collection point.
+# The proposal/approve vocabulary reuses the bin/agent-vault-provision
+# contract (vault proposal create / proposal approve <num> ... --yes), and the
+# "real secret only at approve-time, no automated transport" guarantee
+# (lead scenario 11 @72af524bca85f59c) is preserved here too.
+# -----------------------------------------------------------------------
+
+
+def _footing_auth_gate_segment(body: str) -> str:
+    """Return the part of the footing body that runs BEFORE any later footing
+    step (the first of: docker compose up / shop-templates bootstrap / push).
+
+    The single up-front auth gate must live entirely within this segment.
+    """
+    later_markers = []
+    for marker in ("docker compose", "shop-templates bootstrap", "git push", "bd dolt push"):
+        idx = body.find(marker)
+        if idx != -1:
+            later_markers.append(idx)
+    assert later_markers, (
+        "footing must contain at least one later step (services / pour / push) "
+        "for the up-front gate to precede"
+    )
+    first_later = min(later_markers)
+    return body[:first_later]
+
+
+@given(
+    "the bootstrap script is run for a product whose broker holds no "
+    "credentials yet"
+)
+def given_footing_run_broker_no_credentials(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+
+    context["footing_slug"] = _FOOTING_EXAMPLE_SLUG
+    context["footing_body"] = render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@when("the script reaches its authentication step")
+def when_footing_reaches_auth_step(context: dict) -> None:
+    assert context.get("footing_body"), (
+        "footing-script body must be available before asserting the auth gate"
+    )
+
+
+@then(
+    "it collects the owner password, the GitHub PAT, and the Claude OAuth "
+    "credential in a single up-front gate before any later step"
+)
+def then_footing_single_up_front_gate(context: dict) -> None:
+    body = context["footing_body"]
+    gate = _footing_auth_gate_segment(body)
+
+    # All three credentials are collected within the up-front gate segment
+    # (i.e. before any services / pour / push step). The owner password and
+    # the GitHub PAT are the two non-OAuth inputs; the Claude OAuth credential
+    # is captured via the in-script proposal flow (asserted in detail below).
+    assert "OWNER_PASSWORD" in gate, (
+        "the single up-front gate must collect the owner password before any "
+        "later step"
+    )
+    assert "GITHUB_TOKEN" in gate, (
+        "the single up-front gate must collect the GitHub PAT before any "
+        "later step"
+    )
+    assert "CLAUDE_OAUTH" in gate, (
+        "the single up-front gate must collect the Claude OAuth credential "
+        "before any later step"
+    )
+
+    # It is ONE gate: the Claude OAuth proposal creation (the OAuth capture
+    # point) must itself sit inside the up-front segment, ahead of the later
+    # footing steps — not interleaved after services/pour/push.
+    assert "agent-vault vault proposal create" in gate, (
+        "the Claude OAuth credential must be captured by the single up-front "
+        "gate (before any later step), via `agent-vault vault proposal create`"
+    )
+
+
+@then(
+    'it captures the Claude OAuth credential in-script by creating an '
+    '"agent-vault vault proposal" of type oauth and having the human approve '
+    'it, with no agent-vault dashboard route'
+)
+def then_footing_oauth_proposal_capture(context: dict) -> None:
+    body = context["footing_body"]
+
+    # Captured IN-SCRIPT via an `agent-vault vault proposal` of type oauth —
+    # reusing the bin/agent-vault-provision contract (proposal create + the
+    # oauth-typed slot).
+    assert "agent-vault vault proposal create" in body, (
+        "footing must capture the Claude OAuth credential in-script via "
+        "`agent-vault vault proposal create`"
+    )
+    assert '"type":"oauth"' in body, (
+        "the proposal must be of type oauth (the oauth-typed credential slot)"
+    )
+    assert "CLAUDE_OAUTH" in body, (
+        "the oauth proposal must target the CLAUDE_OAUTH credential"
+    )
+
+    # The human APPROVES it — the same `proposal approve <num> ... --yes`
+    # contract bin/agent-vault-provision uses.
+    approve_lines = [ln for ln in body.splitlines() if "proposal approve" in ln]
+    assert approve_lines, (
+        "footing must have the human approve the oauth proposal via the "
+        "`proposal approve <num> CLAUDE_OAUTH=<value> --yes` contract"
+    )
+    assert any(
+        "CLAUDE_OAUTH=<" in ln and "--yes" in ln for ln in approve_lines
+    ), (
+        "the approve command must keep CLAUDE_OAUTH=<...> a placeholder for "
+        "the human to fill at approve-time and carry --yes (reusing the "
+        "provision approve contract): {!r}".format(approve_lines)
+    )
+
+    # The real secret is supplied ONLY at approve-time; no automated step
+    # transports it (lead scenario 11 @72af524bca85f59c preserved). The oauth
+    # proposal slot carries no value field, and no `credential set` carries a
+    # real CLAUDE_OAUTH value.
+    assert '"value"' not in body, (
+        "the oauth proposal slot must not carry a value field — the real "
+        "secret arrives only at approve-time"
+    )
+    for ln in body.splitlines():
+        if "credential set" in ln and not ln.strip().startswith("#"):
+            assert "CLAUDE_OAUTH" not in ln, (
+                "no automated `credential set` may transport a real "
+                "CLAUDE_OAUTH secret (it arrives only at approve-time): "
+                "{!r}".format(ln)
+            )
+
+    # NO agent-vault dashboard route: the approval happens via the CLI
+    # proposal flow, not by directing the human to open a dashboard.
+    lowered = body.lower()
+    assert "dashboard" not in lowered, (
+        "the OAuth capture must have no agent-vault dashboard route — "
+        "approval happens via the CLI proposal flow"
+    )
+
+
+@then("no later step in the script prompts the human for a credential again")
+def then_footing_no_later_credential_prompt(context: dict) -> None:
+    body = context["footing_body"]
+    gate = _footing_auth_gate_segment(body)
+    gate_len = len(gate)
+
+    # Everything AFTER the up-front gate segment is "later steps". No later
+    # step may prompt the human for a credential — the gate is the sole
+    # credential-collection point. We guard the structural credential-read
+    # surfaces (interactive read of a secret, or re-creating an oauth proposal
+    # that would re-collect a credential) from appearing after the gate.
+    later_body = body[gate_len:]
+    for ln in later_body.splitlines():
+        stripped = ln.strip()
+        if stripped.startswith("#"):
+            continue
+        lowered = stripped.lower()
+        # An interactive `read -s` (silent prompt) of a credential after the
+        # gate would be a second credential prompt.
+        assert "read -s" not in lowered, (
+            "no later step may interactively prompt the human for a "
+            "credential (found a `read -s` after the up-front gate): "
+            "{!r}".format(ln)
+        )
+        # Re-creating the oauth proposal after the gate would re-collect the
+        # Claude OAuth credential outside the single gate.
+        assert "proposal create" not in lowered, (
+            "no later step may re-collect a credential — the oauth proposal "
+            "is created once, in the up-front gate (found `proposal create` "
+            "after the gate): {!r}".format(ln)
+        )

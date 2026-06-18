@@ -53,8 +53,19 @@ case "$REPO_NAME" in
     : # accepted — the fork name matches the "*-lead" shape
     ;;
   *)
+    # The forked repo name does NOT match the "*-lead" shape. Rather than
+    # forcing the human to fork the starter template anew, offer to rename the
+    # EXISTING repository in place to "<name>-lead" via `gh repo rename`. The
+    # rename target is DERIVED from the actual repo name (append "-lead"), so
+    # this works for any product, not a baked-in literal.
+    RENAME_TARGET="${REPO_NAME}-lead"
     echo "footing: forked repository name '$REPO_NAME' does not match the required \"*-lead\" shape." >&2
-    echo "  A lead-shop fork must be named '<product>-lead'. Aborting." >&2
+    echo "  A lead-shop fork must be named '<product>-lead'. The starter template need not be forked again —" >&2
+    echo "  rename the existing repository in place by running:" >&2
+    echo "" >&2
+    echo "    gh repo rename $RENAME_TARGET" >&2
+    echo "" >&2
+    echo "  then re-run footing from the renamed repository. Aborting." >&2
     exit 1
     ;;
 esac

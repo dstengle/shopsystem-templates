@@ -16514,3 +16514,193 @@ def then_smoke_test_fails_loud_on_missing_remote(
         f"name 'origin' or URL {expected_remote!r}), not a generic failure; "
         f"got: {diagnostic!r}"
     )
+
+
+# =======================================================================
+# Scenario @1d08c456af08d577 (lead-8vxy / tmpl-urj) — provision is
+# lead-driveable: the non-OAuth-secret inputs (owner password, GitHub
+# username/PAT) arrive via env/args with NO interactive prompt, and the ONE
+# genuine human step (approving the CLAUDE_OAUTH proposal) is isolated into a
+# clean lead-presentable handoff: provision creates the proposal, reports the
+# proposal number + the EXACT `proposal approve <num> CLAUDE_OAUTH=<value>
+# --yes` command for the user to run, and resumes (it does NOT block on an
+# interactive ENTER wait). The real Claude OAuth secret is supplied ONLY at
+# approve-time; no automated step transports it (lead scenario 11
+# @72af524bca85f59c preserved).
+#
+# Acceptance is grep-predicate over the RENDERED bin/agent-vault-provision body
+# (no live broker in the BC env — same render-fidelity style as
+# tests/test_ops_provision_oauth_proposal.py /
+# tests/test_ops_provision_proposal_scoped_session.py).
+# =======================================================================
+
+import re as _re_8vxy
+
+
+def _provision_body_8vxy(slug: str = "shopsystem") -> str:
+    from shop_templates.cli import render_ops_template
+
+    return render_ops_template("agent-vault-provision", slug)
+
+
+# An interactive prompt is `read` with -p (prompt) or -s (silent) flag and NO
+# input redirection on the same line. The `while IFS= read -r line ...` .env
+# loop reads from a redirected file, not the terminal, so it is NOT
+# interactive; this matcher excludes redirected reads.
+_INTERACTIVE_READ_RE_8vxy = _re_8vxy.compile(r"(?<![\w/-])read\b[^\n]*\s-[a-zA-Z]*[ps]")
+
+
+def _interactive_read_lines_8vxy(body: str) -> list[str]:
+    hits = []
+    for ln in body.splitlines():
+        stripped = ln.strip()
+        if stripped.startswith("#"):
+            continue
+        if "<" in ln and "read" in ln:
+            # a read fed from a redirection (e.g. `done < "$ENV_FILE"`) is not
+            # interactive; skip lines carrying an input redirect.
+            continue
+        if _INTERACTIVE_READ_RE_8vxy.search(ln):
+            hits.append(ln)
+    return hits
+
+
+@given("a running agent-vault broker with an empty vault")
+def given_running_broker_empty_vault_8vxy(context: dict) -> None:
+    # Render-fidelity premise: the BC env has no live broker, so the scenario's
+    # acceptance is asserted against the RENDERED provision body (the shape the
+    # lead runs against a real empty-vault broker). Capture the rendered body.
+    context["provision_body_8vxy"] = _provision_body_8vxy()
+
+
+@given(
+    "the owner password and the GitHub username and PAT are supplied via "
+    "environment variables or arguments"
+)
+def given_inputs_via_env_or_args_8vxy(context: dict) -> None:
+    body = context.setdefault("provision_body_8vxy", _provision_body_8vxy())
+    # The non-OAuth inputs each have an env-supplied source in the rendered
+    # body (owner password / github username / github token).
+    assert 'OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD' in body, (
+        "owner password must be sourced from the AGENT_VAULT_OWNER_PASSWORD env var"
+    )
+    assert 'GITHUB_USERNAME="${GITHUB_USERNAME' in body, (
+        "GitHub username must be sourced from the GITHUB_USERNAME env var"
+    )
+    assert 'GITHUB_TOKEN="${GITHUB_TOKEN' in body, (
+        "GitHub PAT must be sourced from the GITHUB_TOKEN env var"
+    )
+
+
+@when("the lead runs bin/agent-vault-provision")
+def when_lead_runs_provision_8vxy(context: dict) -> None:
+    context.setdefault("provision_body_8vxy", _provision_body_8vxy())
+
+
+@then(
+    "it consumes the owner password and the GitHub username and PAT from the "
+    "environment or arguments without any interactive prompt"
+)
+def then_consumes_inputs_no_prompt_8vxy(context: dict) -> None:
+    body = context["provision_body_8vxy"]
+    # No interactive `read -s`/`read -p` prompt anywhere in the script: the
+    # non-OAuth inputs come from env/args, AND the OAuth approval handoff must
+    # NOT block on an interactive ENTER wait (provision reports + resumes).
+    interactive = _interactive_read_lines_8vxy(body)
+    assert not interactive, (
+        "provision must consume its inputs without any interactive prompt and "
+        "must not block on an interactive read; found interactive read "
+        f"line(s): {interactive!r}"
+    )
+
+
+@then(
+    "it stores the GitHub credential in the vault without the lead handling "
+    "any real Claude OAuth secret"
+)
+def then_stores_github_no_real_oauth_8vxy(context: dict) -> None:
+    body = context["provision_body_8vxy"]
+    # The GitHub credential is stored from env-sourced vars via `credential set`.
+    assert "agent-vault vault credential set" in body, (
+        "provision must store the GitHub credential via `vault credential set`"
+    )
+    assert "GITHUB_USERNAME=${GITHUB_USERNAME}" in body, (
+        "the stored GitHub username credential must come from $GITHUB_USERNAME"
+    )
+    assert "GITHUB_TOKEN=${GITHUB_TOKEN}" in body, (
+        "the stored GitHub PAT credential must come from $GITHUB_TOKEN"
+    )
+    # No automated step stores/transports a real CLAUDE_OAUTH secret value: the
+    # OAuth credential never flows through a flat `credential set`.
+    for ln in body.splitlines():
+        if "credential set" in ln and not ln.strip().startswith("#"):
+            assert "CLAUDE_OAUTH" not in ln, (
+                f"no automated `credential set` may carry a real CLAUDE_OAUTH "
+                f"secret (it arrives only at approve-time): {ln!r}"
+            )
+
+
+@then(
+    'it creates a CLAUDE_OAUTH proposal and reports the proposal number '
+    'together with the exact "proposal approve <num> CLAUDE_OAUTH=<value> '
+    '--yes" command for the user to run'
+)
+def then_creates_proposal_reports_handoff_8vxy(context: dict) -> None:
+    body = context["provision_body_8vxy"]
+    # (a) creates a CLAUDE_OAUTH proposal.
+    assert "agent-vault vault proposal create" in body, (
+        "provision must create the CLAUDE_OAUTH proposal"
+    )
+    # (b) captures + reports the proposal NUMBER.
+    assert "PROPOSAL_NUM=" in body, (
+        "provision must capture the proposal number for the handoff"
+    )
+    # (c) reports the EXACT approve command shape the user runs. The handoff
+    # must surface the literal `proposal approve <num> CLAUDE_OAUTH=<value>
+    # --yes` command — substituting the captured proposal number for <num>,
+    # while keeping the `CLAUDE_OAUTH=<value>` placeholder (the user supplies
+    # the real value) and the `--yes` flag. Match the rendered approve line
+    # carrying the captured number var, the CLAUDE_OAUTH= assignment, and --yes.
+    approve_lines = [
+        ln for ln in body.splitlines()
+        if "proposal approve" in ln and "${PROPOSAL_NUM" in ln
+    ]
+    assert approve_lines, (
+        "the handoff must report the exact approve command with the captured "
+        "proposal number substituted for <num> (a `proposal approve "
+        "${PROPOSAL_NUM...} CLAUDE_OAUTH=<value> --yes` line)"
+    )
+    has_exact = any(
+        ("CLAUDE_OAUTH=" in ln) and ("--yes" in ln) for ln in approve_lines
+    )
+    assert has_exact, (
+        "the reported approve command must be the exact "
+        "`proposal approve <num> CLAUDE_OAUTH=<value> --yes` shape "
+        "(carrying the CLAUDE_OAUTH=<value> placeholder and the --yes flag); "
+        f"got approve line(s): {approve_lines!r}"
+    )
+
+
+@then(
+    "the real Claude OAuth secret is supplied only at approve-time and no "
+    "automated step transports it"
+)
+def then_secret_only_at_approve_time_8vxy(context: dict) -> None:
+    body = context["provision_body_8vxy"]
+    # The proposal slot carries NO value field (server rejects a value for
+    # oauth creds; tokens arrive via approve), and the approve command leaves
+    # the real value as a <value> placeholder for the user — no automated step
+    # carries a real CLAUDE_OAUTH secret.
+    assert '"value"' not in body, (
+        "the oauth proposal slot must not carry a value field — the real "
+        "secret is supplied only at approve-time"
+    )
+    # The approve command must NOT inline a real secret; it leaves a <value>
+    # placeholder the user fills.
+    approve_lines = [ln for ln in body.splitlines() if "proposal approve" in ln]
+    assert approve_lines, "approve command must render"
+    assert any("CLAUDE_OAUTH=<" in ln for ln in approve_lines), (
+        "the approve command must keep CLAUDE_OAUTH=<...> a placeholder for the "
+        "user to fill at approve-time; no automated step may transport a real "
+        f"value: {approve_lines!r}"
+    )

@@ -193,8 +193,15 @@ def test_provision_preserves_claude_oauth_human_gate():
     IS scriptable on 0.32.0 via the `vault proposal create -f -` credential-slot
     path. The human gate is no longer a manual dashboard paste — it is the
     operator APPROVING the pre-populated OAuth proposal (token paste at the
-    approve URL). The HUMAN GATE banner + a blocking read-prompt structure are
-    preserved; the gate now references Claude-OAuth and instructs approve."""
+    approve URL). The HUMAN GATE banner is preserved; the gate references
+    Claude-OAuth and instructs approve.
+
+    SUPERSEDED PRE-STATE (lead-8vxy / PDR-019 U6 / ADR-040 D2): the gate USED
+    to BLOCK on an interactive ``read -r -p "Press ENTER ..."`` wait. That
+    blocking wait is RETIRED — provision is now lead-driveable: it REPORTS the
+    proposal number + the exact approve command and RESUMES (no interactive
+    prompt). Scenario @1d08c456af08d577 pins the report-and-resume contract;
+    this test now asserts the gate is NOT a blocking read-prompt."""
     body = _provision()
     assert "HUMAN GATE" in body, "Claude-OAuth human gate banner must be preserved"
     assert "claude-oauth" in body.lower(), "human gate must reference Claude-OAuth"
@@ -202,9 +209,12 @@ def test_provision_preserves_claude_oauth_human_gate():
     assert "vault proposal approve" in body, (
         "human gate must instruct the operator to approve the printed proposal"
     )
-    # the read-prompt that blocks for the operator's approval still gates the script
-    assert re.search(r"\bread\b.*-p", body) or "read -r -p" in body, (
-        "human gate read-prompt (blocking on operator approval) must be preserved"
+    # The gate must NOT block on an interactive read-prompt — provision is
+    # lead-driveable (reports the handoff and resumes), per @1d08c456af08d577.
+    assert not re.search(r"\bread\b[^\n]*\s-[a-zA-Z]*[ps]", body), (
+        "the blocking interactive read-prompt is retired — provision must "
+        "report the proposal handoff and resume (lead-driveable, no interactive "
+        "wait)"
     )
 
 

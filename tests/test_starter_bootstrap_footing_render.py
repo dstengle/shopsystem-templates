@@ -128,3 +128,67 @@ def test_bootstrap_invokes_rendered_footing_runnably():
         "invoking it — either chmod +x bin/footing or invoke via `bash "
         "./bin/footing`"
     )
+
+
+# -----------------------------------------------------------------------
+# Behavior 2 (@scenario_hash:3646efa06051fcac):
+# bootstrap delegates to the rendered bin/footing which runs the footing
+# sequence to green. bootstrap passes control to bin/footing (REUSE, not
+# fork) and the rendered footing runs the whole sequence and stops at a green
+# `git push` + `bd dolt push`.
+# -----------------------------------------------------------------------
+
+
+def _footing_body():
+    from shop_templates.cli import render_ops_template
+
+    return render_ops_template("footing", "shopsystem")
+
+
+def test_bootstrap_delegates_control_to_rendered_footing():
+    """bootstrap must hand control to the rendered bin/footing — it invokes
+    `bash ./bin/footing` and lets footing own the sequence."""
+    code = _code_text(_bootstrap_body())
+    assert re.search(r"bash\s+\./bin/footing", code), (
+        "bootstrap must delegate to the rendered bin/footing via `bash "
+        "./bin/footing`"
+    )
+
+
+def test_bootstrap_does_not_fork_the_footing_sequence_internals():
+    """REUSE, not fork: bootstrap must NOT re-implement footing's internals —
+    it must not itself create the beads repo or wire the beads dolt remote.
+    Those belong to the footing script it delegates to."""
+    code = _code_text(_bootstrap_body())
+    assert "gh repo create" not in code, (
+        "bootstrap must delegate beads-repo creation to footing, not fork it"
+    )
+    assert "bd dolt remote add" not in code, (
+        "bootstrap must delegate beads-remote wiring to footing, not fork it"
+    )
+
+
+def test_rendered_footing_runs_the_full_sequence():
+    """The rendered bin/footing (what bootstrap delegates to) runs the footing
+    sequence: the single up-front auth gate, the lead-structure pour, the
+    <product>-lead-beads creation, the git+beads remote wiring, and the
+    `bd dolt push` smoke-test."""
+    body = _footing_body()
+    lowered = body.lower()
+    assert "auth gate" in lowered, "footing must run the single up-front auth gate"
+    assert "shop-templates bootstrap" in body, "footing must pour the lead structure"
+    assert "shopsystem-lead-beads" in body, (
+        "footing must create the <product>-lead-beads repository (slug-scoped)"
+    )
+    assert "git remote" in body and "bd dolt remote add" in body, (
+        "footing must wire the git and beads remotes"
+    )
+    assert "bd dolt push" in body, "footing must run the `bd dolt push` smoke-test"
+
+
+def test_rendered_footing_stops_at_green_git_push_and_bd_dolt_push():
+    """The rendered footing stops at solid footing demonstrated by a successful
+    `git push` and a successful `bd dolt push`."""
+    body = _footing_body()
+    assert "git push" in body, "footing must reach a `git push`"
+    assert "bd dolt push" in body, "footing must reach a `bd dolt push`"

@@ -17039,3 +17039,160 @@ def then_footing_no_later_credential_prompt(context: dict) -> None:
             "is created once, in the up-front gate (found `proposal create` "
             "after the gate): {!r}".format(ln)
         )
+
+
+# -----------------------------------------------------------------------
+# tmpl-obj (@scenario_hash 44d534b52c4925e2): the footing phase invokes no
+# agent.
+#
+# Same rendered-body reduction as behaviors 1 & 2 (no live docker/postgres/
+# broker in the suite): the scenario's runtime Then clauses are faithfully
+# asserted against the RENDERED footing-script BODY. Two facets:
+#   1. The footing sequence completes without launching ANY Claude or PM
+#      agent session — i.e. no agent-launch invocation appears as a step in
+#      the script body. The concrete agent-launch surfaces this codebase
+#      uses are: the `claude` CLI launched as a command, the daily-driver
+#      `bin/shop-shell` session (which `docker run`s an interactive Claude
+#      Code shell), a `bc-launcher` (the downstream PM/Discovery BC launch),
+#      and Claude Code's `--dangerously-skip-permissions` launch flag. NONE
+#      may appear as an executable launch step in the footing script. (The
+#      ubiquitous CLAUDE_OAUTH credential name, the "Claude OAuth" prose, and
+#      the `.claude/` directory reference are NOT agent launches and must not
+#      be mistaken for one — the detector is anchored to the command-word
+#      forms only.)
+#   2. The script's ONLY non-deterministic step is the single human auth gate
+#      (behavior 2's gate). Every interactive `read`-with-prompt step must sit
+#      inside the up-front auth-gate segment; no other non-deterministic step
+#      exists after it.
+# -----------------------------------------------------------------------
+
+# Concrete agent-launch command surfaces this codebase uses (see bin/shop-shell,
+# the bc-launcher, and Claude Code's launch flag). Each pattern matches the
+# COMMAND-WORD form of a launch — not the CLAUDE_OAUTH credential name, the
+# capitalized "Claude" prose in echo/heredoc text, the `.claude/` directory,
+# or hyphenated identifiers like `claude-api`.
+_FOOTING_AGENT_LAUNCH_PATTERNS = (
+    # `claude` invoked as a command word: not preceded by a word-char, dot, or
+    # dash (so CLAUDE_OAUTH, .claude/, and claude-* identifiers don't match)
+    # and not followed by a word-char, dash, or underscore.
+    r"(?<![\w.-])claude(?![\w_-])",
+    # The daily-driver shell session launcher (may be path-prefixed, e.g.
+    # ./bin/shop-shell), launched as a command.
+    r"(?<!\w)shop-shell\b",
+    # The downstream PM/Discovery BC launcher.
+    r"(?<!\w)bc-launcher\b",
+    # Claude Code's launch flag — a dead giveaway of an agent launch.
+    r"--dangerously-skip-permissions",
+    # An interactive container session (`docker run ... -it ...`) is how
+    # bin/shop-shell launches a Claude Code shell; the footing services come
+    # up via `docker compose up -d`, never `docker run`.
+    r"docker run\b",
+)
+
+
+def _footing_agent_launch_hits(body: str) -> list:
+    """Return executable (non-comment) lines of the footing body that invoke an
+    agent-launch command. Comment lines are skipped so the doc-comment header
+    (which legitimately discusses agents and Discovery) is never a false hit."""
+    hits = []
+    for line in body.splitlines():
+        if line.strip().startswith("#"):
+            continue
+        for pat in _FOOTING_AGENT_LAUNCH_PATTERNS:
+            if re.search(pat, line):
+                hits.append((pat, line.strip()))
+    return hits
+
+
+def _footing_interactive_steps(body: str) -> list:
+    """Return executable (non-comment) lines that are interactive `read`
+    prompts (a `read` builtin carrying a -s/silent or -p/prompt flag, in any
+    flag order). These are the script's non-deterministic (human-input) steps."""
+    steps = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        toks = stripped.split()
+        if toks and toks[0] == "read" and any(
+            re.fullmatch(r"-\w*[sp]\w*", t) for t in toks
+        ):
+            steps.append(stripped)
+    return steps
+
+
+@given('the bootstrap script for a "<product>-lead" repository')
+def given_footing_bootstrap_script_for_lead_repo(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+
+    context["footing_slug"] = _FOOTING_EXAMPLE_SLUG
+    context["footing_body"] = render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@when("the script is inspected and run through to footing")
+def when_footing_script_inspected_through_to_footing(context: dict) -> None:
+    # No live docker/postgres/network in this suite, so the script cannot be
+    # executed. "Inspected and run through to footing" is asserted against the
+    # rendered script body, which must encode the full footing sequence.
+    assert context.get("footing_body"), (
+        "footing-script body must be available before asserting the run"
+    )
+
+
+@then(
+    "it completes the footing sequence without launching any Claude or PM "
+    "agent session"
+)
+def then_footing_launches_no_agent(context: dict) -> None:
+    body = context["footing_body"]
+
+    # Sanity: the body actually encodes the footing sequence it must complete
+    # WITHOUT an agent launch (otherwise "completes the sequence" is vacuous).
+    assert "shop-templates bootstrap" in body, (
+        "footing must encode the structure-pour step of the sequence"
+    )
+    assert "git push" in body and "bd dolt push" in body, (
+        "footing must encode the push steps that demonstrate solid footing"
+    )
+
+    # The crux: NO agent-launch invocation appears as a step in the body.
+    hits = _footing_agent_launch_hits(body)
+    assert not hits, (
+        "the footing phase must complete without launching any Claude or PM "
+        "agent session — found agent-launch invocation(s) in the script body: "
+        "{!r}".format(hits)
+    )
+
+    # The script must declare the no-agent contract explicitly, so the
+    # guarantee is a pinned, load-bearing invariant of the footing runway (not
+    # an accident of the current step set). The contract marker names the
+    # invariant a future edit would have to consciously violate.
+    assert "NO-AGENT CONTRACT" in body, (
+        "the footing script must declare its NO-AGENT CONTRACT — the footing "
+        "phase is deterministic and pre-agent; it launches no Claude or PM "
+        "agent session"
+    )
+
+
+@then("its only non-deterministic step is the single human auth gate")
+def then_footing_only_nondeterministic_step_is_auth_gate(context: dict) -> None:
+    body = context["footing_body"]
+
+    # The script's non-deterministic (human-input) steps are its interactive
+    # `read` prompts. There must be at least one (the auth gate exists)...
+    interactive = _footing_interactive_steps(body)
+    assert interactive, (
+        "the footing script must have a human auth gate (an interactive "
+        "credential prompt) — none was found"
+    )
+
+    # ...and EVERY interactive step must sit inside the single up-front auth
+    # gate segment (before the first later footing step). Any interactive step
+    # after the gate would be a second, separate non-deterministic step.
+    gate_len = len(_footing_auth_gate_segment(body))
+    later_interactive = _footing_interactive_steps(body[gate_len:])
+    assert not later_interactive, (
+        "the single human auth gate must be the footing script's ONLY "
+        "non-deterministic step — found an interactive step after the "
+        "up-front gate: {!r}".format(later_interactive)
+    )

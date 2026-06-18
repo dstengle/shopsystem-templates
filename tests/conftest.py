@@ -2830,13 +2830,29 @@ def _make_bd_shim_dir(tmp_path: Path, context: dict) -> Path:
     # "<arg1> <arg2> ..." plus its cwd) and, if the first arg is "init",
     # creates ".beads/__shim_init__" inside cwd as the visible
     # side-effect bootstrap callers depend on.
+    #
+    # For the `bd dolt push` smoke-test (scenario 62eb2a8b9b617f4b) the shim
+    # supports a failure-injection toggle: if context["bd_shim_fail_dolt_push"]
+    # is truthy, the shim writes a sentinel file whose presence makes any
+    # `bd dolt push` invocation exit non-zero (after printing a stderr line),
+    # so tests can drive the smoke-test's failure path without a real remote.
+    fail_dolt_marker = shim_dir / "_fail_dolt_push"
+    if context.get("bd_shim_fail_dolt_push"):
+        fail_dolt_marker.write_text("fail")
+    elif fail_dolt_marker.exists():
+        fail_dolt_marker.unlink()
     bd_path.write_text(
         "#!/usr/bin/env bash\n"
         f"log={log}\n"
+        f"fail_dolt_marker={fail_dolt_marker}\n"
         'echo "$@|cwd=$PWD" >> "$log"\n'
         'if [[ "$1" == "init" ]]; then\n'
         '  mkdir -p .beads\n'
         '  : > .beads/__shim_init__\n'
+        'fi\n'
+        'if [[ "$1" == "dolt" && "$2" == "push" && -f "$fail_dolt_marker" ]]; then\n'
+        '  echo "bd dolt push: simulated remote failure" >&2\n'
+        '  exit 1\n'
         'fi\n'
         "exit 0\n"
     )
@@ -15906,4 +15922,151 @@ def then_beads_config_sets_issue_prefix(context: dict) -> None:
     assert got == expected, (
         f"expected .beads/config.yaml issue_prefix == {expected!r}; "
         f"got {got!r}"
+    )
+
+
+# =======================================================================
+# tmpl-4k7 — bootstrap runs a `bd dolt push` smoke-test against the rendered
+# beads config. Scenario 62eb2a8b9b617f4b.
+#
+# After rendering .beads/config.yaml (the prior behavior A, pinned by
+# 9e15d8cfd55b9541), bootstrap proves the freshly-wired tracker can reach its
+# configured `sync.remote` by running `bd dolt push` as a subprocess. On
+# success bootstrap reports success; on a non-zero push it exits non-zero with
+# a diagnostic. The failure path is driven by the bd-shim failure-injection
+# toggle (context["bd_shim_fail_dolt_push"]) so no real remote is contacted.
+#
+# The "configured sync.remote" the smoke-test pushes against is the value
+# _render_beads_config wrote — derived independently here as the product beads
+# remote for the bound shop name (same convention behavior A pinned).
+# =======================================================================
+
+
+_SMOKE_TEST_SHOP_NAME = "shopsystem-product"
+_SMOKE_TEST_TARGET_ALIAS = "/tmp/example-smoke-shop"
+
+
+def _bootstrap_for_smoke_test(
+    context: dict, tmp_path: Path, fail_dolt_push: bool
+) -> subprocess.CompletedProcess:
+    """Run a lead-shop bootstrap (with the bd shim) into a fresh target,
+    optionally driving the shim's `bd dolt push` to fail. Stashes the
+    invocation result/target on context the Then steps read."""
+    real = _real_target_for_alias(_SMOKE_TEST_TARGET_ALIAS, context)
+    context["bd_shim_fail_dolt_push"] = fail_dolt_push
+    result = _run_shop_templates_with_bd_shim(
+        [
+            "bootstrap",
+            "--shop-type",
+            "lead",
+            "--shop-name",
+            _SMOKE_TEST_SHOP_NAME,
+            "--target",
+            str(real),
+        ],
+        context,
+        tmp_path,
+    )
+    context["cli_returncode"] = result.returncode
+    context["cli_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+    context["last_invocation_target"] = real
+    context["last_invocation_shop_name"] = _SMOKE_TEST_SHOP_NAME
+    return result
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" with the '
+        'beads config rendered by bootstrap'
+    )
+)
+def given_target_with_beads_config_rendered(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    # Establish the post-config state by running the success-path bootstrap.
+    # The bootstrap flow itself renders .beads/config.yaml before the
+    # smoke-test step; this Given leaves the target in that rendered state.
+    context["bootstrap_workspace"] = tmp_path
+    context["smoke_test_alias"] = alias
+    result = _bootstrap_for_smoke_test(context, tmp_path, fail_dolt_push=False)
+    config_path = context["last_invocation_target"] / ".beads" / "config.yaml"
+    assert config_path.exists(), (
+        f"Given premise violated: expected {config_path!s} to be rendered by "
+        f"bootstrap; it does not exist (bootstrap rc={result.returncode}, "
+        f"stderr={result.stderr!r})"
+    )
+
+
+@when("the bootstrap smoke-test step runs")
+def when_bootstrap_smoke_test_runs(context: dict, tmp_path: Path) -> None:
+    # The success-path bootstrap run captured in the Given already executed the
+    # smoke-test step end-to-end; the result is on context. Nothing more to do
+    # here — the Then steps assert on that captured success-path result and
+    # (for the failure assertion) on a second failure-injected run.
+    assert "cli_returncode" in context, (
+        "When step ordering bug: smoke-test ran before a bootstrap invocation "
+        "was captured"
+    )
+
+
+@then(
+    parsers.parse(
+        'it performs a "bd dolt push" against the configured "sync.remote" '
+        'and reports success'
+    )
+)
+def then_smoke_test_performs_dolt_push_and_reports_success(
+    context: dict,
+) -> None:
+    # Success-path invocation must have exited 0.
+    assert context["cli_returncode"] == 0, (
+        f"expected success-path bootstrap to exit 0; got "
+        f"{context['cli_returncode']} (stderr: {context['cli_stderr']!r})"
+    )
+    # A `bd dolt push` subprocess must have run against the configured remote.
+    invocations = _bd_invocations(context)
+    expected_remote = _expected_product_beads_remote(
+        context["last_invocation_shop_name"]
+    )
+    dolt_pushes = [
+        inv for inv in invocations if inv[:2] == ["dolt", "push"]
+    ]
+    assert dolt_pushes, (
+        f"expected a `bd dolt push` subprocess invocation; got bd "
+        f"invocations: {invocations!r}"
+    )
+    assert any(expected_remote in inv for inv in dolt_pushes), (
+        f"expected a `bd dolt push` against the configured sync.remote "
+        f"{expected_remote!r}; got dolt-push invocations: {dolt_pushes!r}"
+    )
+    # Bootstrap reports the smoke-test success on stdout.
+    combined = context["cli_stdout"] + context["cli_stderr"]
+    assert "dolt push" in combined and "success" in combined.lower(), (
+        f"expected bootstrap to report `bd dolt push` smoke-test success; "
+        f"stdout={context['cli_stdout']!r} stderr={context['cli_stderr']!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'bootstrap exits non-zero with a diagnostic if the "bd dolt push" '
+        'smoke-test fails'
+    )
+)
+def then_bootstrap_exits_nonzero_with_diagnostic_on_failed_push(
+    context: dict, tmp_path: Path
+) -> None:
+    # Re-run bootstrap into a fresh target with the shim driven to fail the
+    # `bd dolt push`. Bootstrap must exit non-zero and emit a diagnostic
+    # naming the failed smoke-test on stderr.
+    context.pop("target_alias_to_real", None)
+    result = _bootstrap_for_smoke_test(context, tmp_path, fail_dolt_push=True)
+    assert result.returncode != 0, (
+        f"expected bootstrap to exit non-zero when the `bd dolt push` "
+        f"smoke-test fails; got exit 0 (stdout={result.stdout!r})"
+    )
+    assert "dolt push" in result.stderr, (
+        f"expected a diagnostic naming the failed `bd dolt push` smoke-test "
+        f"on stderr; got stderr={result.stderr!r}"
     )

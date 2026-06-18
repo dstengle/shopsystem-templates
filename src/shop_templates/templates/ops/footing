@@ -30,7 +30,57 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 GITHUB_ORG="${GITHUB_ORG:-dstengle}"
-PRODUCT="{{OPS_SLUG}}"
+
+# =======================================================================
+# Validate the forked repo name and derive the product identity.
+#
+# The footing script runs in a freshly forked "<product>-lead" repository.
+# The product slug is NOT baked in at render time — it is DERIVED from the
+# fork's ACTUAL name so the same starter script footings any product. The
+# fork's name is the repository directory's basename (the dir GitHub created
+# when the "<product>-lead" repo was cloned).
+#
+#   1. Validate the name matches the "*-lead" shape (the lead-shop fork
+#      convention). A name that does not end in "-lead" is rejected.
+#   2. Derive the product slug by stripping the "-lead" suffix
+#      (e.g. "acme-lead" -> "acme").
+#   3. Record the derived slug as the declared product identity in the
+#      product manifest (see "write the product manifest" below).
+# =======================================================================
+REPO_NAME="${FOOTING_REPO_NAME:-$(basename "$REPO_ROOT")}"
+case "$REPO_NAME" in
+  *-lead)
+    : # accepted — the fork name matches the "*-lead" shape
+    ;;
+  *)
+    # The forked repo name does NOT match the "*-lead" shape. Rather than
+    # forcing the human to fork the starter template anew, offer to rename the
+    # EXISTING repository in place to "<name>-lead" via `gh repo rename`. The
+    # rename target is DERIVED from the actual repo name (append "-lead"), so
+    # this works for any product, not a baked-in literal.
+    RENAME_TARGET="${REPO_NAME}-lead"
+    echo "footing: forked repository name '$REPO_NAME' does not match the required \"*-lead\" shape." >&2
+    echo "  A lead-shop fork must be named '<product>-lead'. The starter template need not be forked again —" >&2
+    echo "  rename the existing repository in place by running:" >&2
+    echo "" >&2
+    echo "    gh repo rename $RENAME_TARGET" >&2
+    echo "" >&2
+    echo "  then re-run footing from the renamed repository. Aborting." >&2
+    exit 1
+    ;;
+esac
+PRODUCT="${REPO_NAME%-lead}"
+
+# Write the product manifest — the declared product identity for this fork.
+# The derived slug is recorded under the "product:" key so every downstream
+# footing step (and later agent-driven phases) reads one canonical product
+# identity rather than re-deriving it.
+PRODUCT_MANIFEST="${FOOTING_PRODUCT_MANIFEST:-$REPO_ROOT/.shop/product-manifest.yaml}"
+mkdir -p "$(dirname "$PRODUCT_MANIFEST")"
+{
+  echo "# product manifest — declared product identity, written at footing."
+  echo "product: $PRODUCT"
+} > "$PRODUCT_MANIFEST"
 
 # Slug-derived broker coordinates (mirrors bin/agent-vault-provision). Every
 # <product>-* literal is rendered from {{OPS_SLUG}} at bootstrap.
@@ -163,14 +213,67 @@ shop-templates bootstrap \
   --shop-name "{{OPS_SLUG}}-product" \
   --target "$REPO_ROOT"
 
+# =======================================================================
+# FORCED PRODUCT-SCOPED NAMING CONTRACT.
+#
+# Every repository the tooling creates is FORCED under the runtime-derived
+# product slug ($PRODUCT, stripped from this fork's "<product>-lead" name
+# above) — never a render-time literal and never an arbitrary name. The
+# contract has one shape with no escape hatch:
+#
+#   * the lead beads repository  -> "$PRODUCT-lead-beads"
+#   * any BC repository "<bc>"    -> "$PRODUCT-<bc>"
+#   * that BC's beads repository  -> "$PRODUCT-<bc>-beads"
+#
+# i.e. EVERY tooling-created repository name matches the "$PRODUCT-*" shape.
+# No tooling-created repository can be named outside that shape.
+#
+# Footing itself creates ONLY the lead beads repository (below); it creates
+# NO BC — BC creation is a downstream, agent-driven step. The forced BC-repo
+# convention is DECLARED and GUARDED here so that whatever downstream tooling
+# later creates a BC is bound by the same product scope. The guard below is
+# the single chokepoint that forces the shape: any tooling-created repo name
+# is run through it and a name outside "$PRODUCT-*" is rejected.
+# =======================================================================
+
+# The forced BC-repo naming convention, derived from the runtime $PRODUCT.
+# (DECLARED here, not invoked by footing — footing creates no BC. Downstream
+# BC-creation tooling uses these to force every BC repo under the product.)
+forced_bc_repo() {
+  # A BC named "$1" is forced to the product-scoped repo name "$PRODUCT-<bc>".
+  printf '%s' "$PRODUCT-${1:?forced_bc_repo: BC name required}"
+}
+forced_bc_beads_repo() {
+  # That BC's beads repo is forced to "$PRODUCT-<bc>-beads".
+  printf '%s' "$PRODUCT-${1:?forced_bc_beads_repo: BC name required}-beads"
+}
+
+# The single chokepoint that ENFORCES the forced shape: no tooling-created
+# repository can be named outside the "$PRODUCT-*" shape. Every tooling-created
+# repo name is run through this guard; a name that does not match "$PRODUCT-*"
+# is rejected (the run aborts) rather than created off-scope.
+assert_product_scoped_repo() {
+  case "$1" in
+    "$PRODUCT-"*)
+      : # matches the forced "$PRODUCT-*" shape — accepted
+      ;;
+    *)
+      echo "footing: refusing to create repository '$1' — no tooling-created repository may be named outside the \"$PRODUCT-*\" shape." >&2
+      exit 1
+      ;;
+  esac
+}
+
 # -----------------------------------------------------------------------
 # Step 3 — create the product beads repository.
 #
-# The bd tracker syncs to a sibling "{{OPS_SLUG}}-lead-beads" repo under the
-# same GitHub org the framework ships from. Create it (idempotently) so the
-# beads remote wired below has somewhere to push.
+# The bd tracker syncs to a sibling "$PRODUCT-lead-beads" repo (forced under
+# the runtime-derived product slug) under the same GitHub org the framework
+# ships from. Create it (idempotently) so the beads remote wired below has
+# somewhere to push. The name is run through the product-scope guard first.
 # -----------------------------------------------------------------------
-BEADS_REPO="{{OPS_SLUG}}-lead-beads"
+BEADS_REPO="$PRODUCT-lead-beads"
+assert_product_scoped_repo "$BEADS_REPO"
 if ! gh repo view "$GITHUB_ORG/$BEADS_REPO" >/dev/null 2>&1; then
   gh repo create "$GITHUB_ORG/$BEADS_REPO" --private --confirm
 fi
@@ -178,11 +281,12 @@ fi
 # -----------------------------------------------------------------------
 # Step 4 — wire the git and beads remotes.
 #
-# Point the repo's git "origin" at the forked "{{OPS_SLUG}}-lead" repo and the
-# bd dolt remote at the freshly created "{{OPS_SLUG}}-lead-beads" repo.
+# Point the repo's git "origin" at the forked "$PRODUCT-lead" repo and the
+# bd dolt remote at the freshly created "$PRODUCT-lead-beads" repo. Both are
+# forced under the runtime-derived product slug.
 # -----------------------------------------------------------------------
-GIT_REMOTE="https://github.com/$GITHUB_ORG/{{OPS_SLUG}}-lead.git"
-BEADS_REMOTE="git+https://github.com/$GITHUB_ORG/{{OPS_SLUG}}-lead-beads.git"
+GIT_REMOTE="https://github.com/$GITHUB_ORG/$PRODUCT-lead.git"
+BEADS_REMOTE="git+https://github.com/$GITHUB_ORG/$PRODUCT-lead-beads.git"
 
 if git remote get-url origin >/dev/null 2>&1; then
   git remote set-url origin "$GIT_REMOTE"

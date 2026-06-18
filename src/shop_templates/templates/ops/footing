@@ -25,24 +25,59 @@ cd "$REPO_ROOT"
 GITHUB_ORG="${GITHUB_ORG:-dstengle}"
 PRODUCT="{{OPS_SLUG}}"
 
-# -----------------------------------------------------------------------
-# Single up-front auth gate.
-#
-# The ONLY human interaction in the whole footing run: confirm a GitHub PAT
-# (repo + delete_repo scope) is on hand so the steps below can create the
-# product beads repo and push. After this gate the run is non-interactive
-# through to solid footing. (The detailed gate behavior — consolidating all
-# human auth into this one prompt — is pinned by a sibling behavior.)
-# -----------------------------------------------------------------------
-echo "footing: single up-front auth gate — confirm your GitHub credentials are available before the run proceeds." >&2
+# Slug-derived broker coordinates (mirrors bin/agent-vault-provision). Every
+# <product>-* literal is rendered from {{OPS_SLUG}} at bootstrap.
+AGENT_VAULT_CONTAINER="${AGENT_VAULT_CONTAINER:-{{OPS_SLUG}}-agent-vault}"
+AGENT_VAULT_VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
+# Claude-OAuth slot config (the oauth-typed proposal block the broker
+# validates; token_url is REQUIRED on agent-vault 0.32.0). Same defaults the
+# provision script verified against the live broker.
+CLAUDE_OAUTH_TOKEN_URL="${CLAUDE_OAUTH_TOKEN_URL:-https://console.anthropic.com/v1/oauth/token}"
+CLAUDE_OAUTH_CLIENT_ID="${CLAUDE_OAUTH_CLIENT_ID:-9d1c250a-e61b-44d9-88ed-5944d1962f5e}"
+CLAUDE_OAUTH_SCOPES="${CLAUDE_OAUTH_SCOPES:-}"
 
-# -----------------------------------------------------------------------
-# Step 1 — bring the footing services up.
+# =======================================================================
+# THE SINGLE UP-FRONT AUTH GATE (the ONLY human interaction in the run).
 #
-# Bring up BOTH the compose-defined postgres and agent-vault services so the
-# lead structure pour and the beads tracker have a live tracker DB and a live
-# credential broker to talk to.
-# -----------------------------------------------------------------------
+# All human authentication is consolidated here, ONCE, before any later
+# footing step (the structure pour and the git/beads pushes). The gate
+# collects three credentials in one place:
+#
+#   (a) the owner password for the agent-vault broker,
+#   (b) the GitHub PAT (repo + delete_repo scope) used to create the product
+#       beads repo and push, and
+#   (c) the refreshing Claude OAuth credential — captured IN-SCRIPT by
+#       creating an oauth-typed `agent-vault vault proposal` and having the
+#       human APPROVE it via the CLI proposal flow only — no web/UI route;
+#       approval is the `proposal approve <num> CLAUDE_OAUTH=<value> --yes` flow.
+#
+# After this gate the run is non-interactive through to solid footing: NO
+# later step prompts the human for a credential again.
+# =======================================================================
+echo "footing: single up-front auth gate — collecting ALL human credentials now, once, before any later step." >&2
+
+# (a) Owner password. Read it once, silently, here in the gate (never on argv,
+#     never re-prompted later). Falls back to a pre-exported env var for a
+#     fully non-interactive run.
+OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-}"
+if [[ -z "$OWNER_PASSWORD" ]]; then
+  read -r -s -p "footing[auth gate]: agent-vault owner password: " OWNER_PASSWORD
+  echo >&2
+fi
+export AGENT_VAULT_OWNER_PASSWORD="$OWNER_PASSWORD"
+
+# (b) GitHub PAT. Read it once, silently, here in the gate (never re-prompted
+#     later). Falls back to a pre-exported env var for a non-interactive run.
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+if [[ -z "$GITHUB_TOKEN" ]]; then
+  read -r -s -p "footing[auth gate]: GitHub PAT (repo + delete_repo scope): " GITHUB_TOKEN
+  echo >&2
+fi
+export GITHUB_TOKEN
+
+# The agent-vault broker must be live before the oauth proposal can be created,
+# so bring the footing services up as part of reaching the gate's OAuth step.
+# (Broker bring-up is a prerequisite OF the gate, not a later footing step.)
 docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres agent-vault
 
 if ! docker ps --format '{{.Names}}' | grep -Eq '^{{OPS_SLUG}}-postgres$|^{{OPS_SLUG}}-agent-vault$'; then
@@ -50,6 +85,63 @@ if ! docker ps --format '{{.Names}}' | grep -Eq '^{{OPS_SLUG}}-postgres$|^{{OPS_
   echo "  Check 'docker compose -f $REPO_ROOT/compose.yaml ps'. Aborting." >&2
   exit 1
 fi
+
+# (c) Claude OAuth credential — captured IN-SCRIPT via an oauth-typed proposal
+#     the human APPROVES (reusing the bin/agent-vault-provision contract). The
+#     proposal create/approve run in AGENT mode on agent-vault 0.32.0 and need
+#     a vault-SCOPED session, so mint one off the in-container owner session.
+DEXEC=(docker exec -i "$AGENT_VAULT_CONTAINER")
+_SCOPED_SESSION="$("${DEXEC[@]}" agent-vault vault token --vault "$AGENT_VAULT_VAULT" | tr -d '\r\n')"
+if [[ -z "$_SCOPED_SESSION" ]]; then
+  echo "footing: failed to mint a vault-scoped session for the Claude OAuth proposal on vault '$AGENT_VAULT_VAULT'." >&2
+  exit 1
+fi
+DEXEC_SCOPED=(docker exec -i \
+  -e AGENT_VAULT_TOKEN="$_SCOPED_SESSION" \
+  -e AGENT_VAULT_ADDR=http://localhost:14321 \
+  -e AGENT_VAULT_VAULT="$AGENT_VAULT_VAULT" \
+  "$AGENT_VAULT_CONTAINER")
+
+# The oauth-typed CLAUDE_OAUTH credential-slot proposal. action:set + type:oauth
+# + the oauth block (token_url REQUIRED); the slot stores NO token value — the
+# real secret arrives ONLY at approve-time (no automated step transports it).
+_oauth_proposal_json="$(cat <<EOF
+{"credentials":[{"action":"set","key":"CLAUDE_OAUTH","type":"oauth","oauth":{"token_url":"${CLAUDE_OAUTH_TOKEN_URL}","client_id":"${CLAUDE_OAUTH_CLIENT_ID}","scopes":"${CLAUDE_OAUTH_SCOPES}"},"description":"Claude OAuth","obtain_instructions":"paste accessToken+refreshToken at approve time"}],"message":"Provision the refreshing CLAUDE_OAUTH credential for vault ${AGENT_VAULT_VAULT}."}
+EOF
+)"
+echo "footing[auth gate]: creating the oauth-typed CLAUDE_OAUTH proposal (vault '$AGENT_VAULT_VAULT')." >&2
+_proposal_out="$(printf '%s' "$_oauth_proposal_json" | "${DEXEC_SCOPED[@]}" agent-vault vault proposal create -f - --json --vault "$AGENT_VAULT_VAULT")"
+PROPOSAL_NUM="$(printf '%s' "$_proposal_out" | grep -oE '"(number|id)"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
+if [[ -z "$PROPOSAL_NUM" ]]; then
+  PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$AGENT_VAULT_VAULT" 2>/dev/null | grep -oE '[0-9]+' | tail -n1)"
+fi
+
+# Human APPROVES the proposal here, in the gate — via the CLI proposal flow
+# only (no web/UI route). The real Claude OAuth secret is pasted in place
+# of <value> AT APPROVE TIME; no automated step carries it.
+cat <<EOF >&2
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │ AUTH GATE — approve the Claude-OAuth proposal (CLI flow, one-time)     │
+  └──────────────────────────────────────────────────────────────────────┘
+
+  An oauth-typed CLAUDE_OAUTH credential-slot proposal
+  (#${PROPOSAL_NUM:-<see 'agent-vault vault proposal list'>}) was created on
+  vault '$AGENT_VAULT_VAULT'. Approve it via the CLI by running this EXACT
+  command — supply the real Claude OAuth secret in place of <value> AT APPROVE
+  TIME (no automated step carries the real secret; it is pasted only here):
+
+    docker exec -i \\
+      -e AGENT_VAULT_TOKEN=$_SCOPED_SESSION \\
+      -e AGENT_VAULT_ADDR=http://localhost:14321 \\
+      -e AGENT_VAULT_VAULT='$AGENT_VAULT_VAULT' \\
+      '$AGENT_VAULT_CONTAINER' \\
+      agent-vault vault proposal approve ${PROPOSAL_NUM:-<num>} CLAUDE_OAUTH=<value> --yes --vault '$AGENT_VAULT_VAULT'
+
+  This is the LAST human action in the footing run. The steps below are
+  non-interactive and prompt for NO further credential.
+
+EOF
 
 # -----------------------------------------------------------------------
 # Step 2 — pour the lead structure.

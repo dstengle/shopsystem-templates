@@ -16864,20 +16864,33 @@ def then_footing_stops_without_discovery_or_bc(context: dict) -> None:
 
 def _footing_auth_gate_segment(body: str) -> str:
     """Return the part of the footing body that runs BEFORE any later footing
-    step (the first of: docker compose up / shop-templates bootstrap / push).
+    step (the first of: shop-templates bootstrap / git push / bd dolt push).
 
     The single up-front auth gate must live entirely within this segment.
+    Bringing the credential broker up (`docker compose up -d ... agent-vault`)
+    is a prerequisite OF the gate (the in-script oauth proposal needs a live
+    broker), not a later footing step, so it is NOT a segment boundary; the
+    later steps the gate must precede are the structure pour and the pushes.
     """
-    later_markers = []
-    for marker in ("docker compose", "shop-templates bootstrap", "git push", "bd dolt push"):
-        idx = body.find(marker)
-        if idx != -1:
-            later_markers.append(idx)
-    assert later_markers, (
-        "footing must contain at least one later step (services / pour / push) "
-        "for the up-front gate to precede"
+    # Scan only EXECUTABLE lines (skip comment lines) so a marker mentioned in
+    # the header doc-comment ("a successful first `git push`") is not mistaken
+    # for the actual later step.
+    offset = 0
+    first_later = None
+    for line in body.splitlines(keepends=True):
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            for marker in ("shop-templates bootstrap", "git push", "bd dolt push"):
+                pos = line.find(marker)
+                if pos != -1:
+                    cand = offset + pos
+                    if first_later is None or cand < first_later:
+                        first_later = cand
+        offset += len(line)
+    assert first_later is not None, (
+        "footing must contain at least one later step (pour / push) for the "
+        "up-front gate to precede"
     )
-    first_later = min(later_markers)
     return body[:first_later]
 
 

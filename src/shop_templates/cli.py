@@ -626,6 +626,60 @@ def _bd_init_in(target: Path) -> int:
     return result.returncode
 
 
+def _product_beads_remote(shop_name: str) -> str:
+    """Return the product beads remote URL the new shop's bd tracker syncs to.
+
+    Per tmpl-4k7 (PDR-019 U5 / ADR-040). The remote mirrors the convention
+    this very repository's .beads/config.yaml carries — for shop name
+    "shopsystem-templates" the committed sync.remote is
+    "git+https://github.com/dstengle/shopsystem-templates-beads.git". The rule
+    is therefore: the product beads remote is the shop's own sibling "-beads"
+    repo under the same GitHub org the framework itself ships from
+    (`dstengle`, the org of the shop-templates package — see README install
+    URL and the ops Dockerfile base image). It introduces no new identity
+    source beyond the bootstrap `--shop-name`.
+    """
+    return f"git+https://github.com/dstengle/{shop_name}-beads.git"
+
+
+def _render_beads_config(target: Path, shop_name: str) -> None:
+    """Render .beads/config.yaml in the target with the product beads remote
+    (`sync.remote`) and the product-derived issue prefix (`issue_prefix`).
+
+    Per tmpl-4k7 / scenario 9e15d8cfd55b9541. `bd init` (invoked as a
+    subprocess by `_bd_init_in`) initializes .beads/ but does not wire the
+    tracker to the product remote or stamp the product prefix; bootstrap does
+    that here. Writing a config FILE is not importing bd / beads internals, so
+    this stays inside the subprocess-not-internals discipline scenario
+    0c6f1c5d9bc4226e pins — shop-templates never imports the bd Python package
+    and never touches the bd database, it only renders a declarative config
+    file the bd subprocess later reads.
+
+    The issue prefix reuses the established product-slug derivation
+    (`_ops_slug`: the --shop-name with a single trailing "-product" stripped),
+    so the prefix tracks shop identity from the single source of truth.
+
+    Any config.yaml content `bd init` already produced is preserved: the two
+    managed keys are appended (the rendered file is the existing body plus the
+    two keys), so this augments rather than clobbers what bd wrote.
+    """
+    config_path = target / ".beads" / "config.yaml"
+    remote = _product_beads_remote(shop_name)
+    prefix = _ops_slug(shop_name)
+    managed = (
+        f"sync.remote: {remote!r}\n"
+        f"issue_prefix: {prefix!r}\n"
+    )
+    if config_path.exists():
+        existing = config_path.read_text()
+        if existing and not existing.endswith("\n"):
+            existing += "\n"
+        config_path.write_text(existing + managed)
+    else:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(managed)
+
+
 def _validate_shop_type(shop_type: str | None, command: str) -> str | None:
     """Return None if shop_type is valid; else print a usage diagnostic to
     stderr and return an error sentinel string usable by callers.
@@ -837,6 +891,12 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     rc = _bd_init_in(target)
     if rc != 0:
         return rc
+
+    # Render .beads/config.yaml so the new shop's bd tracker is wired to the
+    # product beads remote (sync.remote) and stamps the product-derived
+    # issue_prefix (tmpl-4k7 / scenario 9e15d8cfd55b9541). This augments what
+    # `bd init` produced; it does not import bd / beads internals.
+    _render_beads_config(target, shop_name)
 
     # Lead-shop bootstrap installs each sibling BC clone under repos/
     # editable into the product venv, per brief 003 scope item E

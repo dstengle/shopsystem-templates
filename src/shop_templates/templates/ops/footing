@@ -30,7 +30,46 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 GITHUB_ORG="${GITHUB_ORG:-dstengle}"
-PRODUCT="{{OPS_SLUG}}"
+
+# =======================================================================
+# Validate the forked repo name and derive the product identity.
+#
+# The footing script runs in a freshly forked "<product>-lead" repository.
+# The product slug is NOT baked in at render time — it is DERIVED from the
+# fork's ACTUAL name so the same starter script footings any product. The
+# fork's name is the repository directory's basename (the dir GitHub created
+# when the "<product>-lead" repo was cloned).
+#
+#   1. Validate the name matches the "*-lead" shape (the lead-shop fork
+#      convention). A name that does not end in "-lead" is rejected.
+#   2. Derive the product slug by stripping the "-lead" suffix
+#      (e.g. "acme-lead" -> "acme").
+#   3. Record the derived slug as the declared product identity in the
+#      product manifest (see "write the product manifest" below).
+# =======================================================================
+REPO_NAME="${FOOTING_REPO_NAME:-$(basename "$REPO_ROOT")}"
+case "$REPO_NAME" in
+  *-lead)
+    : # accepted — the fork name matches the "*-lead" shape
+    ;;
+  *)
+    echo "footing: forked repository name '$REPO_NAME' does not match the required \"*-lead\" shape." >&2
+    echo "  A lead-shop fork must be named '<product>-lead'. Aborting." >&2
+    exit 1
+    ;;
+esac
+PRODUCT="${REPO_NAME%-lead}"
+
+# Write the product manifest — the declared product identity for this fork.
+# The derived slug is recorded under the "product:" key so every downstream
+# footing step (and later agent-driven phases) reads one canonical product
+# identity rather than re-deriving it.
+PRODUCT_MANIFEST="${FOOTING_PRODUCT_MANIFEST:-$REPO_ROOT/.shop/product-manifest.yaml}"
+mkdir -p "$(dirname "$PRODUCT_MANIFEST")"
+{
+  echo "# product manifest — declared product identity, written at footing."
+  echo "product: $PRODUCT"
+} > "$PRODUCT_MANIFEST"
 
 # Slug-derived broker coordinates (mirrors bin/agent-vault-provision). Every
 # <product>-* literal is rendered from {{OPS_SLUG}} at bootstrap.

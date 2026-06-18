@@ -17553,3 +17553,121 @@ def then_footing_no_repo_outside_product_shape(context: dict) -> None:
         "the product-scope guard must be DERIVED from the runtime $PRODUCT, "
         "never hardcoded to the illustrative literal \"acme\""
     )
+
+
+# -----------------------------------------------------------------------
+# lead-y4pg (PDR-019 U1/U3, ADR-040): the starter bin/bootstrap OBTAINS
+# bin/footing by rendering it from templates/ops/footing before invoking it,
+# DELEGATES to the rendered footing for the footing sequence to green, and
+# REFUSES to invoke a footing the render step never produced (no exit-127).
+#
+# The starter forkable repo ships bin/bootstrap but NOT bin/footing (the
+# framework, footing template included, lives only in the published image).
+# These scenarios are runtime statements about an adopter run; with no live
+# docker/host CLI in the suite, they are faithfully reduced to assertions on
+# the starter bootstrap BODY served as package data (the read_starter_file
+# surface tests/test_starter_repo_body.py pins) and on the rendered footing
+# BODY (render_ops_template("footing", ...)), matching the established
+# rendered-body assertion style. Scenario hashes b05fff82d0d10f4a,
+# 3646efa06051fcac, c15aeb90b21357e5.
+# -----------------------------------------------------------------------
+
+
+def _y4pg_bootstrap_body() -> str:
+    from shop_templates.cli import iter_starter_files, read_starter_file
+
+    files = dict(iter_starter_files())
+    for cand in ("bin/bootstrap", "bootstrap"):
+        if cand in files:
+            return read_starter_file(cand)
+    raise AssertionError("no bootstrap script in starter body")
+
+
+def _y4pg_code_text(body: str) -> str:
+    """The script's executed command lines (comments and blanks stripped) — the
+    behaviors are about what bootstrap RUNS, not what its comments describe."""
+    out = []
+    for raw in body.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        out.append(raw)
+    return "\n".join(out)
+
+
+# ---- Scenario b05fff82d0d10f4a: render bin/footing before invoking it ----
+
+
+@given(
+    parsers.parse(
+        'an adopter fork created from the starter that carries "bin/bootstrap" '
+        'but no "bin/footing"'
+    )
+)
+def given_y4pg_adopter_fork_no_footing(context: dict) -> None:
+    from shop_templates.cli import iter_starter_files
+
+    files = dict(iter_starter_files())
+    assert "bin/bootstrap" in files or "bootstrap" in files, (
+        "the starter must carry bin/bootstrap"
+    )
+    assert "bin/footing" not in files, (
+        "the starter must NOT carry bin/footing — bootstrap renders it at run time"
+    )
+    context["y4pg_bootstrap"] = _y4pg_bootstrap_body()
+
+
+@when(parsers.parse('the adopter runs "bin/bootstrap"'))
+def when_y4pg_adopter_runs_bootstrap(context: dict) -> None:
+    # No live docker/host in the suite, so the run outcome is asserted against
+    # the bootstrap body, which must ENCODE the render-then-invoke discipline.
+    assert context.get("y4pg_bootstrap"), "bootstrap body must be loaded"
+    context.setdefault("y4pg_bootstrap", _y4pg_bootstrap_body())
+
+
+@then(
+    parsers.parse(
+        'bootstrap runs "shop-templates bootstrap" in-container, which renders '
+        '"bin/footing" from the "templates/ops/footing" template into the fork'
+    )
+)
+def then_y4pg_bootstrap_renders_footing(context: dict) -> None:
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    assert "shop-templates bootstrap" in code, (
+        "bootstrap must EXECUTE `shop-templates bootstrap` (a command line, not "
+        "a comment) to render bin/footing from templates/ops/footing"
+    )
+    assert re.search(r"docker\s+(run|compose\s+run|exec)", code), (
+        "the render must run in-container (the `shop-templates` CLI ships only "
+        "in the published image)"
+    )
+
+
+@then(
+    parsers.parse(
+        'the rendered "bin/footing" exists and is executable before bootstrap '
+        'invokes it'
+    )
+)
+def then_y4pg_rendered_footing_runnable_before_invoke(context: dict) -> None:
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    render_idx = code.find("shop-templates bootstrap")
+    m = re.search(r"bash\s+\./bin/footing|^\s*\./bin/footing\b", code, re.M)
+    invoke_idx = m.start() if m else -1
+    assert render_idx != -1 and invoke_idx != -1, (
+        "bootstrap must both render and invoke bin/footing"
+    )
+    assert render_idx < invoke_idx, (
+        "bootstrap must render bin/footing BEFORE invoking it"
+    )
+    # Runnable: invoked via `bash` (no +x dependency) or chmod +x first.
+    runs_via_bash = re.search(r"bash\s+\./bin/footing", code) is not None
+    chmods = re.search(r"chmod\s+\+x\s+(\./)?bin/footing", code) is not None
+    assert runs_via_bash or chmods, (
+        "the rendered bin/footing must be runnable before invoke (bash invoke "
+        "or chmod +x)"
+    )

@@ -61,15 +61,66 @@ def _yaml_load(text: str):
     raise AssertionError("no yaml-capable interpreter available")
 
 
+def _make_bd_shim(shim_dir: Path) -> None:
+    """Write a hermetic `bd` shim into shim_dir that satisfies bootstrap's
+    bd subprocess contract WITHOUT touching the network.
+
+    These ops tests assert only on the rendered ops scaffolding (compose.yaml,
+    bin/shop-shell, Dockerfile); they do not exercise bd's real Dolt push. The
+    bootstrap flow, however, now runs a genuine `bd dolt push` smoke-test
+    (scenario 62eb2a8b9b617f4b) that configures a Dolt remote and pushes to it
+    — real network I/O that would otherwise reach github.com/dstengle/*-beads
+    and make these tests non-hermetic (and flaky on 429 / diverged history).
+    The shim models the real bd dolt contract well enough for bootstrap:
+    `bd init` creates .beads/, `bd dolt remote add <name> <url>` succeeds, and a
+    bare `bd dolt push` exits 0. It rejects the non-existent
+    `bd dolt push <positional-url>` shape so a regression to the old buggy call
+    would still surface here.
+    """
+    shim_dir.mkdir(parents=True, exist_ok=True)
+    bd_path = shim_dir / "bd"
+    bd_path.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1" == "init" ]]; then\n'
+        '  mkdir -p .beads\n'
+        '  : > .beads/.shim_init\n'
+        '  exit 0\n'
+        'fi\n'
+        'if [[ "$1" == "dolt" && "$2" == "remote" && "$3" == "add" ]]; then\n'
+        '  [[ -n "$4" && -n "$5" ]] || { echo "remote add needs <name> <url>" >&2; exit 2; }\n'
+        '  exit 0\n'
+        'fi\n'
+        'if [[ "$1" == "dolt" && "$2" == "push" ]]; then\n'
+        '  shift 2\n'
+        '  while [[ $# -gt 0 ]]; do\n'
+        '    case "$1" in\n'
+        '      --remote) shift 2 ;;\n'
+        '      --remote=*) shift ;;\n'
+        '      -*) shift ;;\n'
+        '      *) echo "bd dolt push takes no positional argument: $1" >&2; exit 2 ;;\n'
+        '    esac\n'
+        '  done\n'
+        '  exit 0\n'
+        'fi\n'
+        "exit 0\n"
+    )
+    bd_path.chmod(0o755)
+
+
 def _bootstrap(tmp_path: Path, shop_name: str) -> Path:
-    """Run a real `shop-templates bootstrap --shop-type lead` into a fresh
-    git repo under tmp_path and return the target dir."""
+    """Run a `shop-templates bootstrap --shop-type lead` into a fresh git repo
+    under tmp_path and return the target dir. A hermetic `bd` shim is placed
+    ahead of the real `bd` on PATH so bootstrap's `bd dolt push` smoke-test
+    does no network I/O (these tests assert on rendered files, not on push)."""
     target = tmp_path / shop_name
     target.mkdir(parents=True)
     subprocess.run(["git", "init", "-q"], cwd=target, check=True)
+    shim_dir = tmp_path / "_bd_shim"
+    _make_bd_shim(shim_dir)
     env = dict(os.environ)
     env["PYTHONPATH"] = _SRC + os.pathsep + env.get("PYTHONPATH", "")
     env["BD_NON_INTERACTIVE"] = "1"
+    env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
     proc = subprocess.run(
         [
             sys.executable,

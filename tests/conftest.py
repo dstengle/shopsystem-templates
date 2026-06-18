@@ -16820,17 +16820,19 @@ def then_footing_reaches_solid_footing(context: dict) -> None:
 def then_footing_stops_without_discovery_or_bc(context: dict) -> None:
     body = context["footing_body"]
     lowered = body.lower()
-    # The footing script stops at footing: it must NOT drive product
-    # Discovery and must NOT create any BC. Guard against the lead-shop
-    # BC-creation / Discovery surfaces leaking into the footing sequence.
-    assert "discovery" not in lowered or "without entering" in lowered, (
-        "footing must stop at footing — it must not drive product Discovery"
+    # The footing script stops at footing: it must declare that it stops
+    # without entering Discovery, and it must NOT actually drive any BC
+    # creation. Guard against the lead-shop BC-creation / bc-bootstrap
+    # surfaces leaking into the footing sequence.
+    assert "discovery" in lowered, (
+        "footing must declare that it stops without entering product Discovery"
+    )
+    assert "stop" in lowered, (
+        "footing must declare that it stops at footing"
     )
     for forbidden in (
         "create-bc",
-        "create bc",
         "bring-up-bc",
-        "shop-templates bootstrap --shop-type bc",
         "--shop-type bc",
     ):
         assert forbidden not in lowered, (

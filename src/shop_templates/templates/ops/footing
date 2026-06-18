@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# bin/footing — lead-shop footing bootstrap script (shop-owned, PDR-003 path F).
+#
+# Run ONCE in a freshly forked "{{OPS_SLUG}}-lead" repository (carrying only
+# the starter compose.yaml, this script, and .env.example — no framework code
+# yet). It drives the product to SOLID FOOTING: the postgres + agent-vault
+# services up, the lead structure poured, the product beads repo created, the
+# git and beads remotes wired, and a successful first `git push` + `bd dolt
+# push` proving the footing holds.
+#
+# It STOPS at footing. It does NOT enter product Discovery and it does NOT
+# create any BC — those are downstream, agent-driven steps that begin only
+# after a human has confirmed the footing. This script is the deterministic,
+# pre-agent runway up to that line and no further.
+#
+# PRODUCT-SCOPED: the data root, docker network, container-name greps, and
+# the "{{OPS_SLUG}}-lead-beads" product beads repo all derive from the
+# bootstrap product slug ({{OPS_SLUG}}) so this script never collides with a
+# second product running alongside it.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+GITHUB_ORG="${GITHUB_ORG:-dstengle}"
+PRODUCT="{{OPS_SLUG}}"
+
+# -----------------------------------------------------------------------
+# Single up-front auth gate.
+#
+# The ONLY human interaction in the whole footing run: confirm a GitHub PAT
+# (repo + delete_repo scope) is on hand so the steps below can create the
+# product beads repo and push. After this gate the run is non-interactive
+# through to solid footing. (The detailed gate behavior — consolidating all
+# human auth into this one prompt — is pinned by a sibling behavior.)
+# -----------------------------------------------------------------------
+echo "footing: single up-front auth gate — confirm your GitHub credentials are available before the run proceeds." >&2
+
+# -----------------------------------------------------------------------
+# Step 1 — bring the footing services up.
+#
+# Bring up BOTH the compose-defined postgres and agent-vault services so the
+# lead structure pour and the beads tracker have a live tracker DB and a live
+# credential broker to talk to.
+# -----------------------------------------------------------------------
+docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres agent-vault
+
+if ! docker ps --format '{{.Names}}' | grep -Eq '^{{OPS_SLUG}}-postgres$|^{{OPS_SLUG}}-agent-vault$'; then
+  echo "footing: expected the slug-scoped compose containers ({{OPS_SLUG}}-postgres / {{OPS_SLUG}}-agent-vault) to be running, but neither was found." >&2
+  echo "  Check 'docker compose -f $REPO_ROOT/compose.yaml ps'. Aborting." >&2
+  exit 1
+fi
+
+# -----------------------------------------------------------------------
+# Step 2 — pour the lead structure.
+#
+# Render the lead-shop framework structure into this repo in place. This is
+# the same entry point an operator would otherwise run by hand; footing wires
+# it into the sequence so the freshly forked repo gains its .claude/, role
+# templates, ops scaffolding, and beads tracker deterministically.
+# -----------------------------------------------------------------------
+shop-templates bootstrap \
+  --shop-type lead \
+  --shop-name "{{OPS_SLUG}}-product" \
+  --target "$REPO_ROOT"
+
+# -----------------------------------------------------------------------
+# Step 3 — create the product beads repository.
+#
+# The bd tracker syncs to a sibling "{{OPS_SLUG}}-lead-beads" repo under the
+# same GitHub org the framework ships from. Create it (idempotently) so the
+# beads remote wired below has somewhere to push.
+# -----------------------------------------------------------------------
+BEADS_REPO="{{OPS_SLUG}}-lead-beads"
+if ! gh repo view "$GITHUB_ORG/$BEADS_REPO" >/dev/null 2>&1; then
+  gh repo create "$GITHUB_ORG/$BEADS_REPO" --private --confirm
+fi
+
+# -----------------------------------------------------------------------
+# Step 4 — wire the git and beads remotes.
+#
+# Point the repo's git "origin" at the forked "{{OPS_SLUG}}-lead" repo and the
+# bd dolt remote at the freshly created "{{OPS_SLUG}}-lead-beads" repo.
+# -----------------------------------------------------------------------
+GIT_REMOTE="https://github.com/$GITHUB_ORG/{{OPS_SLUG}}-lead.git"
+BEADS_REMOTE="git+https://github.com/$GITHUB_ORG/{{OPS_SLUG}}-lead-beads.git"
+
+if git remote get-url origin >/dev/null 2>&1; then
+  git remote set-url origin "$GIT_REMOTE"
+else
+  git remote add origin "$GIT_REMOTE"
+fi
+
+if bd dolt remote list 2>/dev/null | grep -q '^origin'; then
+  : # beads remote already wired
+else
+  bd dolt remote add origin "$BEADS_REMOTE"
+fi
+
+# -----------------------------------------------------------------------
+# Step 5 — reach solid footing.
+#
+# Prove the footing holds end to end: a successful first `git push` of the
+# poured structure and a successful `bd dolt push` of the beads tracker.
+# These two pushes ARE the demonstration of solid footing.
+# -----------------------------------------------------------------------
+git add -A
+git commit -m "chore: footing — pour lead structure and wire remotes" || true
+git push -u origin HEAD
+
+bd dolt push origin
+
+# -----------------------------------------------------------------------
+# Step 6 — STOP at footing.
+#
+# Footing is reached. This script deliberately does NOT enter product
+# Discovery and does NOT create any BC — those are downstream, agent-driven
+# steps a human starts only after confirming this footing. The runway ends
+# here, on purpose.
+# -----------------------------------------------------------------------
+echo "footing: solid footing reached for ${PRODUCT}-lead." >&2
+echo "footing: stopping here — product Discovery and BC creation are downstream, agent-driven steps and are NOT part of footing." >&2

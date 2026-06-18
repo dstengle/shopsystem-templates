@@ -17196,3 +17196,116 @@ def then_footing_only_nondeterministic_step_is_auth_gate(context: dict) -> None:
         "non-deterministic step — found an interactive step after the "
         "up-front gate: {!r}".format(later_interactive)
     )
+
+
+# -----------------------------------------------------------------------
+# tmpl-3gz / lead-9bvd (@scenario_hash 2f9f7bab6fb3e36f): the footing
+# bootstrap script validates the forked lead repo's ACTUAL name at runtime
+# against the "*-lead" shape, derives the product slug by stripping the
+# "-lead" suffix, and writes "product: <slug>" into a manifest as the
+# declared product identity.
+#
+# With no live git/network in the suite, the runtime statements are reduced
+# to assertions on the RENDERED footing-script BODY (matching the rest of
+# the footing step-defs). The slug "acme" in the scenario is ILLUSTRATIVE:
+# the script must DERIVE the slug from the actual repo name, so the body
+# assertions are GENERIC — they pin the *-lead validation, the strip-"-lead"
+# derivation, and the "product:"-into-manifest write WITHOUT depending on
+# any literal "acme".
+# -----------------------------------------------------------------------
+
+
+def _footing_executable_lines(body: str) -> str:
+    """Return the footing body's executable (non-comment, non-blank) lines as
+    one string. The doc-comment header legitimately discusses naming and the
+    product slug, so runtime-behavior assertions must run against executable
+    lines only — never against the prose comments."""
+    return "\n".join(
+        line
+        for line in body.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    )
+
+
+@given(parsers.parse('the forked lead repository is named "{repo_name}"'))
+def given_forked_lead_repo_named(context: dict, repo_name: str) -> None:
+    # The repo name in the scenario ("acme-lead") is illustrative of the
+    # "*-lead" shape; the rendered footing body must derive its slug from the
+    # ACTUAL forked repo name at runtime, not from any baked-in literal. Load
+    # the rendered body (for the canonical example slug) to assert against.
+    from shop_templates.cli import render_ops_template
+
+    context["footing_repo_name"] = repo_name
+    context["footing_slug"] = _FOOTING_EXAMPLE_SLUG
+    context["footing_body"] = render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@when("the bootstrap script validates the repository name")
+def when_footing_validates_repo_name(context: dict) -> None:
+    assert context.get("footing_body"), (
+        "footing-script body must be available before asserting name validation"
+    )
+
+
+@then('it accepts the name as matching the "*-lead" shape')
+def then_footing_accepts_lead_shape(context: dict) -> None:
+    exec_body = _footing_executable_lines(context["footing_body"])
+    # The script must validate the forked repo's actual name against the
+    # "*-lead" shape at runtime. Accept any of the shapes a bash script
+    # idiomatically uses to test the suffix: a glob `*-lead`, a `%-lead`
+    # parameter-expansion strip, or a `-lead$` regex anchor.
+    assert (
+        "*-lead" in exec_body
+        or "%-lead" in exec_body
+        or "-lead$" in exec_body
+    ), (
+        "footing must validate the forked repo name against the \"*-lead\" "
+        "shape at runtime (executable code, not a comment)"
+    )
+
+
+@then('it derives the product slug "acme" by stripping the "-lead" suffix')
+def then_footing_derives_slug_stripping_lead(context: dict) -> None:
+    exec_body = _footing_executable_lines(context["footing_body"])
+    # GENERIC: the slug must be DERIVED from the actual repo name by stripping
+    # the "-lead" suffix — never hardcoded to "acme" (the illustrative slug)
+    # or to the example slug. The idiomatic bash strip is `%-lead` parameter
+    # expansion or a `sed`/`s/-lead$//`-style suffix removal.
+    assert (
+        "%-lead" in exec_body or "-lead$" in exec_body or "s/-lead" in exec_body
+    ), (
+        "footing must derive the product slug by stripping the \"-lead\" "
+        "suffix from the actual repo name (e.g. ${name%-lead})"
+    )
+    # The derivation must NOT be a hardcoded literal: "acme" is illustrative
+    # and must never appear baked into the rendered script.
+    assert "acme" not in exec_body.lower(), (
+        "the product slug must be DERIVED from the actual repo name, never "
+        "hardcoded to the illustrative literal \"acme\""
+    )
+
+
+@then(
+    'it writes "product: acme" into the manifest as the declared product '
+    "identity"
+)
+def then_footing_writes_product_into_manifest(context: dict) -> None:
+    exec_body = _footing_executable_lines(context["footing_body"])
+    # The script must WRITE a "product:" key carrying the DERIVED slug into a
+    # manifest. GENERIC: assert the script writes the "product:" key bound to
+    # the derived slug variable (never the literal "acme"), into a manifest
+    # file.
+    assert "product:" in exec_body, (
+        "footing must write a \"product:\" key declaring the product identity "
+        "into the manifest"
+    )
+    # A manifest file must be named as the write target.
+    assert "manifest" in exec_body.lower(), (
+        "footing must write the declared product identity into a manifest"
+    )
+    # The written product value must be the DERIVED slug, not a hardcoded
+    # literal. The illustrative "acme" must not appear in the rendered body.
+    assert "acme" not in exec_body.lower(), (
+        "the manifest's product identity must be the DERIVED slug, never the "
+        "illustrative literal \"acme\""
+    )

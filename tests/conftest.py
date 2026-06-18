@@ -16180,16 +16180,30 @@ def given_target_with_beads_config_rendered(
     alias: str, context: dict, tmp_path: Path
 ) -> None:
     # Establish the post-config state by running the success-path bootstrap.
-    # The bootstrap flow itself renders .beads/config.yaml before the
-    # smoke-test step; this Given leaves the target in that rendered state.
+    # Under the corrected config mechanism (tmpl-am6 / scenario
+    # 0636fba2c1445f9f, supersedes the cosmetic 9e15d8cfd55b9541), "the beads
+    # config rendered by bootstrap" means bootstrap CONFIGURED the bd dolt push
+    # remote via `bd dolt remote add` — NOT that it wrote a cosmetic
+    # .beads/config.yaml YAML file (bd never read those keys; that render is
+    # retired). This Given leaves the target in that configured state and
+    # verifies the dolt remote is present via the shim, the way the new
+    # behavior A scenario does. (Behavior B's own scenario 62eb2a8b9b617f4b is
+    # being reworked under tmpl-am6.3/.4; this premise is adjusted only to the
+    # corrected config mechanism, not to B's reworked body.)
     context["bootstrap_workspace"] = tmp_path
     context["smoke_test_alias"] = alias
     result = _bootstrap_for_smoke_test(context, tmp_path, fail_dolt_push=False)
-    config_path = context["last_invocation_target"] / ".beads" / "config.yaml"
-    assert config_path.exists(), (
-        f"Given premise violated: expected {config_path!s} to be rendered by "
-        f"bootstrap; it does not exist (bootstrap rc={result.returncode}, "
-        f"stderr={result.stderr!r})"
+    remote_list = _run_bd_shim_query(
+        context, context["last_invocation_target"], ["dolt", "remote", "list"]
+    )
+    expected_remote = _expected_product_beads_remote(
+        context["last_invocation_shop_name"]
+    )
+    assert expected_remote in remote_list.stdout, (
+        f"Given premise violated: expected bootstrap to configure the bd dolt "
+        f"push remote {expected_remote!r} (bootstrap rc={result.returncode}, "
+        f"stderr={result.stderr!r}); `bd dolt remote list` stdout: "
+        f"{remote_list.stdout!r}"
     )
 
 

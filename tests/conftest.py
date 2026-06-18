@@ -17309,3 +17309,99 @@ def then_footing_writes_product_into_manifest(context: dict) -> None:
         "the manifest's product identity must be the DERIVED slug, never the "
         "illustrative literal \"acme\""
     )
+
+
+# -----------------------------------------------------------------------
+# tmpl-3gz / lead-9bvd (@scenario_hash 7c6797430afa1749): on a forked lead
+# repo whose name does NOT match the "*-lead" shape, the footing bootstrap
+# script must RESHAPE the old hard-reject path into a report + offer: it
+# reports the name does not match the "*-lead" shape, offers to run
+# `gh repo rename` to rename the EXISTING repo to "<name>-lead" in place,
+# and does NOT instruct the human to re-fork the starter template.
+#
+# As with behavior 1, with no live git/network in the suite the runtime
+# statements are reduced to assertions on the RENDERED footing-script BODY
+# (matching the rest of the footing step-defs). The names "acme"/"acme-lead"
+# in the scenario are ILLUSTRATIVE: the script must DERIVE the rename target
+# from the actual repo name (appending "-lead"), so the body assertions are
+# GENERIC — they pin the mismatch diagnostic, the `gh repo rename` offer to
+# the derived "<name>-lead" target, and the absence of any re-fork
+# instruction WITHOUT depending on any literal "acme".
+# -----------------------------------------------------------------------
+
+
+@given(
+    parsers.parse(
+        'the forked lead repository is named "{repo_name}" which does not '
+        'match the "*-lead" shape'
+    )
+)
+def given_forked_lead_repo_named_non_lead(context: dict, repo_name: str) -> None:
+    # The repo name in the scenario ("acme") is illustrative of a name that
+    # does NOT match the "*-lead" shape; the rendered footing body must derive
+    # the rename target from the ACTUAL forked repo name at runtime, never
+    # from any baked-in literal. Load the rendered body to assert against.
+    from shop_templates.cli import render_ops_template
+
+    context["footing_repo_name"] = repo_name
+    context["footing_slug"] = _FOOTING_EXAMPLE_SLUG
+    context["footing_body"] = render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@then('it reports the name does not match the "*-lead" shape')
+def then_footing_reports_name_mismatch(context: dict) -> None:
+    exec_body = _footing_executable_lines(context["footing_body"])
+    lowered = exec_body.lower()
+    # The mismatch path must surface a clear diagnostic naming both the
+    # "*-lead" shape and that the name does not match it. Accept either the
+    # literal "does not match" phrasing or a "match" + negation pairing.
+    assert "*-lead" in exec_body, (
+        "footing must name the \"*-lead\" shape in its mismatch diagnostic "
+        "(executable code, not a comment)"
+    )
+    assert "does not match" in lowered or (
+        "match" in lowered and ("not " in lowered or "n't" in lowered)
+    ), (
+        "footing must report that the forked repo name does NOT match the "
+        "\"*-lead\" shape"
+    )
+
+
+@then(
+    'it offers to run "gh repo rename" to rename the existing repository to '
+    '"acme-lead" in place'
+)
+def then_footing_offers_gh_repo_rename(context: dict) -> None:
+    exec_body = _footing_executable_lines(context["footing_body"])
+    # The mismatch path must offer the literal `gh repo rename` command
+    # surface to rename the EXISTING repo in place.
+    assert "gh repo rename" in exec_body, (
+        "footing must offer to run `gh repo rename` to rename the existing "
+        "repository in place (executable code, not a comment)"
+    )
+    # The rename TARGET must be the DERIVED "<name>-lead" name, never the
+    # illustrative literal "acme-lead". The idiomatic derivation appends
+    # "-lead" to the actual repo-name variable (e.g. "${REPO_NAME}-lead").
+    assert "-lead" in exec_body, (
+        "footing must derive the rename target by appending \"-lead\" to the "
+        "actual repo name (e.g. ${REPO_NAME}-lead)"
+    )
+    assert "acme" not in exec_body.lower(), (
+        "the rename target must be DERIVED from the actual repo name, never "
+        "hardcoded to the illustrative literal \"acme\"/\"acme-lead\""
+    )
+
+
+@then("it does not require the human to re-fork the starter template")
+def then_footing_does_not_require_refork(context: dict) -> None:
+    body_lower = context["footing_body"].lower()
+    # The reshaped mismatch path is a rename-IN-PLACE offer, NOT a re-fork
+    # instruction. No "re-fork" / "fork again" guidance may appear anywhere
+    # in the rendered script (body OR comments — re-forking must not be
+    # suggested at all on the mismatch path).
+    for forbidden in ("re-fork", "refork", "fork again", "fork it again"):
+        assert forbidden not in body_lower, (
+            "footing must NOT require the human to re-fork the starter "
+            f"template on a name mismatch; found {forbidden!r} in the "
+            "rendered script"
+        )

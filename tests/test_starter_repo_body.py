@@ -200,6 +200,24 @@ def test_starter_bootstrap_uses_interactive_image_mode():
     )
 
 
+def test_starter_bootstrap_defaults_to_anon_pullable_base_image():
+    """lead-hjrh (cold-walkthrough DEFECT 1): the rendered bin/bootstrap must
+    default BC_BASE_IMAGE to the anon-pullable PUBLISHED package
+    'ghcr.io/dstengle/shopsystem-bc-base:latest', NOT the non-existent
+    'ghcr.io/dstengle/bc-base:latest' (which returns `manifest unknown` and
+    aborts bootstrap before the auth gate)."""
+    body = _starter(_bootstrap_rel())
+    assert "ghcr.io/dstengle/shopsystem-bc-base:latest" in body, (
+        "bootstrap must default BC_BASE_IMAGE to the anon-pullable published "
+        "package ghcr.io/dstengle/shopsystem-bc-base:latest"
+    )
+    # The non-existent package must NOT be the default value.
+    assert "ghcr.io/dstengle/bc-base:latest" not in body, (
+        "bootstrap must not default to the non-existent "
+        "ghcr.io/dstengle/bc-base:latest (returns `manifest unknown`)"
+    )
+
+
 def test_starter_bootstrap_does_not_duplicate_footing_logic():
     """REUSE, not fork: the bootstrap must not re-implement the footing
     internals (creating the beads repo, wiring remotes by hand). Those belong
@@ -228,6 +246,25 @@ def test_starter_env_example_is_placeholder_only():
     # Placeholder-only: no obviously-real secret material.
     assert "changeme" in body.lower() or "<" in body, (
         ".env.example must carry placeholder values only"
+    )
+
+
+def test_starter_env_example_has_base_image_override():
+    """lead-hjrh (cold-walkthrough DEFECT 1): the rendered .env.example must
+    carry a BC_BASE_IMAGE override line (commented or set) so an adopter can
+    point at a different registry/tag WITHOUT editing bin/bootstrap. This is
+    distinct from the run-recorded BC_BASE_IMAGE_RESOLVED slot."""
+    body = _starter(".env.example")
+    lines = body.splitlines()
+    override_lines = [
+        ln
+        for ln in lines
+        if "BC_BASE_IMAGE=" in ln.lstrip("# ").rstrip()
+        or ln.lstrip("# ").startswith("BC_BASE_IMAGE=")
+    ]
+    assert override_lines, (
+        ".env.example must contain a BC_BASE_IMAGE=... override line so an "
+        "adopter can override the base image without editing bin/bootstrap"
     )
 
 

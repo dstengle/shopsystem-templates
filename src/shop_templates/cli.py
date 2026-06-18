@@ -493,6 +493,7 @@ def _render_lead_ops_scaffolding(target: Path, slug: str) -> None:
             # Set the owner-execute bit (scenario 3d94639d5af360d7).
             dest.chmod(mode | 0o100)
     _render_lead_env_example(target, slug)
+    _render_lead_footing_script(target, slug)
 
 
 # The top-level .env.example scaffold (lead-llc1, scenario d8b53704e6e2584).
@@ -518,6 +519,37 @@ def _render_lead_env_example(target: Path, slug: str) -> None:
     dest = target / ".env.example"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(body)
+
+
+# The lead-shop footing bootstrap script (tmpl-obj, scenario
+# e69c18dd25104b5e). Like .env.example above, this is DELIBERATELY rendered
+# OUTSIDE the six-file `_LEAD_OPS_FILES` ops-tool enumeration (scenario
+# cb1e585684ff4a14 pins exactly six ops-tool files). It is the third member
+# of the "starter compose, script, and .env.example" grouping the footing
+# scenario names: an additive, shop-owned bin/footing the operator runs ONCE
+# in a freshly forked "<slug>-lead" repo to reach SOLID FOOTING (bring up
+# postgres + agent-vault, pour the lead structure via `shop-templates
+# bootstrap`, create the <slug>-lead-beads repo, wire the git + beads
+# remotes, prove footing with a `git push` + `bd dolt push`) and STOP there
+# (no product Discovery, no BC creation). Product-scoped via {{OPS_SLUG}};
+# never under .claude/; never enumerated alongside the six ops-tool files.
+_LEAD_FOOTING_TEMPLATE = "footing"
+
+
+def _render_lead_footing_script(target: Path, slug: str) -> None:
+    """Render the executable top-level bin/footing for a lead shop.
+
+    Additive to the six-file ops-tool set (NOT part of `_LEAD_OPS_FILES`):
+    rendered through the same placeholder-substitution mechanism so every
+    `<slug>-*` literal (the bootstrap shop name, the <slug>-lead-beads repo,
+    the git/beads remotes) derives from `slug`. Written with its
+    owner-execute bit set so a fresh operator can run `./bin/footing`.
+    """
+    body = render_ops_template(_LEAD_FOOTING_TEMPLATE, slug)
+    dest = target / "bin" / "footing"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(body)
+    dest.chmod(dest.stat().st_mode | 0o100)
 
 
 def canonical_role_set(shop_type: str) -> tuple[str, ...]:

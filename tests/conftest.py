@@ -16704,3 +16704,495 @@ def then_secret_only_at_approve_time_8vxy(context: dict) -> None:
         "user to fill at approve-time; no automated step may transport a real "
         f"value: {approve_lines!r}"
     )
+
+
+# -----------------------------------------------------------------------
+# tmpl-obj (@scenario_hash e69c18dd25104b5e): the lead-shop footing
+# bootstrap script runs the footing sequence and stops at solid footing.
+#
+# The footing script is shop-owned starter content shipped into a freshly
+# forked "<product>-lead" repo the SAME way the other ops artifacts ship
+# (templates/ops/footing -> bin/footing, lead-shop only, product-scoped
+# via {{OPS_SLUG}}; see cli._LEAD_OPS_FILES). The scenario's Then clauses
+# are runtime statements about an actual run; with no live docker/postgres/
+# network in the suite, they are faithfully reduced to assertions on the
+# RENDERED footing-script BODY (matching the bootstrap_lead_ops_scaffolding
+# rendered-body assertion style). "<product>" binds to the canonical
+# lead-shop example slug "shopsystem".
+# -----------------------------------------------------------------------
+
+_FOOTING_EXAMPLE_SLUG = "shopsystem"
+
+
+@given(
+    parsers.parse(
+        'a freshly forked "<product>-lead" repository with the starter '
+        'compose, script, and ".env.example" but no framework code'
+    )
+)
+def given_freshly_forked_lead_repo_with_starters(context: dict) -> None:
+    # The starter footing script is the rendered ops "footing" template
+    # for the canonical example slug. Loading the rendered body here stands
+    # in for "a freshly forked <product>-lead repo carrying the starters".
+    from shop_templates.cli import render_ops_template
+
+    context["footing_slug"] = _FOOTING_EXAMPLE_SLUG
+    context["footing_body"] = render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@given("the only human interaction is the single up-front auth gate")
+def given_single_up_front_auth_gate(context: dict) -> None:
+    # Behavior 1 (this scenario) pins the footing SEQUENCE + stop-at-footing.
+    # The single-auth-gate facet is its own behavior (later sub-issues); here
+    # we only confirm the footing body has already been loaded by the prior
+    # Given so the When/Then operate on it.
+    assert "footing_body" in context, (
+        "footing-script body must have been rendered by the prior Given"
+    )
+
+
+@when("the bootstrap script is run to completion")
+def when_footing_script_run_to_completion(context: dict) -> None:
+    # No live docker/postgres/network in this suite, so the script cannot be
+    # executed. The "run to completion" outcome is asserted against the
+    # rendered script body, which must demonstrably ENCODE the full footing
+    # sequence end to end. Re-affirm the body is present.
+    assert context.get("footing_body"), (
+        "footing-script body must be available before asserting the run"
+    )
+
+
+@then(
+    'it brings up the postgres and agent-vault services, pours the lead '
+    'structure via "shop-templates bootstrap", creates the '
+    '"<product>-lead-beads" repository, and wires the git and beads remotes'
+)
+def then_footing_runs_the_sequence(context: dict) -> None:
+    body = context["footing_body"]
+    slug = context["footing_slug"]
+
+    # Brings up the postgres AND agent-vault services via docker compose.
+    assert "docker compose" in body, "footing must bring services up via docker compose"
+    up_idx = body.find("up -d")
+    assert up_idx != -1, "footing must bring services up (docker compose up -d)"
+    up_segment = body[up_idx : up_idx + 200]
+    assert "postgres" in up_segment, (
+        "footing must bring up the postgres service in its compose up -d"
+    )
+    assert "agent-vault" in up_segment, (
+        "footing must bring up the agent-vault service in its compose up -d"
+    )
+
+    # Pours the lead structure via `shop-templates bootstrap`.
+    assert "shop-templates bootstrap" in body, (
+        "footing must pour the lead structure via `shop-templates bootstrap`"
+    )
+
+    # Creates the "<product>-lead-beads" repository (product-scoped to slug).
+    expected_beads_repo = f"{slug}-lead-beads"
+    assert expected_beads_repo in body, (
+        f"footing must create the {expected_beads_repo!r} repository"
+    )
+
+    # Wires BOTH the git remote and the beads remote.
+    assert "git remote add" in body, "footing must wire the git remote"
+    assert "bd dolt remote add" in body, "footing must wire the beads (dolt) remote"
+
+
+@then(
+    'it reaches solid footing demonstrated by a successful "git push" and a '
+    'successful "bd dolt push"'
+)
+def then_footing_reaches_solid_footing(context: dict) -> None:
+    body = context["footing_body"]
+    assert "git push" in body, (
+        "footing must reach solid footing with a `git push`"
+    )
+    assert "bd dolt push" in body, (
+        "footing must reach solid footing with a `bd dolt push`"
+    )
+
+
+@then(
+    'it stops at that footing without entering product Discovery or creating '
+    'any BC'
+)
+def then_footing_stops_without_discovery_or_bc(context: dict) -> None:
+    body = context["footing_body"]
+    lowered = body.lower()
+    # The footing script stops at footing: it must declare that it stops
+    # without entering Discovery, and it must NOT actually drive any BC
+    # creation. Guard against the lead-shop BC-creation / bc-bootstrap
+    # surfaces leaking into the footing sequence.
+    assert "discovery" in lowered, (
+        "footing must declare that it stops without entering product Discovery"
+    )
+    assert "stop" in lowered, (
+        "footing must declare that it stops at footing"
+    )
+    for forbidden in (
+        "create-bc",
+        "bring-up-bc",
+        "--shop-type bc",
+    ):
+        assert forbidden not in lowered, (
+            f"footing must stop at footing — it must not create any BC "
+            f"(found {forbidden!r})"
+        )
+
+
+# -----------------------------------------------------------------------
+# tmpl-obj (@scenario_hash fec7842e905761c8): the footing bootstrap script
+# consolidates ALL human authentication into one up-front gate.
+#
+# Same rendered-body reduction as behavior 1 (no live docker/postgres/broker
+# in the suite): the scenario's runtime Then clauses are faithfully asserted
+# against the RENDERED footing-script BODY. The three facets are:
+#   1. ONE up-front gate that collects owner password + GitHub PAT + Claude
+#      OAuth, BEFORE any later step (services / pour / push).
+#   2. The Claude OAuth credential is captured IN-SCRIPT by creating an
+#      `agent-vault vault proposal` of type oauth + human approve, with NO
+#      agent-vault dashboard route.
+#   3. NO later step prompts the human for a credential again — the gate is
+#      the sole credential-collection point.
+# The proposal/approve vocabulary reuses the bin/agent-vault-provision
+# contract (vault proposal create / proposal approve <num> ... --yes), and the
+# "real secret only at approve-time, no automated transport" guarantee
+# (lead scenario 11 @72af524bca85f59c) is preserved here too.
+# -----------------------------------------------------------------------
+
+
+def _footing_auth_gate_segment(body: str) -> str:
+    """Return the part of the footing body that runs BEFORE any later footing
+    step (the first of: shop-templates bootstrap / git push / bd dolt push).
+
+    The single up-front auth gate must live entirely within this segment.
+    Bringing the credential broker up (`docker compose up -d ... agent-vault`)
+    is a prerequisite OF the gate (the in-script oauth proposal needs a live
+    broker), not a later footing step, so it is NOT a segment boundary; the
+    later steps the gate must precede are the structure pour and the pushes.
+    """
+    # Scan only EXECUTABLE lines (skip comment lines) so a marker mentioned in
+    # the header doc-comment ("a successful first `git push`") is not mistaken
+    # for the actual later step.
+    offset = 0
+    first_later = None
+    for line in body.splitlines(keepends=True):
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            for marker in ("shop-templates bootstrap", "git push", "bd dolt push"):
+                pos = line.find(marker)
+                if pos != -1:
+                    cand = offset + pos
+                    if first_later is None or cand < first_later:
+                        first_later = cand
+        offset += len(line)
+    assert first_later is not None, (
+        "footing must contain at least one later step (pour / push) for the "
+        "up-front gate to precede"
+    )
+    return body[:first_later]
+
+
+@given(
+    "the bootstrap script is run for a product whose broker holds no "
+    "credentials yet"
+)
+def given_footing_run_broker_no_credentials(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+
+    context["footing_slug"] = _FOOTING_EXAMPLE_SLUG
+    context["footing_body"] = render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@when("the script reaches its authentication step")
+def when_footing_reaches_auth_step(context: dict) -> None:
+    assert context.get("footing_body"), (
+        "footing-script body must be available before asserting the auth gate"
+    )
+
+
+@then(
+    "it collects the owner password, the GitHub PAT, and the Claude OAuth "
+    "credential in a single up-front gate before any later step"
+)
+def then_footing_single_up_front_gate(context: dict) -> None:
+    body = context["footing_body"]
+    gate = _footing_auth_gate_segment(body)
+
+    # All three credentials are collected within the up-front gate segment
+    # (i.e. before any services / pour / push step). The owner password and
+    # the GitHub PAT are the two non-OAuth inputs; the Claude OAuth credential
+    # is captured via the in-script proposal flow (asserted in detail below).
+    assert "OWNER_PASSWORD" in gate, (
+        "the single up-front gate must collect the owner password before any "
+        "later step"
+    )
+    assert "GITHUB_TOKEN" in gate, (
+        "the single up-front gate must collect the GitHub PAT before any "
+        "later step"
+    )
+    assert "CLAUDE_OAUTH" in gate, (
+        "the single up-front gate must collect the Claude OAuth credential "
+        "before any later step"
+    )
+
+    # It is ONE gate: the Claude OAuth proposal creation (the OAuth capture
+    # point) must itself sit inside the up-front segment, ahead of the later
+    # footing steps — not interleaved after services/pour/push.
+    assert "agent-vault vault proposal create" in gate, (
+        "the Claude OAuth credential must be captured by the single up-front "
+        "gate (before any later step), via `agent-vault vault proposal create`"
+    )
+
+
+@then(
+    'it captures the Claude OAuth credential in-script by creating an '
+    '"agent-vault vault proposal" of type oauth and having the human approve '
+    'it, with no agent-vault dashboard route'
+)
+def then_footing_oauth_proposal_capture(context: dict) -> None:
+    body = context["footing_body"]
+
+    # Captured IN-SCRIPT via an `agent-vault vault proposal` of type oauth —
+    # reusing the bin/agent-vault-provision contract (proposal create + the
+    # oauth-typed slot).
+    assert "agent-vault vault proposal create" in body, (
+        "footing must capture the Claude OAuth credential in-script via "
+        "`agent-vault vault proposal create`"
+    )
+    assert '"type":"oauth"' in body, (
+        "the proposal must be of type oauth (the oauth-typed credential slot)"
+    )
+    assert "CLAUDE_OAUTH" in body, (
+        "the oauth proposal must target the CLAUDE_OAUTH credential"
+    )
+
+    # The human APPROVES it — the same `proposal approve <num> ... --yes`
+    # contract bin/agent-vault-provision uses.
+    approve_lines = [ln for ln in body.splitlines() if "proposal approve" in ln]
+    assert approve_lines, (
+        "footing must have the human approve the oauth proposal via the "
+        "`proposal approve <num> CLAUDE_OAUTH=<value> --yes` contract"
+    )
+    assert any(
+        "CLAUDE_OAUTH=<" in ln and "--yes" in ln for ln in approve_lines
+    ), (
+        "the approve command must keep CLAUDE_OAUTH=<...> a placeholder for "
+        "the human to fill at approve-time and carry --yes (reusing the "
+        "provision approve contract): {!r}".format(approve_lines)
+    )
+
+    # The real secret is supplied ONLY at approve-time; no automated step
+    # transports it (lead scenario 11 @72af524bca85f59c preserved). The oauth
+    # proposal slot carries no value field, and no `credential set` carries a
+    # real CLAUDE_OAUTH value.
+    assert '"value"' not in body, (
+        "the oauth proposal slot must not carry a value field — the real "
+        "secret arrives only at approve-time"
+    )
+    for ln in body.splitlines():
+        if "credential set" in ln and not ln.strip().startswith("#"):
+            assert "CLAUDE_OAUTH" not in ln, (
+                "no automated `credential set` may transport a real "
+                "CLAUDE_OAUTH secret (it arrives only at approve-time): "
+                "{!r}".format(ln)
+            )
+
+    # NO agent-vault dashboard route: the approval happens via the CLI
+    # proposal flow, not by directing the human to open a dashboard.
+    lowered = body.lower()
+    assert "dashboard" not in lowered, (
+        "the OAuth capture must have no agent-vault dashboard route — "
+        "approval happens via the CLI proposal flow"
+    )
+
+
+@then("no later step in the script prompts the human for a credential again")
+def then_footing_no_later_credential_prompt(context: dict) -> None:
+    body = context["footing_body"]
+    gate = _footing_auth_gate_segment(body)
+    gate_len = len(gate)
+
+    # Everything AFTER the up-front gate segment is "later steps". No later
+    # step may prompt the human for a credential — the gate is the sole
+    # credential-collection point. We guard the structural credential-read
+    # surfaces (interactive read of a secret, or re-creating an oauth proposal
+    # that would re-collect a credential) from appearing after the gate.
+    later_body = body[gate_len:]
+    for ln in later_body.splitlines():
+        stripped = ln.strip()
+        if stripped.startswith("#"):
+            continue
+        lowered = stripped.lower()
+        # An interactive `read -s` (silent prompt) of a credential after the
+        # gate would be a second credential prompt.
+        assert "read -s" not in lowered, (
+            "no later step may interactively prompt the human for a "
+            "credential (found a `read -s` after the up-front gate): "
+            "{!r}".format(ln)
+        )
+        # Re-creating the oauth proposal after the gate would re-collect the
+        # Claude OAuth credential outside the single gate.
+        assert "proposal create" not in lowered, (
+            "no later step may re-collect a credential — the oauth proposal "
+            "is created once, in the up-front gate (found `proposal create` "
+            "after the gate): {!r}".format(ln)
+        )
+
+
+# -----------------------------------------------------------------------
+# tmpl-obj (@scenario_hash 44d534b52c4925e2): the footing phase invokes no
+# agent.
+#
+# Same rendered-body reduction as behaviors 1 & 2 (no live docker/postgres/
+# broker in the suite): the scenario's runtime Then clauses are faithfully
+# asserted against the RENDERED footing-script BODY. Two facets:
+#   1. The footing sequence completes without launching ANY Claude or PM
+#      agent session — i.e. no agent-launch invocation appears as a step in
+#      the script body. The concrete agent-launch surfaces this codebase
+#      uses are: the `claude` CLI launched as a command, the daily-driver
+#      `bin/shop-shell` session (which `docker run`s an interactive Claude
+#      Code shell), a `bc-launcher` (the downstream PM/Discovery BC launch),
+#      and Claude Code's `--dangerously-skip-permissions` launch flag. NONE
+#      may appear as an executable launch step in the footing script. (The
+#      ubiquitous CLAUDE_OAUTH credential name, the "Claude OAuth" prose, and
+#      the `.claude/` directory reference are NOT agent launches and must not
+#      be mistaken for one — the detector is anchored to the command-word
+#      forms only.)
+#   2. The script's ONLY non-deterministic step is the single human auth gate
+#      (behavior 2's gate). Every interactive `read`-with-prompt step must sit
+#      inside the up-front auth-gate segment; no other non-deterministic step
+#      exists after it.
+# -----------------------------------------------------------------------
+
+# Concrete agent-launch command surfaces this codebase uses (see bin/shop-shell,
+# the bc-launcher, and Claude Code's launch flag). Each pattern matches the
+# COMMAND-WORD form of a launch — not the CLAUDE_OAUTH credential name, the
+# capitalized "Claude" prose in echo/heredoc text, the `.claude/` directory,
+# or hyphenated identifiers like `claude-api`.
+_FOOTING_AGENT_LAUNCH_PATTERNS = (
+    # `claude` invoked as a command word: not preceded by a word-char, dot, or
+    # dash (so CLAUDE_OAUTH, .claude/, and claude-* identifiers don't match)
+    # and not followed by a word-char, dash, or underscore.
+    r"(?<![\w.-])claude(?![\w_-])",
+    # The daily-driver shell session launcher (may be path-prefixed, e.g.
+    # ./bin/shop-shell), launched as a command.
+    r"(?<!\w)shop-shell\b",
+    # The downstream PM/Discovery BC launcher.
+    r"(?<!\w)bc-launcher\b",
+    # Claude Code's launch flag — a dead giveaway of an agent launch.
+    r"--dangerously-skip-permissions",
+    # An interactive container session (`docker run ... -it ...`) is how
+    # bin/shop-shell launches a Claude Code shell; the footing services come
+    # up via `docker compose up -d`, never `docker run`.
+    r"docker run\b",
+)
+
+
+def _footing_agent_launch_hits(body: str) -> list:
+    """Return executable (non-comment) lines of the footing body that invoke an
+    agent-launch command. Comment lines are skipped so the doc-comment header
+    (which legitimately discusses agents and Discovery) is never a false hit."""
+    hits = []
+    for line in body.splitlines():
+        if line.strip().startswith("#"):
+            continue
+        for pat in _FOOTING_AGENT_LAUNCH_PATTERNS:
+            if re.search(pat, line):
+                hits.append((pat, line.strip()))
+    return hits
+
+
+def _footing_interactive_steps(body: str) -> list:
+    """Return executable (non-comment) lines that are interactive `read`
+    prompts (a `read` builtin carrying a -s/silent or -p/prompt flag, in any
+    flag order). These are the script's non-deterministic (human-input) steps."""
+    steps = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        toks = stripped.split()
+        if toks and toks[0] == "read" and any(
+            re.fullmatch(r"-\w*[sp]\w*", t) for t in toks
+        ):
+            steps.append(stripped)
+    return steps
+
+
+@given('the bootstrap script for a "<product>-lead" repository')
+def given_footing_bootstrap_script_for_lead_repo(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+
+    context["footing_slug"] = _FOOTING_EXAMPLE_SLUG
+    context["footing_body"] = render_ops_template("footing", _FOOTING_EXAMPLE_SLUG)
+
+
+@when("the script is inspected and run through to footing")
+def when_footing_script_inspected_through_to_footing(context: dict) -> None:
+    # No live docker/postgres/network in this suite, so the script cannot be
+    # executed. "Inspected and run through to footing" is asserted against the
+    # rendered script body, which must encode the full footing sequence.
+    assert context.get("footing_body"), (
+        "footing-script body must be available before asserting the run"
+    )
+
+
+@then(
+    "it completes the footing sequence without launching any Claude or PM "
+    "agent session"
+)
+def then_footing_launches_no_agent(context: dict) -> None:
+    body = context["footing_body"]
+
+    # Sanity: the body actually encodes the footing sequence it must complete
+    # WITHOUT an agent launch (otherwise "completes the sequence" is vacuous).
+    assert "shop-templates bootstrap" in body, (
+        "footing must encode the structure-pour step of the sequence"
+    )
+    assert "git push" in body and "bd dolt push" in body, (
+        "footing must encode the push steps that demonstrate solid footing"
+    )
+
+    # The crux: NO agent-launch invocation appears as a step in the body.
+    hits = _footing_agent_launch_hits(body)
+    assert not hits, (
+        "the footing phase must complete without launching any Claude or PM "
+        "agent session — found agent-launch invocation(s) in the script body: "
+        "{!r}".format(hits)
+    )
+
+    # The script must declare the no-agent contract explicitly, so the
+    # guarantee is a pinned, load-bearing invariant of the footing runway (not
+    # an accident of the current step set). The contract marker names the
+    # invariant a future edit would have to consciously violate.
+    assert "NO-AGENT CONTRACT" in body, (
+        "the footing script must declare its NO-AGENT CONTRACT — the footing "
+        "phase is deterministic and pre-agent; it launches no Claude or PM "
+        "agent session"
+    )
+
+
+@then("its only non-deterministic step is the single human auth gate")
+def then_footing_only_nondeterministic_step_is_auth_gate(context: dict) -> None:
+    body = context["footing_body"]
+
+    # The script's non-deterministic (human-input) steps are its interactive
+    # `read` prompts. There must be at least one (the auth gate exists)...
+    interactive = _footing_interactive_steps(body)
+    assert interactive, (
+        "the footing script must have a human auth gate (an interactive "
+        "credential prompt) — none was found"
+    )
+
+    # ...and EVERY interactive step must sit inside the single up-front auth
+    # gate segment (before the first later footing step). Any interactive step
+    # after the gate would be a second, separate non-deterministic step.
+    gate_len = len(_footing_auth_gate_segment(body))
+    later_interactive = _footing_interactive_steps(body[gate_len:])
+    assert not later_interactive, (
+        "the single human auth gate must be the footing script's ONLY "
+        "non-deterministic step — found an interactive step after the "
+        "up-front gate: {!r}".format(later_interactive)
+    )

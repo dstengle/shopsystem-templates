@@ -1,0 +1,83 @@
+# compose.yaml — shopsystem-starter forkable-repo variant (PDR-019 U1).
+#
+# This is the compose that ships in the lead-owned, standalone, forkable
+# "Use this template" repo (shopsystem-starter). It carries NO framework code
+# — the framework lives only in the published image — and it is NOT the
+# poured-into-a-lead-shop variant (that one is templates/ops/compose.yaml,
+# which is product-scoped via {{OPS_SLUG}} placeholders the bootstrap pour
+# substitutes). THIS file ships UNSUBSTITUTED into the fork: it carries no
+# render-time placeholders, because at "Use this template" time there is no
+# product slug yet. bin/bootstrap (this repo's entry script) re-pours the
+# product-scoped templates/ops/compose.yaml over this file once the product
+# slug is derived from the fork's "<product>-lead" name; until then this
+# generic compose is enough to bring the broker up for the auth gate.
+#
+# FLOATING IMAGE TAGS (ADR-040 D3): neither service pins a fixed image tag.
+# The agent-vault broker floats on :latest; bin/bootstrap resolves the
+# floating :latest at run time and RECORDS the resolved digest/tag in the
+# run's .env so the run is reproducible without the committed file pinning a
+# version that would rot. Do NOT pin a tag or digest here.
+services:
+  postgres:
+    # The product database. postgres:16 is the framework-neutral base image
+    # (not the framework image); it floats on the 16 line.
+    image: postgres:16
+    container_name: shopsystem-starter-postgres
+    networks:
+      - shopsystem-starter
+    environment:
+      POSTGRES_USER: shopsystem
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-shopsystem}"
+      POSTGRES_DB: shopsystem
+    volumes:
+      - type: bind
+        source: "${SHOPSYSTEM_STARTER_DATA:-${HOME}/.local/share/shopsystem-starter}/pgdata"
+        target: /var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # The credential broker — the published bc-base/agent-vault lineage image.
+  # It holds the product's secrets and proxies outbound traffic, injecting
+  # credentials on the wire so no agent container ever sees raw secret
+  # material. The broker auto-unseals from AGENT_VAULT_MASTER_PASSWORD,
+  # sourced from the instance environment (see .env.example).
+  #
+  # ADR-040 D3 — UNPINNED: the image floats on :latest. bin/bootstrap
+  # resolves the floating :latest at run time and records the resolved
+  # digest/tag in the run's .env. Do NOT pin a fixed tag or @sha256 digest.
+  agent-vault:
+    image: infisical/agent-vault:latest
+    container_name: shopsystem-starter-agent-vault
+    networks:
+      - shopsystem-starter
+    cap_add:
+      - IPC_LOCK
+    environment:
+      AGENT_VAULT_MASTER_PASSWORD: "${AGENT_VAULT_MASTER_PASSWORD}"
+    volumes:
+      - type: volume
+        source: shopsystem-starter-agent-vault-data
+        target: /vault/file
+    ports:
+      - "${VAULT_API_PORT:-14321}:14321"
+      - "${VAULT_PROXY_PORT:-14322}:14322"
+    healthcheck:
+      # sh-compatible TCP-liveness probe on the broker API port (the
+      # infisical/agent-vault image runs sh; nc is at /usr/bin/nc).
+      test: ["CMD", "nc", "-z", "127.0.0.1", "14321"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  shopsystem-starter:
+    name: shopsystem-starter
+
+volumes:
+  shopsystem-starter-agent-vault-data:
+    name: shopsystem-starter-agent-vault-data

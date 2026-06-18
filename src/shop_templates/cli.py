@@ -81,6 +81,15 @@ _SKILLS_PKG = "shop_templates.templates.skills"
 # .claude/skills/; a "bc" shop pours the BC tree. They never mix. (lead-5mr5,
 # scenarios 75f86e53/c20785332/cc520034/f75eb04e/e803b4c9/4a008549/a14e5a0a.)
 _LEAD_SKILLS_PKG = "shop_templates.templates.lead_skills"
+# The shopsystem-starter forkable-repo BODY — a package-data subtree carrying
+# the standalone "Use this template" repo's artifacts (compose.yaml,
+# bin/bootstrap, .env.example, README.md). Unlike templates/ops/ (the
+# poured-into-a-lead-shop variant), the starter body ships UNSUBSTITUTED:
+# there is no product slug at "Use this template" time, so it carries no
+# render-time placeholders. This BC renders the body as package data only; the
+# GitHub repo creation / template-repository marking is a separate lead action
+# (tmpl-3ch / lead-v0m7, PDR-019 U1, ADR-040 D1/D3, briefs/012 §2).
+_STARTER_PKG = "shop_templates.templates.starter"
 
 # The canonical role-set assignment per shop type. The bootstrap surface
 # uses this to decide which role files to pour into .claude/agents/ for
@@ -251,6 +260,44 @@ def iter_lead_skill_files():
                 yield rel, child.read_bytes()
 
     yield from _walk(root, "")
+
+
+def iter_starter_files():
+    """Yield (relative_posix_path, content_bytes) for every file in the
+    shopsystem-starter forkable-repo BODY, recursively. Relative path rooted at
+    templates/starter/ (e.g. "compose.yaml", "bin/bootstrap"). Served from
+    importlib.resources package data — never read from a filesystem path under
+    the product working directory.
+
+    The starter body is the standalone, lead-owned "Use this template" repo's
+    artifacts; this BC renders the body as package data only. Unlike the ops
+    scaffolding, the starter body ships UNSUBSTITUTED (no product slug exists at
+    "Use this template" time). (tmpl-3ch / lead-v0m7, PDR-019 U1.)"""
+    root = files(_STARTER_PKG)
+
+    def _walk(node, prefix):
+        for child in node.iterdir():
+            rel = child.name if prefix == "" else f"{prefix}/{child.name}"
+            if child.is_dir():
+                yield from _walk(child, rel)
+            elif child.is_file():
+                yield rel, child.read_bytes()
+
+    yield from _walk(root, "")
+
+
+def read_starter_file(rel: str) -> str:
+    """Return the named shopsystem-starter body file's text from package data.
+
+    `rel` is a posix-relative path rooted at templates/starter/ (e.g.
+    "compose.yaml", "bin/bootstrap", ".env.example", "README.md"). Served from
+    importlib.resources package data; raises FileNotFoundError if no such file.
+    The starter body ships unsubstituted, so the returned text is the exact
+    committed body (no placeholder rendering). (tmpl-3ch / lead-v0m7.)"""
+    resource = files(_STARTER_PKG)
+    for part in rel.split("/"):
+        resource = resource / part
+    return resource.read_text()
 
 
 def canonical_skill_group(shop_type: str) -> tuple[tuple[str, bytes], ...]:

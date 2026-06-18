@@ -2864,10 +2864,41 @@ def _make_bd_shim_dir(tmp_path: Path, context: dict) -> Path:
         f"log={log}\n"
         f"fail_dolt_marker={fail_dolt_marker}\n"
         'remote_state="$PWD/.beads/__shim_remotes__"\n'
+        'prefix_state="$PWD/.beads/__shim_prefix__"\n'
         'echo "$@|cwd=$PWD" >> "$log"\n'
         'if [[ "$1" == "init" ]]; then\n'
         '  mkdir -p .beads\n'
         '  : > .beads/__shim_init__\n'
+        '  # Model `bd init --prefix <prefix>`: persist the prefix so a later\n'
+        '  # `bd config get issue-prefix` can return it (real bd stores the\n'
+        '  # prefix under the hyphenated `issue-prefix` config key).\n'
+        '  shift\n'
+        '  while [[ $# -gt 0 ]]; do\n'
+        '    case "$1" in\n'
+        '      --prefix)\n'
+        '        echo "$2" > "$prefix_state"; shift 2 ;;\n'
+        '      --prefix=*)\n'
+        '        echo "${1#--prefix=}" > "$prefix_state"; shift ;;\n'
+        '      *)\n'
+        '        shift ;;\n'
+        '    esac\n'
+        '  done\n'
+        '  exit 0\n'
+        'fi\n'
+        'if [[ "$1" == "config" && "$2" == "get" && "$3" == "issue-prefix" ]]; then\n'
+        '  # bd config get issue-prefix — return the prefix set at `bd init`.\n'
+        '  if [[ -s "$prefix_state" ]]; then\n'
+        '    cat "$prefix_state"\n'
+        '    exit 0\n'
+        '  fi\n'
+        '  echo "issue-prefix is not configured" >&2\n'
+        '  exit 1\n'
+        'fi\n'
+        'if [[ "$1" == "dolt" && "$2" == "remote" && "$3" == "list" ]]; then\n'
+        '  # bd dolt remote list — print each configured "<name> <url>" pair.\n'
+        '  if [[ -s "$remote_state" ]]; then\n'
+        '    cat "$remote_state"\n'
+        '  fi\n'
         '  exit 0\n'
         'fi\n'
         'if [[ "$1" == "dolt" && "$2" == "remote" && "$3" == "add" ]]; then\n'
@@ -15980,20 +16011,34 @@ def then_lead_skill_dir_set_unchanged(context: dict) -> None:
 
 
 # =======================================================================
-# tmpl-4k7 — bootstrap renders .beads/config.yaml with the product beads
-# remote (sync.remote) and the product-derived issue prefix (issue_prefix).
-# Scenario 9e15d8cfd55b9541.
+# tmpl-am6 (corrected re-dispatch, supersedes tmpl-4k7's cosmetic A) —
+# bootstrap configures the REAL bd dolt push remote and issue prefix.
+# Scenario 0636fba2c1445f9f.
+#
+# The prior cosmetic scenario 9e15d8cfd55b9541 (which made bootstrap write
+# `sync.remote` / `issue_prefix` keys into .beads/config.yaml) is RETIRED:
+# bd does not read those YAML keys. The corrected contract (verified against
+# bd help):
+#   * the bd dolt push remote is a DB-side remote configured via
+#     `bd dolt remote add <name> <url>`, listed by `bd dolt remote list`
+#     (NOT the `sync.remote` jsonl-sync YAML key);
+#   * the issue prefix is set via `bd init --prefix <prefix>` and read via
+#     the HYPHENATED config key `bd config get issue-prefix`.
 #
 # "the product beads remote" and "the product-derived prefix" are derived
 # from the bound --shop-name using the conventions already observable in the
 # shop-system: the beads remote mirrors the committed convention
-# `git+https://github.com/dstengle/<shop-name>-beads.git` (the value this very
-# repo's .beads/config.yaml carries for shop name "shopsystem-templates"), and
-# the issue prefix is the product slug (the --shop-name with a single trailing
+# `git+https://github.com/dstengle/<shop-name>-beads.git`, and the issue
+# prefix is the product slug (the --shop-name with a single trailing
 # "-product" suffix stripped — the same _ops_slug derivation the ops
-# scaffolding uses). These expectations are computed here independently of the
-# src so the test pins behavior rather than re-deriving against the
+# scaffolding uses). These expectations are computed here independently of
+# the src so the test pins behavior rather than re-deriving against the
 # implementation.
+#
+# The Then-steps observe the configured state through the bd-shim itself:
+# they re-invoke the shim's `bd dolt remote list` / `bd config get
+# issue-prefix` in the target directory (the shim persists the remote add
+# and the `bd init --prefix` value as real bd would) and assert on output.
 # =======================================================================
 
 
@@ -16008,55 +16053,70 @@ def _expected_product_issue_prefix(shop_name: str) -> str:
     return shop_name
 
 
+def _run_bd_shim_query(context: dict, target: Path, args: list[str]):
+    """Re-invoke the per-test bd-shim with `args` in `target` and return the
+    CompletedProcess. Used by the corrected-scenario Then-steps to read the
+    state bootstrap configured (`bd dolt remote list`, `bd config get
+    issue-prefix`) the same way an operator would — through the bd CLI,
+    against the shim that models real bd's state."""
+    import subprocess as _sp
+
+    log = context["bd_shim_log"]
+    bd_path = log.parent / "bd-shim" / "bd"
+    assert bd_path.exists(), (
+        f"bd-shim not found at {bd_path!s}; a bootstrap invocation must run "
+        f"before querying shim state"
+    )
+    return _sp.run(
+        [str(bd_path), *args],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+    )
+
+
 @then(
     parsers.parse(
-        'the file ".beads/config.yaml" in the target directory sets '
-        '"sync.remote" to the product beads remote'
+        '"bd dolt remote list" in the target directory lists a dolt push '
+        'remote whose URL is the product beads remote'
     )
 )
-def then_beads_config_sets_sync_remote(context: dict) -> None:
+def then_bd_dolt_remote_list_has_product_remote(context: dict) -> None:
     real = context["last_invocation_target"]
-    config_path = real / ".beads" / "config.yaml"
-    assert config_path.exists(), (
-        f"expected {config_path!s} to exist after bootstrap; it does not"
-    )
-    data = _parse_yaml_via_subprocess(config_path)
-    assert isinstance(data, dict), (
-        f"{config_path!s} did not parse to a YAML mapping; got {type(data)!r}"
-    )
     expected = _expected_product_beads_remote(
         context["last_invocation_shop_name"]
     )
-    got = data.get("sync.remote")
-    assert got == expected, (
-        f"expected .beads/config.yaml sync.remote == {expected!r}; "
-        f"got {got!r}"
+    result = _run_bd_shim_query(context, real, ["dolt", "remote", "list"])
+    assert result.returncode == 0, (
+        f"expected `bd dolt remote list` to exit 0 in {real!s}; got "
+        f"{result.returncode} (stderr: {result.stderr!r})"
+    )
+    assert expected in result.stdout, (
+        f"expected `bd dolt remote list` to list a remote whose URL is the "
+        f"product beads remote {expected!r}; got stdout: {result.stdout!r}"
     )
 
 
 @then(
     parsers.parse(
-        'the file ".beads/config.yaml" in the target directory sets '
-        '"issue_prefix" to the product-derived prefix'
+        '"bd config get issue-prefix" in the target directory returns the '
+        'product-derived prefix'
     )
 )
-def then_beads_config_sets_issue_prefix(context: dict) -> None:
+def then_bd_config_get_issue_prefix_returns_prefix(context: dict) -> None:
     real = context["last_invocation_target"]
-    config_path = real / ".beads" / "config.yaml"
-    assert config_path.exists(), (
-        f"expected {config_path!s} to exist after bootstrap; it does not"
-    )
-    data = _parse_yaml_via_subprocess(config_path)
-    assert isinstance(data, dict), (
-        f"{config_path!s} did not parse to a YAML mapping; got {type(data)!r}"
-    )
     expected = _expected_product_issue_prefix(
         context["last_invocation_shop_name"]
     )
-    got = data.get("issue_prefix")
+    result = _run_bd_shim_query(context, real, ["config", "get", "issue-prefix"])
+    assert result.returncode == 0, (
+        f"expected `bd config get issue-prefix` to exit 0 in {real!s}; got "
+        f"{result.returncode} (stderr: {result.stderr!r})"
+    )
+    got = result.stdout.strip()
     assert got == expected, (
-        f"expected .beads/config.yaml issue_prefix == {expected!r}; "
-        f"got {got!r}"
+        f"expected `bd config get issue-prefix` to return the product-derived "
+        f"prefix {expected!r}; got {got!r}"
     )
 
 

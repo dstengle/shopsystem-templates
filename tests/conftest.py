@@ -13994,6 +13994,154 @@ def then_body_token_guard_nonzero(rel: str, context: dict) -> None:
     )
 
 
+# -- Scenario 2adc62a25c401e4b (shop-shell agent-vault CA guard) ---------
+#
+# Additive to scenario 172 (5335c39eb06f7493): the bootstrap-rendered
+# bin/shop-shell must (a) when AGENT_VAULT_CA_PEM is empty/unset, self-source
+# the agent-vault MITM CA via the literal `agent-vault ca fetch` OR by reading
+# the host file `agent-vault-ca.pem`; (b) still pass the resulting CA into the
+# container by referencing AGENT_VAULT_CA_PEM on the `docker run`; (c) if the
+# CA still cannot be obtained, exit non-zero with a diagnostic WITHOUT reaching
+# the `docker run` that launches claude. The token-presence guard, broker
+# wiring, and all other scenario-172 assertions still hold.
+
+
+def _shop_shell_lines(rel: str, context: dict) -> list[str]:
+    real = _ops_target(context)
+    return (real / rel).read_text().splitlines()
+
+
+def _docker_run_index(lines: list[str]) -> int:
+    """Index of the line that begins the `docker run` invocation launching
+    claude (the `exec docker run` / `docker run` line). -1 if absent."""
+    for idx, ln in enumerate(lines):
+        if "docker run" in ln:
+            return idx
+    return -1
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" contains a guard that, when '
+        r'"(?P<var>[^"]+)" is empty or unset, self-sources the agent-vault CA '
+        r'by the literal substring "(?P<lit_a>[^"]+)" or by reading the host '
+        r'file referenced by the literal substring "(?P<lit_b>[^"]+)"'
+    )
+)
+def then_body_ca_self_source_guard(
+    rel: str, var: str, lit_a: str, lit_b: str, context: dict
+) -> None:
+    lines = _shop_shell_lines(rel, context)
+    # Locate guard blocks predicated on an empty/unset CA env var.
+    guard_idxs = [
+        idx
+        for idx, ln in enumerate(lines)
+        if var in ln
+        and ('-z "' in ln or "-z " in ln or "unset" in ln or "empty" in ln)
+        and ("if " in ln or "[[" in ln or "[ " in ln)
+    ]
+    assert guard_idxs, (
+        f"{rel}: no guard testing an empty/unset {var}"
+    )
+    # At least one such guard block must self-source the CA via either literal
+    # (the `agent-vault ca fetch` broker call OR reading the host CA file).
+    for gi in guard_idxs:
+        block = []
+        depth = 0
+        for ln in lines[gi:]:
+            block.append(ln)
+            stripped = ln.strip()
+            if stripped.startswith("if ") or stripped == "if":
+                depth += 1
+            if stripped == "fi":
+                depth -= 1
+                if depth <= 0:
+                    break
+        block_text = "\n".join(block)
+        if lit_a in block_text or lit_b in block_text:
+            return
+    assert False, (
+        f"{rel}: no empty/unset-{var} guard block self-sources the CA via "
+        f"{lit_a!r} or {lit_b!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" passes the resulting CA material into '
+        r'the launched container by referencing the environment variable '
+        r'"(?P<var>[^"]+)" on the "(?P<cmd>docker run)" invocation'
+    )
+)
+def then_body_ca_on_docker_run(
+    rel: str, var: str, cmd: str, context: dict
+) -> None:
+    lines = _shop_shell_lines(rel, context)
+    dr = _docker_run_index(lines)
+    assert dr != -1, f"{rel}: no {cmd!r} invocation found"
+    # The `docker run` invocation spans the docker-run line through the end of
+    # the command (a backslash-continued block). The CA env var must be
+    # referenced within that invocation (e.g. `-e AGENT_VAULT_CA_PEM`).
+    invocation = [lines[dr]]
+    j = dr
+    while lines[j].rstrip().endswith("\\") and j + 1 < len(lines):
+        j += 1
+        invocation.append(lines[j])
+    invocation_text = "\n".join(invocation)
+    assert var in invocation_text, (
+        f"{rel}: the {cmd!r} invocation does not reference {var!r}:\n"
+        f"{invocation_text}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" contains a guard that, when the '
+        r'agent-vault CA still cannot be obtained, exits non-zero with a '
+        r'diagnostic and does not reach the "(?P<cmd>docker run)" invocation '
+        r'that launches claude'
+    )
+)
+def then_body_ca_fail_loud_guard(rel: str, cmd: str, context: dict) -> None:
+    lines = _shop_shell_lines(rel, context)
+    dr = _docker_run_index(lines)
+    assert dr != -1, f"{rel}: no {cmd!r} invocation found"
+    # A CA-acquisition fail-loud guard: a guard block predicated on the CA env
+    # var being empty/unset that BOTH exits non-zero AND emits a diagnostic to
+    # stderr, and that occurs strictly BEFORE the `docker run` launching claude
+    # (so the failure path never reaches the launch).
+    guard_idxs = [
+        idx
+        for idx, ln in enumerate(lines[:dr])
+        if "AGENT_VAULT_CA_PEM" in ln
+        and ('-z "' in ln or "-z " in ln or "unset" in ln or "empty" in ln)
+        and ("if " in ln or "[[" in ln or "[ " in ln)
+    ]
+    assert guard_idxs, (
+        f"{rel}: no CA-acquisition guard before the {cmd!r} launch"
+    )
+    for gi in guard_idxs:
+        block = []
+        for ln in lines[gi:]:
+            block.append(ln)
+            if ln.strip() == "fi":
+                break
+        block_end = gi + len(block) - 1
+        block_text = "\n".join(block)
+        has_nonzero_exit = any(
+            ln.strip().startswith("exit")
+            and ln.strip() not in ("exit 0", "exit")
+            for ln in block
+        )
+        has_diag = ">&2" in block_text or "stderr" in block_text.lower()
+        if has_nonzero_exit and has_diag and block_end < dr:
+            return
+    assert False, (
+        f"{rel}: no CA-acquisition guard before the {cmd!r} launch both exits "
+        f"non-zero and emits a diagnostic to stderr"
+    )
+
+
 @then(
     parsers.re(
         r'the body of "(?P<rel>[^"]+)" does not contain the literal '

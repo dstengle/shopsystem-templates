@@ -1,0 +1,15 @@
+Feature: bootstrap of a lead shop writes bin/shop-shell so the agent-vault MITM CA is guaranteed to reach the brokered shell container before claude launches — self-sourcing the CA when AGENT_VAULT_CA_PEM is empty and failing loud (without launching) when the CA cannot be obtained
+
+  @scenario_hash:2adc62a25c401e4b @bc:shopsystem-templates
+  Scenario Outline: bootstrap of a "lead" shop named "<slug>" writes "bin/shop-shell" so that it guarantees the agent-vault MITM CA reaches the brokered shell container before launching claude — self-sourcing the CA when "AGENT_VAULT_CA_PEM" is empty and failing loud without launching when the CA cannot be obtained (additive to scenario 172 @scenario_hash:5335c39eb06f7493, whose broker-wiring assertions still hold)
+    Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
+    When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"
+    Then the exit code is 0
+    And the body of "bin/shop-shell" contains a guard that, when "AGENT_VAULT_CA_PEM" is empty or unset, self-sources the agent-vault CA by the literal substring "agent-vault ca fetch" or by reading the host file referenced by the literal substring "agent-vault-ca.pem"
+    And the body of "bin/shop-shell" passes the resulting CA material into the launched container by referencing the environment variable "AGENT_VAULT_CA_PEM" on the "docker run" invocation
+    And the body of "bin/shop-shell" contains a guard that, when the agent-vault CA still cannot be obtained, exits non-zero with a diagnostic and does not reach the "docker run" invocation that launches claude
+
+    Examples:
+      | slug       |
+      | shopsystem |
+      | dummyco    |

@@ -135,6 +135,20 @@ docker run --rm \
 # into the fork in Step 1 above, so it exists and is invoked via `bash` (no +x
 # dependency).
 # =======================================================================
+# REFUSE to invoke a footing that was never obtained. The render step above is
+# the ONLY thing that produces bin/footing in this fork (the starter ships
+# none). If that render did not produce the file, invoking `bash ./bin/footing`
+# would fail opaquely with an exit-127 "No such file or directory". Guard the
+# invoke with an explicit existence check FIRST: if bin/footing is absent, emit
+# a diagnostic that NAMES the missing bin/footing and exit non-zero from here,
+# rather than falling through to a bare exit-127.
+if [[ ! -f "$REPO_ROOT/bin/footing" ]]; then
+  echo "bootstrap: bin/footing is MISSING — the render step (in-container 'shop-templates bootstrap') did not produce '$REPO_ROOT/bin/footing'." >&2
+  echo "  bootstrap will NOT run 'bash ./bin/footing' against a missing file (that would fail with an opaque exit-127 'No such file or directory')." >&2
+  echo "  Check the render step's output above and re-run ./bin/bootstrap once bin/footing has been rendered. Aborting." >&2
+  exit 1
+fi
+
 echo "bootstrap: launching the published bc-base/bc-launcher image in its INTERACTIVE bootstrap MODE to run the rendered bin/footing." >&2
 docker run --rm -it \
   --env-file "$RUN_ENV" \

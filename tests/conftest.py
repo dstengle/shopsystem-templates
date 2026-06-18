@@ -17753,3 +17753,112 @@ def then_y4pg_footing_stops_at_green(context: dict) -> None:
     footing = context["y4pg_footing"]
     assert "git push" in footing, "footing must reach a green `git push`"
     assert "bd dolt push" in footing, "footing must reach a green `bd dolt push`"
+
+
+# ---- Scenario c15aeb90b21357e5: refuse to invoke a missing bin/footing ----
+
+
+def _y4pg_real_invoke_idx(code: str) -> int:
+    """Index of the ACTUAL `bash ./bin/footing` command line (not a quoted
+    mention inside a diagnostic echo)."""
+    pos = 0
+    for line in code.splitlines():
+        if line.strip().startswith("bash ./bin/footing"):
+            return pos
+        pos += len(line) + 1
+    return -1
+
+
+# A bin/footing path reference allowing an optional quote + dir prefix.
+_Y4PG_FOOTING_PATH_RE = (
+    r"""["']?(?:\.?/|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/)*bin/footing"""
+)
+
+
+@given(
+    parsers.parse(
+        'an adopter fork that carries "bin/bootstrap" but no "bin/footing"'
+    )
+)
+def given_y4pg_fork_carries_bootstrap_no_footing(context: dict) -> None:
+    from shop_templates.cli import iter_starter_files
+
+    files = dict(iter_starter_files())
+    assert "bin/bootstrap" in files or "bootstrap" in files
+    assert "bin/footing" not in files, (
+        "the starter must NOT carry bin/footing"
+    )
+    context["y4pg_bootstrap"] = _y4pg_bootstrap_body()
+
+
+@given(
+    parsers.parse(
+        'the render step that obtains "bin/footing" did not produce the file'
+    )
+)
+def given_y4pg_render_did_not_produce_footing(context: dict) -> None:
+    # The hypothetical failure mode this scenario guards: the render ran but
+    # bin/footing is absent. The bootstrap body must encode a guard for it.
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    assert re.search(r"-[efx]\s+" + _Y4PG_FOOTING_PATH_RE, code), (
+        "bootstrap must carry a file-existence guard on bin/footing for the "
+        "render-did-not-produce-it case"
+    )
+
+
+@then(
+    parsers.parse(
+        'bootstrap does not execute "bash ./bin/footing" against a missing file'
+    )
+)
+def then_y4pg_bootstrap_does_not_invoke_missing_footing(context: dict) -> None:
+    import re
+
+    code = _y4pg_code_text(context["y4pg_bootstrap"])
+    guard = re.search(r"-[efx]\s+" + _Y4PG_FOOTING_PATH_RE, code)
+    invoke_idx = _y4pg_real_invoke_idx(code)
+    assert guard is not None, "no bin/footing existence guard found"
+    assert invoke_idx != -1, "no `bash ./bin/footing` invoke found"
+    # Guard precedes invoke, and the guard branch exits non-zero before the
+    # invoke could run against a missing file.
+    assert guard.start() < invoke_idx, (
+        "the existence guard must precede the `bash ./bin/footing` invoke"
+    )
+    region = code[guard.start():invoke_idx]
+    assert re.search(r"\bexit\s+[1-9]", region), (
+        "the missing-footing guard must `exit` non-zero before the invoke"
+    )
+
+
+@then(
+    parsers.parse(
+        'bootstrap exits with a diagnostic naming the missing "bin/footing" '
+        'instead of failing with an exit-127 "No such file or directory"'
+    )
+)
+def then_y4pg_diagnostic_names_missing_footing(context: dict) -> None:
+    body = context["y4pg_bootstrap"]
+    code = _y4pg_code_text(body)
+    invoke_idx = _y4pg_real_invoke_idx(code)
+    pre_invoke = code[:invoke_idx] if invoke_idx != -1 else code
+    diag = False
+    for raw in pre_invoke.splitlines():
+        low = raw.lower()
+        if "bin/footing" not in low:
+            continue
+        is_msg = ">&2" in raw or "echo" in low
+        names_absent = any(
+            kw in low
+            for kw in ("missing", "not rendered", "not produced", "not obtained",
+                       "was not", "does not exist", "no such", "not present",
+                       "did not")
+        )
+        if is_msg and names_absent:
+            diag = True
+            break
+    assert diag, (
+        "bootstrap must emit a diagnostic naming the missing bin/footing "
+        "rather than failing with an opaque exit-127"
+    )

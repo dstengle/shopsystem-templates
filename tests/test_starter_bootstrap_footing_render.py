@@ -28,6 +28,11 @@ import re
 from shop_templates.cli import iter_starter_files, read_starter_file
 
 
+# A bin/footing path reference, allowing an optional quote and an optional
+# directory prefix (./, $REPO_ROOT/, ${REPO_ROOT}/) before "bin/footing".
+_FOOTING_PATH_RE = r"""["']?(?:\.?/|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/)*bin/footing"""
+
+
 def _bootstrap_rel() -> str:
     files = dict(iter_starter_files())
     for cand in ("bin/bootstrap", "bootstrap"):
@@ -57,6 +62,18 @@ def _code_lines(body: str) -> list[str]:
 
 def _code_text(body: str) -> str:
     return "\n".join(_code_lines(body))
+
+
+def _real_invoke_idx(code: str) -> int:
+    """Index of the ACTUAL `bash ./bin/footing` command invocation — a line
+    whose stripped content starts with `bash ./bin/footing` — not a quoted
+    mention of the string inside a diagnostic echo."""
+    pos = 0
+    for line in code.splitlines():
+        if line.strip().startswith("bash ./bin/footing"):
+            return pos
+        pos += len(line) + 1
+    return -1
 
 
 # -----------------------------------------------------------------------
@@ -208,9 +225,10 @@ def test_bootstrap_guards_footing_existence_before_invoking():
     `bash ./bin/footing` line runs against a missing file."""
     code = _code_text(_bootstrap_body())
     # An existence test on the footing path appears in the script's executed
-    # lines: `[ -f bin/footing ]` / `[ ! -f ... ]` / `test -f ...` / `[[ -e ... ]]`.
+    # lines: `[ -f bin/footing ]` / `[ ! -f "$REPO_ROOT/bin/footing" ]` /
+    # `test -f ...` / `[[ -e ... ]]`. The path may carry a prefix (./, a var).
     has_guard = re.search(
-        r"(\[\[?\s*!?\s*-[efx]\s+(\./)?bin/footing|test\s+!?\s*-[efx]\s+(\./)?bin/footing)",
+        r"(\[\[?|test)\s*!?\s*-[efx]\s+" + _FOOTING_PATH_RE,
         code,
     )
     assert has_guard, (
@@ -223,11 +241,11 @@ def test_bootstrap_footing_guard_precedes_the_invoke():
     """The existence guard must appear BEFORE the `bash ./bin/footing` invoke —
     a guard placed after the invoke would not prevent the exit-127."""
     code = _code_text(_bootstrap_body())
-    guard = re.search(r"-[efx]\s+(\./)?bin/footing", code)
-    invoke = re.search(r"bash\s+\./bin/footing", code)
+    guard = re.search(r"-[efx]\s+" + _FOOTING_PATH_RE, code)
+    invoke_idx = _real_invoke_idx(code)
     assert guard is not None, "no footing existence guard found"
-    assert invoke is not None, "no `bash ./bin/footing` invoke found"
-    assert guard.start() < invoke.start(), (
+    assert invoke_idx != -1, "no `bash ./bin/footing` invoke found"
+    assert guard.start() < invoke_idx, (
         "the bin/footing existence guard must precede the `bash ./bin/footing` "
         "invoke"
     )
@@ -244,9 +262,9 @@ def test_bootstrap_missing_footing_diagnostic_names_the_file():
     # emitted error message that names bin/footing AND describes it as
     # absent/not-produced (NOT merely "rendering" progress).
     code = _code_text(body)
-    invoke = re.search(r"bash\s+\./bin/footing", code)
-    assert invoke is not None, "no `bash ./bin/footing` invoke found"
-    pre_invoke = code[: invoke.start()]
+    invoke_idx = _real_invoke_idx(code)
+    assert invoke_idx != -1, "no `bash ./bin/footing` invoke found"
+    pre_invoke = code[:invoke_idx]
     diag_present = False
     for raw in pre_invoke.splitlines():
         low = raw.lower()
@@ -282,10 +300,10 @@ def test_bootstrap_does_not_rely_on_bare_exit127_for_missing_footing():
     # non-zero code somewhere after a bin/footing existence test and before the
     # bash invoke, OR an `exit 1` on/adjacent to a line naming bin/footing.
     code = _code_text(body)
-    guard = re.search(r"-[efx]\s+(\./)?bin/footing", code)
-    invoke = re.search(r"bash\s+\./bin/footing", code)
-    assert guard and invoke, "guard and invoke must both be present"
-    region = code[guard.start(): invoke.start()]
+    guard = re.search(r"-[efx]\s+" + _FOOTING_PATH_RE, code)
+    invoke_idx = _real_invoke_idx(code)
+    assert guard and invoke_idx != -1, "guard and invoke must both be present"
+    region = code[guard.start():invoke_idx]
     assert re.search(r"\bexit\s+[1-9]", region), (
         "the missing-footing guard must explicitly `exit` non-zero rather than "
         "fall through to a bare `bash ./bin/footing` exit-127"

@@ -2864,10 +2864,41 @@ def _make_bd_shim_dir(tmp_path: Path, context: dict) -> Path:
         f"log={log}\n"
         f"fail_dolt_marker={fail_dolt_marker}\n"
         'remote_state="$PWD/.beads/__shim_remotes__"\n'
+        'prefix_state="$PWD/.beads/__shim_prefix__"\n'
         'echo "$@|cwd=$PWD" >> "$log"\n'
         'if [[ "$1" == "init" ]]; then\n'
         '  mkdir -p .beads\n'
         '  : > .beads/__shim_init__\n'
+        '  # Model `bd init --prefix <prefix>`: persist the prefix so a later\n'
+        '  # `bd config get issue-prefix` can return it (real bd stores the\n'
+        '  # prefix under the hyphenated `issue-prefix` config key).\n'
+        '  shift\n'
+        '  while [[ $# -gt 0 ]]; do\n'
+        '    case "$1" in\n'
+        '      --prefix)\n'
+        '        echo "$2" > "$prefix_state"; shift 2 ;;\n'
+        '      --prefix=*)\n'
+        '        echo "${1#--prefix=}" > "$prefix_state"; shift ;;\n'
+        '      *)\n'
+        '        shift ;;\n'
+        '    esac\n'
+        '  done\n'
+        '  exit 0\n'
+        'fi\n'
+        'if [[ "$1" == "config" && "$2" == "get" && "$3" == "issue-prefix" ]]; then\n'
+        '  # bd config get issue-prefix — return the prefix set at `bd init`.\n'
+        '  if [[ -s "$prefix_state" ]]; then\n'
+        '    cat "$prefix_state"\n'
+        '    exit 0\n'
+        '  fi\n'
+        '  echo "issue-prefix is not configured" >&2\n'
+        '  exit 1\n'
+        'fi\n'
+        'if [[ "$1" == "dolt" && "$2" == "remote" && "$3" == "list" ]]; then\n'
+        '  # bd dolt remote list — print each configured "<name> <url>" pair.\n'
+        '  if [[ -s "$remote_state" ]]; then\n'
+        '    cat "$remote_state"\n'
+        '  fi\n'
         '  exit 0\n'
         'fi\n'
         'if [[ "$1" == "dolt" && "$2" == "remote" && "$3" == "add" ]]; then\n'
@@ -15980,20 +16011,34 @@ def then_lead_skill_dir_set_unchanged(context: dict) -> None:
 
 
 # =======================================================================
-# tmpl-4k7 — bootstrap renders .beads/config.yaml with the product beads
-# remote (sync.remote) and the product-derived issue prefix (issue_prefix).
-# Scenario 9e15d8cfd55b9541.
+# tmpl-am6 (corrected re-dispatch, supersedes tmpl-4k7's cosmetic A) —
+# bootstrap configures the REAL bd dolt push remote and issue prefix.
+# Scenario 0636fba2c1445f9f.
+#
+# The prior cosmetic scenario 9e15d8cfd55b9541 (which made bootstrap write
+# `sync.remote` / `issue_prefix` keys into .beads/config.yaml) is RETIRED:
+# bd does not read those YAML keys. The corrected contract (verified against
+# bd help):
+#   * the bd dolt push remote is a DB-side remote configured via
+#     `bd dolt remote add <name> <url>`, listed by `bd dolt remote list`
+#     (NOT the `sync.remote` jsonl-sync YAML key);
+#   * the issue prefix is set via `bd init --prefix <prefix>` and read via
+#     the HYPHENATED config key `bd config get issue-prefix`.
 #
 # "the product beads remote" and "the product-derived prefix" are derived
 # from the bound --shop-name using the conventions already observable in the
 # shop-system: the beads remote mirrors the committed convention
-# `git+https://github.com/dstengle/<shop-name>-beads.git` (the value this very
-# repo's .beads/config.yaml carries for shop name "shopsystem-templates"), and
-# the issue prefix is the product slug (the --shop-name with a single trailing
+# `git+https://github.com/dstengle/<shop-name>-beads.git`, and the issue
+# prefix is the product slug (the --shop-name with a single trailing
 # "-product" suffix stripped — the same _ops_slug derivation the ops
-# scaffolding uses). These expectations are computed here independently of the
-# src so the test pins behavior rather than re-deriving against the
+# scaffolding uses). These expectations are computed here independently of
+# the src so the test pins behavior rather than re-deriving against the
 # implementation.
+#
+# The Then-steps observe the configured state through the bd-shim itself:
+# they re-invoke the shim's `bd dolt remote list` / `bd config get
+# issue-prefix` in the target directory (the shim persists the remote add
+# and the `bd init --prefix` value as real bd would) and assert on output.
 # =======================================================================
 
 
@@ -16008,55 +16053,70 @@ def _expected_product_issue_prefix(shop_name: str) -> str:
     return shop_name
 
 
+def _run_bd_shim_query(context: dict, target: Path, args: list[str]):
+    """Re-invoke the per-test bd-shim with `args` in `target` and return the
+    CompletedProcess. Used by the corrected-scenario Then-steps to read the
+    state bootstrap configured (`bd dolt remote list`, `bd config get
+    issue-prefix`) the same way an operator would — through the bd CLI,
+    against the shim that models real bd's state."""
+    import subprocess as _sp
+
+    log = context["bd_shim_log"]
+    bd_path = log.parent / "bd-shim" / "bd"
+    assert bd_path.exists(), (
+        f"bd-shim not found at {bd_path!s}; a bootstrap invocation must run "
+        f"before querying shim state"
+    )
+    return _sp.run(
+        [str(bd_path), *args],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+    )
+
+
 @then(
     parsers.parse(
-        'the file ".beads/config.yaml" in the target directory sets '
-        '"sync.remote" to the product beads remote'
+        '"bd dolt remote list" in the target directory lists a dolt push '
+        'remote whose URL is the product beads remote'
     )
 )
-def then_beads_config_sets_sync_remote(context: dict) -> None:
+def then_bd_dolt_remote_list_has_product_remote(context: dict) -> None:
     real = context["last_invocation_target"]
-    config_path = real / ".beads" / "config.yaml"
-    assert config_path.exists(), (
-        f"expected {config_path!s} to exist after bootstrap; it does not"
-    )
-    data = _parse_yaml_via_subprocess(config_path)
-    assert isinstance(data, dict), (
-        f"{config_path!s} did not parse to a YAML mapping; got {type(data)!r}"
-    )
     expected = _expected_product_beads_remote(
         context["last_invocation_shop_name"]
     )
-    got = data.get("sync.remote")
-    assert got == expected, (
-        f"expected .beads/config.yaml sync.remote == {expected!r}; "
-        f"got {got!r}"
+    result = _run_bd_shim_query(context, real, ["dolt", "remote", "list"])
+    assert result.returncode == 0, (
+        f"expected `bd dolt remote list` to exit 0 in {real!s}; got "
+        f"{result.returncode} (stderr: {result.stderr!r})"
+    )
+    assert expected in result.stdout, (
+        f"expected `bd dolt remote list` to list a remote whose URL is the "
+        f"product beads remote {expected!r}; got stdout: {result.stdout!r}"
     )
 
 
 @then(
     parsers.parse(
-        'the file ".beads/config.yaml" in the target directory sets '
-        '"issue_prefix" to the product-derived prefix'
+        '"bd config get issue-prefix" in the target directory returns the '
+        'product-derived prefix'
     )
 )
-def then_beads_config_sets_issue_prefix(context: dict) -> None:
+def then_bd_config_get_issue_prefix_returns_prefix(context: dict) -> None:
     real = context["last_invocation_target"]
-    config_path = real / ".beads" / "config.yaml"
-    assert config_path.exists(), (
-        f"expected {config_path!s} to exist after bootstrap; it does not"
-    )
-    data = _parse_yaml_via_subprocess(config_path)
-    assert isinstance(data, dict), (
-        f"{config_path!s} did not parse to a YAML mapping; got {type(data)!r}"
-    )
     expected = _expected_product_issue_prefix(
         context["last_invocation_shop_name"]
     )
-    got = data.get("issue_prefix")
+    result = _run_bd_shim_query(context, real, ["config", "get", "issue-prefix"])
+    assert result.returncode == 0, (
+        f"expected `bd config get issue-prefix` to exit 0 in {real!s}; got "
+        f"{result.returncode} (stderr: {result.stderr!r})"
+    )
+    got = result.stdout.strip()
     assert got == expected, (
-        f"expected .beads/config.yaml issue_prefix == {expected!r}; "
-        f"got {got!r}"
+        f"expected `bd config get issue-prefix` to return the product-derived "
+        f"prefix {expected!r}; got {got!r}"
     )
 
 
@@ -16110,35 +16170,86 @@ def _bootstrap_for_smoke_test(
     return result
 
 
+def _run_smoke_test_with_no_remote(
+    context: dict, tmp_path: Path, target: Path
+) -> subprocess.CompletedProcess:
+    """Invoke the production `_bd_dolt_push_smoke_test` directly against a
+    target where NO dolt remote has been configured, with the bd-shim on PATH.
+
+    This reproduces the corrected scenario's missing-remote clause ("the same
+    target directory with no dolt push remote configured"): the bd-shim models
+    real bd, whose bare `bd dolt push` against an unconfigured tracker is a
+    no-op that prints "No remote is configured — skipping" and EXITS 0. The
+    smoke-test must NOT silently pass on that — it must exit non-zero with a
+    diagnostic NAMING the missing dolt remote. We call the production function
+    (not a re-implementation) so the assertion binds to bootstrap's real
+    behavior. Returns the wrapper subprocess result (rc = smoke-test rc;
+    stderr carries the smoke-test diagnostic)."""
+    import os as _os
+
+    shim_dir = _make_bd_shim_dir(tmp_path, context)
+    expected_remote = _expected_product_beads_remote(
+        _SMOKE_TEST_SHOP_NAME
+    )
+    wrapper = tmp_path / "_run_smoke_no_remote_wrapper.py"
+    wrapper.write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from shop_templates.cli import _bd_dolt_push_smoke_test\n"
+        f"rc = _bd_dolt_push_smoke_test(Path({str(target)!r}), {expected_remote!r})\n"
+        "sys.exit(rc)\n"
+    )
+    env = _os.environ.copy()
+    env["PATH"] = f"{shim_dir}{_os.pathsep}{env.get('PATH', '')}"
+    return subprocess.run(
+        [sys.executable, str(wrapper)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
 @given(
     parsers.parse(
         'an existing git repository at a target directory "{alias}" with the '
-        'beads config rendered by bootstrap'
+        'beads config rendered by bootstrap and the dolt push remote configured'
     )
 )
-def given_target_with_beads_config_rendered(
+def given_target_with_beads_config_and_remote_configured(
     alias: str, context: dict, tmp_path: Path
 ) -> None:
-    # Establish the post-config state by running the success-path bootstrap.
-    # The bootstrap flow itself renders .beads/config.yaml before the
-    # smoke-test step; this Given leaves the target in that rendered state.
+    # Establish the post-config success state by running a success-path
+    # bootstrap: `bd dolt remote add` configured the product beads remote, so
+    # `bd dolt remote list` lists it. (Behavior A, scenario 0636fba2c1445f9f.)
     context["bootstrap_workspace"] = tmp_path
     context["smoke_test_alias"] = alias
     result = _bootstrap_for_smoke_test(context, tmp_path, fail_dolt_push=False)
-    config_path = context["last_invocation_target"] / ".beads" / "config.yaml"
-    assert config_path.exists(), (
-        f"Given premise violated: expected {config_path!s} to be rendered by "
-        f"bootstrap; it does not exist (bootstrap rc={result.returncode}, "
-        f"stderr={result.stderr!r})"
+    remote_list = _run_bd_shim_query(
+        context, context["last_invocation_target"], ["dolt", "remote", "list"]
+    )
+    expected_remote = _expected_product_beads_remote(
+        context["last_invocation_shop_name"]
+    )
+    assert expected_remote in remote_list.stdout, (
+        f"Given premise violated: expected bootstrap to configure the bd dolt "
+        f"push remote {expected_remote!r} (bootstrap rc={result.returncode}, "
+        f"stderr={result.stderr!r}); `bd dolt remote list` stdout: "
+        f"{remote_list.stdout!r}"
     )
 
 
-@when("the bootstrap smoke-test step runs")
-def when_bootstrap_smoke_test_runs(context: dict, tmp_path: Path) -> None:
-    # The success-path bootstrap run captured in the Given already executed the
-    # smoke-test step end-to-end; the result is on context. Nothing more to do
-    # here — the Then steps assert on that captured success-path result and
-    # (for the failure assertion) on a second failure-injected run.
+@when(
+    parsers.parse(
+        'the bootstrap smoke-test step runs "bd dolt push" against the '
+        'configured dolt remote'
+    )
+)
+def when_smoke_test_runs_against_configured_remote(
+    context: dict, tmp_path: Path
+) -> None:
+    # The success-path bootstrap captured in the Given already ran the
+    # smoke-test step end-to-end; the result is on context. The Then steps
+    # assert on that captured result.
     assert "cli_returncode" in context, (
         "When step ordering bug: smoke-test ran before a bootstrap invocation "
         "was captured"
@@ -16147,13 +16258,10 @@ def when_bootstrap_smoke_test_runs(context: dict, tmp_path: Path) -> None:
 
 @then(
     parsers.parse(
-        'it performs a "bd dolt push" against the configured "sync.remote" '
-        'and reports success'
+        "the smoke-test reports success and the bootstrap exit code is 0"
     )
 )
-def then_smoke_test_performs_dolt_push_and_reports_success(
-    context: dict,
-) -> None:
+def then_smoke_test_reports_success_exit_zero(context: dict) -> None:
     # Success-path invocation must have exited 0.
     assert context["cli_returncode"] == 0, (
         f"expected success-path bootstrap to exit 0; got "
@@ -16163,11 +16271,9 @@ def then_smoke_test_performs_dolt_push_and_reports_success(
     expected_remote = _expected_product_beads_remote(
         context["last_invocation_shop_name"]
     )
-    # Per the REAL bd dolt contract (verified via `bd dolt remote --help`),
-    # a remote must be CONFIGURED before it can be pushed to: bootstrap must
-    # have run `bd dolt remote add <name> <url>` with the rendered sync.remote
-    # URL. The URL is the value of `bd dolt remote add` — NOT a positional on
-    # `bd dolt push` (which the old buggy impl used and which does not exist).
+    # The remote must have been CONFIGURED via `bd dolt remote add` before the
+    # push (behavior A); the push itself is a bare `bd dolt push` carrying no
+    # positional URL (the real contract).
     remote_adds = [
         inv for inv in invocations if inv[:3] == ["dolt", "remote", "add"]
     ]
@@ -16179,12 +16285,9 @@ def then_smoke_test_performs_dolt_push_and_reports_success(
     assert any(
         expected_remote in inv[3:] for inv in remote_adds
     ), (
-        f"expected `bd dolt remote add` to configure the rendered sync.remote "
+        f"expected `bd dolt remote add` to configure the product beads remote "
         f"URL {expected_remote!r}; got remote-add invocations: {remote_adds!r}"
     )
-    # A `bd dolt push` subprocess must have run — and per the real contract it
-    # takes NO positional argument, so the rendered remote URL must NOT appear
-    # as a push argv token (that was the defect).
     dolt_pushes = [
         inv for inv in invocations if inv[:2] == ["dolt", "push"]
     ]
@@ -16194,8 +16297,6 @@ def then_smoke_test_performs_dolt_push_and_reports_success(
     )
     for push in dolt_pushes:
         push_args = push[2:]
-        # No bare positional token may appear after `dolt push`. The only
-        # legal non-flag value is the argument to `--remote`.
         idx = 0
         while idx < len(push_args):
             tok = push_args[idx]
@@ -16212,9 +16313,8 @@ def then_smoke_test_performs_dolt_push_and_reports_success(
             )
         assert expected_remote not in push_args, (
             f"`bd dolt push` must not carry the remote URL as a positional "
-            f"token (the defect); got push invocation: {push!r}"
+            f"token; got push invocation: {push!r}"
         )
-    # Bootstrap reports the smoke-test success on stdout.
     combined = context["cli_stdout"] + context["cli_stderr"]
     assert "dolt push" in combined and "success" in combined.lower(), (
         f"expected bootstrap to report `bd dolt push` smoke-test success; "
@@ -16224,23 +16324,45 @@ def then_smoke_test_performs_dolt_push_and_reports_success(
 
 @then(
     parsers.parse(
-        'bootstrap exits non-zero with a diagnostic if the "bd dolt push" '
-        'smoke-test fails'
+        "given the same target directory with no dolt push remote configured, "
+        'when the bootstrap smoke-test step runs "bd dolt push", then it exits '
+        "non-zero with a diagnostic naming the missing dolt remote"
     )
 )
-def then_bootstrap_exits_nonzero_with_diagnostic_on_failed_push(
+def then_smoke_test_fails_loud_on_missing_remote(
     context: dict, tmp_path: Path
 ) -> None:
-    # Re-run bootstrap into a fresh target with the shim driven to fail the
-    # `bd dolt push`. Bootstrap must exit non-zero and emit a diagnostic
-    # naming the failed smoke-test on stderr.
-    context.pop("target_alias_to_real", None)
-    result = _bootstrap_for_smoke_test(context, tmp_path, fail_dolt_push=True)
+    # The same target directory, but with NO dolt remote configured. A real
+    # `bd dolt push` here is a no-op that exits 0 ("No remote is configured —
+    # skipping"); the smoke-test must NOT silently pass on that. It must exit
+    # non-zero with a diagnostic that NAMES the missing dolt remote.
+    target = context["last_invocation_target"]
+    # Strip any configured remote so the smoke-test sees an unconfigured
+    # tracker (the missing-remote premise), matching the shim's empty-remote
+    # no-op behavior.
+    remote_state = target / ".beads" / "__shim_remotes__"
+    if remote_state.exists():
+        remote_state.unlink()
+    result = _run_smoke_test_with_no_remote(context, tmp_path, target)
     assert result.returncode != 0, (
-        f"expected bootstrap to exit non-zero when the `bd dolt push` "
-        f"smoke-test fails; got exit 0 (stdout={result.stdout!r})"
+        f"expected the smoke-test to exit non-zero when NO dolt remote is "
+        f"configured; got exit 0 (a real `bd dolt push` no-ops and exits 0 on "
+        f"an unconfigured tracker, so a bare push silently passes — the guard "
+        f"is missing). stdout={result.stdout!r} stderr={result.stderr!r}"
     )
-    assert "dolt push" in result.stderr, (
-        f"expected a diagnostic naming the failed `bd dolt push` smoke-test "
-        f"on stderr; got stderr={result.stderr!r}"
+    expected_remote = _expected_product_beads_remote(_SMOKE_TEST_SHOP_NAME)
+    diagnostic = result.stdout + result.stderr
+    assert "dolt push" in diagnostic, (
+        f"expected the no-remote diagnostic to name the `bd dolt push` "
+        f"smoke-test; got: {diagnostic!r}"
+    )
+    # The diagnostic must NAME the missing dolt remote — either the configured
+    # remote name (`origin`) or the remote URL — not just a generic failure.
+    assert (
+        "remote" in diagnostic.lower()
+        and (expected_remote in diagnostic or "origin" in diagnostic)
+    ), (
+        f"expected the diagnostic to NAME the missing dolt remote (the remote "
+        f"name 'origin' or URL {expected_remote!r}), not a generic failure; "
+        f"got: {diagnostic!r}"
     )

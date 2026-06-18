@@ -590,7 +590,7 @@ def _render_claude_md(shop_type: str, shop_name: str) -> str:
     return read_claude_md_body_template(shop_type)
 
 
-def _bd_init_in(target: Path) -> int:
+def _bd_init_in(target: Path, prefix: str | None = None) -> int:
     """Invoke `bd init` as a subprocess in the target directory.
 
     Per scenario 0c6f1c5d9bc4226e, .beads/ MUST be initialized by a
@@ -610,9 +610,20 @@ def _bd_init_in(target: Path) -> int:
     1.0.3: `BD_NON_INTERACTIVE=1 bd init --skip-agents --quiet` in a
     fresh probe dir produces .beads/ + .gitignore and no AGENTS.md,
     no .claude/.
+
+    Per scenario 0636fba2c1445f9f (tmpl-am6, corrected re-dispatch), when
+    `prefix` is given `bd init` is invoked with `--prefix <prefix>` so the
+    new shop's tracker stamps issues with the product-derived prefix. This
+    is bd's own contract for setting the issue prefix — it is stored under
+    the hyphenated `issue-prefix` config key (`bd config get issue-prefix`),
+    NOT a cosmetic `issue_prefix` YAML key bd never reads (the retired
+    9e15d8cfd55b9541 approach). The `--skip-agents` flag is preserved.
     """
+    cmd = ["bd", "init", "--skip-agents"]
+    if prefix is not None:
+        cmd += ["--prefix", prefix]
     result = subprocess.run(
-        ["bd", "init", "--skip-agents"],
+        cmd,
         cwd=str(target),
         capture_output=True,
         text=True,
@@ -642,48 +653,6 @@ def _product_beads_remote(shop_name: str) -> str:
     return f"git+https://github.com/dstengle/{shop_name}-beads.git"
 
 
-def _render_beads_config(target: Path, shop_name: str) -> str:
-    """Render .beads/config.yaml in the target with the product beads remote
-    (`sync.remote`) and the product-derived issue prefix (`issue_prefix`).
-
-    Per tmpl-4k7 / scenario 9e15d8cfd55b9541. `bd init` (invoked as a
-    subprocess by `_bd_init_in`) initializes .beads/ but does not wire the
-    tracker to the product remote or stamp the product prefix; bootstrap does
-    that here. Writing a config FILE is not importing bd / beads internals, so
-    this stays inside the subprocess-not-internals discipline scenario
-    0c6f1c5d9bc4226e pins — shop-templates never imports the bd Python package
-    and never touches the bd database, it only renders a declarative config
-    file the bd subprocess later reads.
-
-    The issue prefix reuses the established product-slug derivation
-    (`_ops_slug`: the --shop-name with a single trailing "-product" stripped),
-    so the prefix tracks shop identity from the single source of truth.
-
-    Any config.yaml content `bd init` already produced is preserved: the two
-    managed keys are appended (the rendered file is the existing body plus the
-    two keys), so this augments rather than clobbers what bd wrote.
-
-    Returns the `sync.remote` value written, so the caller can run the
-    `bd dolt push` smoke-test against the freshly-configured remote.
-    """
-    config_path = target / ".beads" / "config.yaml"
-    remote = _product_beads_remote(shop_name)
-    prefix = _ops_slug(shop_name)
-    managed = (
-        f"sync.remote: {remote!r}\n"
-        f"issue_prefix: {prefix!r}\n"
-    )
-    if config_path.exists():
-        existing = config_path.read_text()
-        if existing and not existing.endswith("\n"):
-            existing += "\n"
-        config_path.write_text(existing + managed)
-    else:
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(managed)
-    return remote
-
-
 # The Dolt remote name bootstrap configures the new shop's tracker under.
 # This mirrors how this very repository names its own bd Dolt remote
 # (`bd dolt remote list` here reports `origin` ->
@@ -692,33 +661,26 @@ def _render_beads_config(target: Path, shop_name: str) -> str:
 _BD_DOLT_REMOTE_NAME = "origin"
 
 
-def _bd_dolt_push_smoke_test(target: Path, remote: str) -> int:
-    """Run a `bd dolt push` smoke-test against the configured `sync.remote`.
+def _configure_bd_dolt_remote(target: Path, shop_name: str) -> str:
+    """Configure the new shop's bd dolt push remote via `bd dolt remote add`.
 
-    Per tmpl-4k7 / scenario 62eb2a8b9b617f4b. After `_render_beads_config`
-    wires the new shop's bd tracker to the product beads remote, bootstrap
-    proves the tracker can actually reach that remote by pushing to it. On
-    success it reports success (stdout); on a non-zero push it returns the
-    failing exit code with a diagnostic on stderr that names the failed
-    smoke-test — so a misconfigured or unreachable remote is caught at
-    bootstrap time rather than at the first mid-work work_done emission.
-
-    The REAL `bd dolt push` contract (verified via `bd dolt push --help` /
-    `bd dolt remote --help`) takes NO positional argument: a Dolt remote must
-    first be CONFIGURED by NAME via `bd dolt remote add <name> <url>`, and only
-    then can `bd dolt push` (which targets the configured/default remote) reach
-    it. Passing the remote URL as a positional to `bd dolt push` is a no-op —
-    bd ignores it, finds no configured remote, prints "No remote is configured
-    — skipping" and exits 0 — so the smoke-test could never catch a
-    misconfigured or unreachable remote. This function therefore (1) configures
-    the remote by name with the rendered URL, then (2) runs a bare
-    `bd dolt push` and captures the REAL exit code.
+    Per scenario 0636fba2c1445f9f (tmpl-am6, corrected re-dispatch — supersedes
+    the cosmetic 9e15d8cfd55b9541). The bd dolt push remote is a DB-side remote
+    that bd reads only when it has been added by NAME via `bd dolt remote add
+    <name> <url>` (verified against `bd dolt remote --help`); the retired
+    `sync.remote` YAML key is the separate jsonl-sync remote bd does not use for
+    dolt push, so writing it was cosmetic. `bd init` (invoked by `_bd_init_in`)
+    initializes .beads/ but does not configure the dolt remote; bootstrap does
+    that here so a freshly bootstrapped shop's `bd dolt remote list` shows the
+    product remote without a manual follow-up.
 
     Like `_bd_init_in`, this spawns the `bd` subprocess and never imports the
     bd / beads Python internals (scenario 0c6f1c5d9bc4226e).
+
+    Returns the configured remote URL, so the caller can run the `bd dolt push`
+    smoke-test against the freshly-configured remote.
     """
-    # (1) Configure the Dolt remote by name with the rendered sync.remote URL.
-    #     The remote must already exist before `bd dolt push` can target it.
+    remote = _product_beads_remote(shop_name)
     add = subprocess.run(
         ["bd", "dolt", "remote", "add", _BD_DOLT_REMOTE_NAME, remote],
         cwd=str(target),
@@ -732,10 +694,84 @@ def _bd_dolt_push_smoke_test(target: Path, remote: str) -> int:
             f"{target!s} (exit {add.returncode}); stderr:\n{add.stderr}",
             file=sys.stderr,
         )
-        return add.returncode
+        # Surface the failure to the caller via a sentinel-free contract:
+        # raise so the caller's existing non-zero-exit handling kicks in.
+        raise _BdConfigError(add.returncode)
+    return remote
 
-    # (2) Push to the configured remote. `bd dolt push` takes no positional
-    #     argument; it targets the default/configured remote.
+
+class _BdConfigError(Exception):
+    """Internal: a bd config subprocess (remote add) exited non-zero.
+
+    Carries the failing exit code so `_cmd_bootstrap` can propagate it as the
+    bootstrap exit code, matching the existing "bd subprocess failed -> return
+    its rc" discipline used by `_bd_init_in`.
+    """
+
+    def __init__(self, returncode: int) -> None:
+        super().__init__(f"bd config subprocess exited {returncode}")
+        self.returncode = returncode
+
+
+def _bd_dolt_push_smoke_test(target: Path, remote: str) -> int:
+    """Run a `bd dolt push` smoke-test against the configured dolt remote.
+
+    Per scenario 5ae67969a7f205d5 (corrected re-dispatch, supersedes the retired
+    62eb2a8b9b617f4b). The dolt push remote is configured upstream by
+    `_configure_bd_dolt_remote` (`bd dolt remote add <name> <url>`, scenario
+    0636fba2c1445f9f); this smoke-test proves the freshly-wired tracker can
+    actually reach that remote by pushing to it. On success it reports success
+    (stdout) and returns 0; on a non-zero push it returns the failing exit code
+    with a diagnostic on stderr that names the failed smoke-test — so a
+    misconfigured or unreachable remote is caught at bootstrap time rather than
+    at the first mid-work work_done emission.
+
+    The REAL `bd dolt push` contract (verified via `bd dolt push --help` /
+    `bd dolt remote --help`) takes NO positional argument: a Dolt remote must
+    first be CONFIGURED by NAME via `bd dolt remote add <name> <url>` (which the
+    config step now owns), and only then can `bd dolt push` (which targets the
+    configured/default remote) reach it.
+
+    CRITICAL: a bare `bd dolt push` against a tracker with NO dolt remote
+    configured is a no-op — real bd prints "No remote is configured — skipping"
+    and EXITS 0. A bare push could therefore silently PASS the smoke-test on a
+    misconfigured tracker, defeating its entire purpose. So this function first
+    GUARDS the push: it reads `bd dolt remote list` and, if no dolt remote is
+    configured, FAILS LOUD (returns non-zero) with a diagnostic that NAMES the
+    missing dolt remote (the expected remote name and URL) — rather than running
+    a push that would no-op to exit 0. Only when a remote is configured does it
+    run the bare `bd dolt push` and capture its REAL exit code.
+
+    Like `_bd_init_in`, this spawns the `bd` subprocess and never imports the
+    bd / beads Python internals (scenario 0c6f1c5d9bc4226e).
+    """
+    # Guard: a `bd dolt push` against an unconfigured tracker no-ops and exits
+    # 0, so verify a dolt remote is actually configured before trusting the
+    # push's exit code. `bd dolt remote list` prints each configured remote;
+    # empty output means no remote is configured.
+    remote_list = subprocess.run(
+        ["bd", "dolt", "remote", "list"],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+    )
+    if remote_list.returncode != 0 or not remote_list.stdout.strip():
+        print(
+            f"shop-templates bootstrap: `bd dolt push` smoke-test FAILED — no "
+            f"dolt remote is configured. The expected dolt remote "
+            f"{_BD_DOLT_REMOTE_NAME!r} -> {remote!r} is missing from "
+            f"`bd dolt remote list` in {target!s} "
+            f"(list exit {remote_list.returncode}; stdout: "
+            f"{remote_list.stdout.strip()!r}). A bare `bd dolt push` against an "
+            f"unconfigured tracker no-ops and exits 0, so the missing remote "
+            f"would otherwise pass silently. Configure it via "
+            f"`bd dolt remote add {_BD_DOLT_REMOTE_NAME} {remote}`.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # A remote is configured. Push to it. `bd dolt push` takes no positional
+    # argument; it targets the default/configured remote.
     result = subprocess.run(
         ["bd", "dolt", "push"],
         cwd=str(target),
@@ -745,14 +781,14 @@ def _bd_dolt_push_smoke_test(target: Path, remote: str) -> int:
     if result.returncode != 0:
         print(
             f"shop-templates bootstrap: `bd dolt push` smoke-test failed "
-            f"against the configured sync.remote {remote!r} in {target!s} "
+            f"against the configured dolt remote {remote!r} in {target!s} "
             f"(exit {result.returncode}); stderr:\n{result.stderr}",
             file=sys.stderr,
         )
     else:
         print(
             f"shop-templates bootstrap: `bd dolt push` smoke-test success "
-            f"against the configured sync.remote {remote!r}."
+            f"against the configured dolt remote {remote!r}."
         )
     return result.returncode
 
@@ -962,24 +998,35 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     if shop_type == "lead":
         _render_lead_ops_scaffolding(target, _ops_slug(shop_name))
 
-    # Initialize .beads/ via a `bd init` subprocess. shop-templates MUST
-    # NOT import bd / beads internals and MUST NOT write to .beads/
-    # directly (scenario 0c6f1c5d9bc4226e).
-    rc = _bd_init_in(target)
+    # Initialize .beads/ via a `bd init` subprocess, stamping the
+    # product-derived issue prefix via `bd init --prefix <prefix>` (scenario
+    # 0636fba2c1445f9f). The prefix reuses the established product-slug
+    # derivation (`_ops_slug`: the --shop-name with a single trailing
+    # "-product" stripped), tracking shop identity from the single source of
+    # truth. shop-templates MUST NOT import bd / beads internals and MUST NOT
+    # write to .beads/ directly (scenario 0c6f1c5d9bc4226e).
+    rc = _bd_init_in(target, prefix=_ops_slug(shop_name))
     if rc != 0:
         return rc
 
-    # Render .beads/config.yaml so the new shop's bd tracker is wired to the
-    # product beads remote (sync.remote) and stamps the product-derived
-    # issue_prefix (tmpl-4k7 / scenario 9e15d8cfd55b9541). This augments what
-    # `bd init` produced; it does not import bd / beads internals.
-    remote = _render_beads_config(target, shop_name)
+    # Configure the new shop's bd dolt push remote via `bd dolt remote add`
+    # (scenario 0636fba2c1445f9f, supersedes the cosmetic 9e15d8cfd55b9541).
+    # This wires the tracker to the product beads remote the way bd actually
+    # reads it (a DB-side dolt remote, not a cosmetic YAML key); it spawns the
+    # `bd` subprocess and does not import bd / beads internals.
+    try:
+        remote = _configure_bd_dolt_remote(target, shop_name)
+    except _BdConfigError as exc:
+        return exc.returncode
 
     # Smoke-test the freshly-wired tracker: run `bd dolt push` against the
-    # configured sync.remote (tmpl-4k7 / scenario 62eb2a8b9b617f4b). On a
-    # non-zero push, bootstrap exits non-zero with a diagnostic so a
-    # misconfigured / unreachable remote is caught here, not at the first
-    # mid-work work_done emission.
+    # configured dolt remote (scenario 5ae67969a7f205d5, supersedes the retired
+    # 62eb2a8b9b617f4b). The smoke-test first guards that a dolt remote is
+    # actually configured (a bare push against an unconfigured tracker no-ops
+    # and exits 0), failing loud with a diagnostic naming the missing remote;
+    # on a non-zero push it likewise exits non-zero — so a misconfigured /
+    # unreachable remote is caught here, not at the first mid-work work_done
+    # emission.
     rc = _bd_dolt_push_smoke_test(target, remote)
     if rc != 0:
         return rc

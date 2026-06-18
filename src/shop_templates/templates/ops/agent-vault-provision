@@ -338,10 +338,22 @@ if [[ -z "$PROPOSAL_NUM" ]]; then
     | grep -oE '[0-9]+' | tail -n1)"
 fi
 
+# -----------------------------------------------------------------------
+# LEAD-PRESENTABLE HANDOFF (PDR-019 U6 / ADR-040 D2). The non-OAuth inputs
+# (owner password, GitHub username/PAT) all arrived via env/args above with NO
+# interactive prompt. The ONE genuine human step that remains — approving the
+# CLAUDE_OAUTH proposal with the real secret — is isolated here into a clean
+# handoff the lead can present to the user: provision REPORTS the proposal
+# NUMBER together with the EXACT command the user runs, then RESUMES (it does
+# NOT block on an interactive ENTER wait). The real Claude OAuth secret is
+# supplied ONLY at approve-time by the human running that command; no automated
+# step here transports it (ADR-026 D4 / lead scenario 11 preserved — the
+# CLAUDE_OAUTH=<value> below stays a placeholder the user fills).
+# -----------------------------------------------------------------------
 cat <<EOF
 
   ┌──────────────────────────────────────────────────────────────────────┐
-  │ HUMAN GATE — approve the Claude-OAuth proposal (one-time)             │
+  │ HUMAN GATE — approve the Claude-OAuth proposal (one-time, lead handoff)│
   └──────────────────────────────────────────────────────────────────────┘
 
   A pre-populated OAuth-typed CLAUDE_OAUTH credential-slot proposal
@@ -349,19 +361,26 @@ cat <<EOF
   vault '$VAULT' (broker '$CONTAINER'). It already carries the OAuth config
   (token_url + client_id); only the real token is missing.
 
-  Approve it now — supply the real secret AT APPROVE TIME (ADR-026 D4).
+  PROPOSAL NUMBER: ${PROPOSAL_NUM:-<see 'agent-vault vault proposal list'>}
+
+  Run this EXACT command to approve it — supply the real secret (the Claude
+  accessToken) in place of <value> AT APPROVE TIME (ADR-026 D4); no automated
+  step carries the real secret, it is pasted only here by the human:
+
+    proposal approve ${PROPOSAL_NUM:-<num>} CLAUDE_OAUTH=<value> --yes
+
   proposal approve runs in AGENT mode (agent-vault 0.32.0) and therefore needs
   a VAULT-SCOPED session — run it under the scoped session env (NOT the bare
-  owner session), exactly as proposal create was run above:
+  owner session), exactly as proposal create was run above. The full invocation
+  (the same exact 'proposal approve <num> CLAUDE_OAUTH=<value> --yes' command,
+  wrapped in the scoped docker exec) is:
 
-    # Token paste (the Claude case): pass the accessToken to approve. The three
-    # -e env vars carry the same vault-scoped session the script minted.
     docker exec -i \\
       -e AGENT_VAULT_TOKEN=$_SCOPED_SESSION \\
       -e AGENT_VAULT_ADDR=http://localhost:14321 \\
       -e AGENT_VAULT_VAULT='$VAULT' \\
       '$CONTAINER' \\
-      agent-vault vault proposal approve ${PROPOSAL_NUM:-<number>} CLAUDE_OAUTH=<accessToken> --yes --vault '$VAULT'
+      agent-vault vault proposal approve ${PROPOSAL_NUM:-<num>} CLAUDE_OAUTH=<value> --yes --vault '$VAULT'
 
   (Or open the printed approve URL and Connect.) agent-vault enforces
   SCREAMING_SNAKE credential keys — the claude-* services above attach this
@@ -369,21 +388,23 @@ cat <<EOF
   CLAUDE_OAUTH is the refresh-capable oauth type (it carries token_url), NOT a
   static credential.
 
-  This script will WAIT until you confirm the proposal is approved.
+  Provisioning of every automated step is COMPLETE; this is the only remaining
+  human action. The script does NOT wait — run the approve command above when
+  ready (re-run this script anytime to re-check the proposal status).
 
 EOF
 
-read -r -p "Press ENTER once the Claude-OAuth proposal is approved... " _ack
-
-# ADR-026 D4 post-gate verification (adapted): confirm the APPROVED oauth
-# credential actually landed in the vault before declaring provisioning done.
-echo "agent-vault-provision: verifying the approved CLAUDE_OAUTH credential landed in vault '$VAULT'."
+# ADR-026 D4 status check (NON-blocking, informational): the script does not
+# wait for the human approve step (it RESUMES — the handoff above is the clean
+# lead-presentable hand-off, not a blocking gate). We report whether the
+# approved CLAUDE_OAUTH has already landed (e.g. on a re-run after approval),
+# but a not-yet-approved proposal is the EXPECTED post-handoff state, not a
+# failure — so this never exits non-zero on the pending case.
+echo "agent-vault-provision: checking whether the CLAUDE_OAUTH credential is already approved in vault '$VAULT' (informational)."
 if "${DEXEC[@]}" agent-vault vault credential list --vault "$VAULT" 2>/dev/null | grep -q "CLAUDE_OAUTH"; then
-  echo "agent-vault-provision: CLAUDE_OAUTH present; provisioning complete for vault '$VAULT' on '$CONTAINER'."
+  echo "agent-vault-provision: CLAUDE_OAUTH already present; provisioning fully complete for vault '$VAULT' on '$CONTAINER'."
 else
-  echo "agent-vault-provision: CLAUDE_OAUTH not found in vault '$VAULT' — approve the proposal" >&2
-  echo "  under the vault-scoped session (agent-mode approve needs vault scope):" >&2
-  echo "  docker exec -i -e AGENT_VAULT_TOKEN=$_SCOPED_SESSION -e AGENT_VAULT_ADDR=http://localhost:14321 -e AGENT_VAULT_VAULT='$VAULT' '$CONTAINER' agent-vault vault proposal approve ${PROPOSAL_NUM:-<number>} CLAUDE_OAUTH=<accessToken> --yes --vault '$VAULT'" >&2
-  echo "  then re-run, or check 'agent-vault vault proposal list --vault $VAULT'." >&2
-  exit 1
+  echo "agent-vault-provision: CLAUDE_OAUTH not yet approved — run the approve command above when ready."
+  echo "  (Check status anytime: 'agent-vault vault proposal list --vault $VAULT'.)"
 fi
+echo "agent-vault-provision: automated provisioning complete for vault '$VAULT' on '$CONTAINER'."

@@ -18062,3 +18062,208 @@ def then_y4pg_diagnostic_names_missing_footing(context: dict) -> None:
         "bootstrap must emit a diagnostic naming the missing bin/footing "
         "rather than failing with an opaque exit-127"
     )
+
+
+# =======================================================================
+# Step definitions — scenario 188 (@scenario_hash:3a6689d8e7db94ef /
+# lead-4qy): the bc-implementer template must direct the implementer to
+# RECOMPUTE every @scenario_hash tag it wrote or edited via the canonical
+# "scenarios hash" CLI (block-only canonicalization) and require
+# recompute-equality before composing its terminal response. This pins the
+# hash-verification discipline at the IMPLEMENTER granularity — additive to
+# the REVIEWER-level pin (418f41d9a7789ca1) and the emit-wrapper pin
+# (lead-231 / 179). Assertion strategy mirrors the reviewer hash-recompute
+# steps above: literal-substring checks against the rendered template,
+# with co-occurrence/imperative cues so a stray mention elsewhere does not
+# silently satisfy a structural intent.
+#
+# The Then steps are registered as bare-string @then (NOT parsers.parse),
+# because the feature text carries literal "<value>" placeholders that
+# pytest-bdd would otherwise treat as step arguments.
+# =======================================================================
+
+
+@then(
+    'for a dispatch of type "assign_scenarios" or a "request_bugfix" whose '
+    'scenarios are non-empty, the content directs the implementer that '
+    'after writing or editing any "@scenario_hash:<value>" tag in a file '
+    'under "features/", it must recompute that hash by piping the scenario '
+    'block through the canonical "scenarios hash" CLI using '
+    'scenario-block-only canonicalization'
+)
+def then_impl_recompute_on_scenario_dispatch(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The canonical "scenarios hash" CLI must be named literally so the
+    # implementer is not left to invent a hashing convention.
+    assert "scenarios hash" in content, (
+        "bc-implementer template must literally name the 'scenarios hash' "
+        "CLI as the recomputation tool (lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # Block-only canonicalization must be named so the verify-form is
+    # unambiguous (ADR-019 / scenario 117).
+    assert ("block-only" in lower) or ("scenario-block-only" in lower) or (
+        "scenario block" in lower
+    ), (
+        "bc-implementer template must name block-only / scenario-block "
+        "canonicalization for the recompute (lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # The tag form being recomputed must be named literally.
+    assert "@scenario_hash" in content, (
+        "bc-implementer template must literally name the '@scenario_hash' "
+        "tag whose value is recomputed (lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # The recompute must be scoped to files under features/.
+    assert "features/" in content, (
+        "bc-implementer template must name 'features/' as where the "
+        "recomputed tags live (lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # Scenario-carrying dispatch scope: both assign_scenarios and
+    # request_bugfix (non-empty scenarios) must be named so the check is
+    # not silently restricted to one vehicle.
+    assert "assign_scenarios" in content, (
+        "bc-implementer template must name 'assign_scenarios' as a "
+        "scenario-carrying dispatch the recompute applies to "
+        "(lead-4qy / 3a6689d8e7db94ef)"
+    )
+    assert "request_bugfix" in content, (
+        "bc-implementer template must name 'request_bugfix' as a "
+        "scenario-carrying dispatch the recompute applies to "
+        "(lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # "wrote or edited" / "write or edit" framing must appear so the check
+    # covers any tag the implementer touched.
+    assert ("wrote or edited" in lower) or ("write or edit" in lower) or (
+        "writing or editing" in lower
+    ), (
+        "bc-implementer template must frame the recompute as covering any "
+        "tag the implementer wrote or edited (lead-4qy / 3a6689d8e7db94ef)"
+    )
+
+
+@then(
+    'the content directs the implementer that the recomputed value must '
+    'equal the "<value>" written in the on-disk "@scenario_hash:<value>" '
+    'tag for every tag it wrote or edited'
+)
+def then_impl_recompute_equality(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # Equality framing must be explicit.
+    assert ("must equal" in lower) or ("recompute-equality" in lower) or (
+        "equals the" in lower
+    ) or ("matches the" in lower), (
+        "bc-implementer template must require the recomputed value to "
+        "EQUAL the on-disk tag value (lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # On-disk tag framing.
+    assert "@scenario_hash" in content, (
+        "bc-implementer template must name the on-disk '@scenario_hash' "
+        "tag the recompute is compared against (lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # "every" / "each" framing so this is not read as a sampling exercise.
+    assert ("every" in lower) or ("each" in lower), (
+        "bc-implementer template must frame the equality check as covering "
+        "every / each tag, not a sample (lead-4qy / 3a6689d8e7db94ef)"
+    )
+
+
+@then(
+    'the content directs the implementer that it may not compose its '
+    'terminal response (the work-completion handoff to the reviewer, or '
+    '"shop-msg respond" on a non-scenario-carrying path) while any '
+    '"@scenario_hash" tag it touched fails this recompute-equality check'
+)
+def then_impl_no_terminal_response_on_mismatch(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The terminal-response gate must be named: handoff to the reviewer OR
+    # shop-msg respond.
+    assert ("reviewer" in lower), (
+        "bc-implementer template must name the reviewer handoff as one "
+        "terminal-response form the gate guards "
+        "(lead-4qy / 3a6689d8e7db94ef)"
+    )
+    assert "shop-msg respond" in content, (
+        "bc-implementer template must name 'shop-msg respond' as the other "
+        "terminal-response form the gate guards "
+        "(lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # Prohibition framing: "may not" / "must not" / "do not" compose the
+    # terminal response while a tag fails.
+    assert ("may not" in lower) or ("must not" in lower) or (
+        "do not" in lower
+    ) or ("cannot" in lower), (
+        "bc-implementer template must PROHIBIT composing the terminal "
+        "response while a touched tag fails recompute-equality "
+        "(lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # The terminal-response noun must be present so the prohibition is
+    # bound to the response, not generic.
+    assert "terminal response" in lower, (
+        "bc-implementer template must name the 'terminal response' the "
+        "prohibition gates (lead-4qy / 3a6689d8e7db94ef)"
+    )
+
+
+@then(
+    'the content also directs the implementer to apply this '
+    'recompute-equality check on a "request_maintenance" dispatch whenever '
+    'that maintenance touches a "@scenario_hash" tag'
+)
+def then_impl_recompute_on_maintenance(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # request_maintenance must be named as a dispatch the check extends to.
+    assert "request_maintenance" in content, (
+        "bc-implementer template must name 'request_maintenance' as a "
+        "dispatch the recompute-equality check also applies to "
+        "(lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # The conditional ("whenever that maintenance touches a @scenario_hash
+    # tag") must be present so the check is scoped to maintenance that
+    # actually touches a hash tag.
+    assert "@scenario_hash" in content, (
+        "bc-implementer template must scope the maintenance recompute to "
+        "@scenario_hash tags (lead-4qy / 3a6689d8e7db94ef)"
+    )
+    assert ("touch" in lower) or ("edits" in lower) or ("edit a" in lower) \
+        or ("writes" in lower) or ("modifies" in lower), (
+        "bc-implementer template must condition the maintenance recompute "
+        "on the maintenance touching a @scenario_hash tag "
+        "(lead-4qy / 3a6689d8e7db94ef)"
+    )
+
+
+@then(
+    'the content marks this hash-recompute-verification as a discrete '
+    'required step within the implementer\'s "Doing the work" guidance, '
+    'not as optional advice the implementer may skip'
+)
+def then_impl_recompute_is_discrete_required_step(context: dict) -> None:
+    content = context["template_content"]
+    lower = content.lower()
+    # The "Doing the work" guidance section must exist as the home of the
+    # discrete step.
+    assert "Doing the work" in content, (
+        "bc-implementer template must carry a 'Doing the work' guidance "
+        "section that houses the recompute step "
+        "(lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # Discrete-step / required framing — not optional advice.
+    assert ("discrete" in lower) or ("required step" in lower), (
+        "bc-implementer template must frame the recompute as a DISCRETE / "
+        "required step (lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # Imperative "must" cue so it is not optional advice.
+    assert "must" in lower, (
+        "bc-implementer template must use imperative 'must' framing for "
+        "the recompute step, not optional advice "
+        "(lead-4qy / 3a6689d8e7db94ef)"
+    )
+    # The recompute tool must be named within the template (co-located with
+    # the discrete-step framing in the same template body).
+    assert "scenarios hash" in content, (
+        "bc-implementer template's discrete recompute step must name the "
+        "'scenarios hash' CLI (lead-4qy / 3a6689d8e7db94ef)"
+    )

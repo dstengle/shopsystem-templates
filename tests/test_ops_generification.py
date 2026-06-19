@@ -277,14 +277,50 @@ def test_dummyco_shop_shell_is_slug_scoped_and_broker_wired(tmp_path):
     assert "Aborting" in body or "exit 1" in body
 
 
-def test_dummyco_dockerfile_keeps_from_user_cli(tmp_path):
+def test_dummyco_dockerfile_base_is_build_arg_overridable_and_public(tmp_path):
+    # lead-2ra5, supersedes scenario 135 (retired @scenario_hash:9bc85eced7685a40)
+    # with @scenario_hash:6f53ce53c10e3c09: the rendered Dockerfile.<slug>-shell
+    # must declare ARG SHELL_BASE_IMAGE with a publicly-pullable (non-dstengle)
+    # default and FROM ${SHELL_BASE_IMAGE} so an adopter without access to the
+    # private dstengle namespace can build the shell image locally.
     target = _bootstrap(tmp_path, "dummyco-product")
     # Dockerfile filename may be product-scoped or stay shopsystem-shell;
     # accept either, assert the pinned recipe invariants.
     candidates = list(target.glob("Dockerfile.*-shell"))
     assert candidates, "expected a Dockerfile.<slug>-shell recipe"
     body = candidates[0].read_text()
-    assert "FROM ghcr.io/dstengle/devcontainer-python-node-claude:latest" in body
+
+    # ARG SHELL_BASE_IMAGE declared with a default value.
+    arg_lines = [
+        ln.strip()
+        for ln in body.splitlines()
+        if ln.lstrip().startswith("ARG") and "SHELL_BASE_IMAGE" in ln
+    ]
+    assert arg_lines, "Dockerfile must declare ARG SHELL_BASE_IMAGE"
+    # The ARG default value (token after SHELL_BASE_IMAGE=).
+    arg = arg_lines[0]
+    assert "SHELL_BASE_IMAGE=" in arg, (
+        "ARG SHELL_BASE_IMAGE must carry a declared default value"
+    )
+    default = arg.split("SHELL_BASE_IMAGE=", 1)[1].split()[0].strip()
+    assert default, "ARG SHELL_BASE_IMAGE default must be a non-empty image reference"
+    # The default must be publicly pullable: NOT a private dstengle-namespaced image.
+    assert "dstengle" not in default, (
+        f"ARG SHELL_BASE_IMAGE default must not be a private dstengle image: {default!r}"
+    )
+
+    # FROM references the build arg by ${SHELL_BASE_IMAGE} so it is overridable.
+    assert "${SHELL_BASE_IMAGE}" in body, (
+        "FROM must reference the SHELL_BASE_IMAGE build arg via ${SHELL_BASE_IMAGE}"
+    )
+    assert any(
+        ln.lstrip().startswith("FROM") and "${SHELL_BASE_IMAGE}" in ln
+        for ln in body.splitlines()
+    ), "a FROM instruction must reference ${SHELL_BASE_IMAGE}"
+
+    # docker CLI comes from the base image, not an apt docker-ce-cli layer.
+    assert "docker-ce-cli" not in body
+
     assert any(
         ln.lstrip().startswith("USER") and ln.split()[1] not in ("root", "0")
         for ln in body.splitlines()
@@ -292,6 +328,10 @@ def test_dummyco_dockerfile_keeps_from_user_cli(tmp_path):
     assert any(
         cli in body for cli in ("shop-msg", "scenarios", "shop-templates")
     ), "Dockerfile must install a framework CLI"
+    assert any(
+        ("CMD" in ln or "ENTRYPOINT" in ln) and ("/bin/bash" in ln or "bash" in ln)
+        for ln in body.splitlines()
+    ), "Dockerfile must have a CMD/ENTRYPOINT referencing bash"
 
 
 # -----------------------------------------------------------------------

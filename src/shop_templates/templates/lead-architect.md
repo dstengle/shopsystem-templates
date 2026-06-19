@@ -62,6 +62,28 @@ question that would otherwise require running BC implementation routes
 to the BC as a `clarify` or `nudge`, never as a lead-side execution —
 do not reach for the proof yourself.
 
+### TUI readiness-marker discipline: verify the marker does not match adjacent UI states
+
+When you select a SCREEN-SCRAPED readiness marker for a TUI-driven
+launcher — a string token used to decide that a UI pane has reached a
+given state — you must verify the marker token does NOT also appear in
+ADJACENT UI states. A marker that matches in more than one state silently
+bypasses the intended wait and re-creates a deadlock signature in a
+different form: the wait "succeeds" against pane content that actually
+belongs to the earlier state, so the step the wait was meant to gate
+(e.g. an Enter keypress) is skipped.
+
+Concrete grounding: the bare `❯` glyph is NOT a discriminating Claude
+Code post-trust input-ready marker — it ALSO appears in the PRE-trust
+pane as the trust-prompt selector arrow (`❯ 1. Yes, I trust this
+folder`). With `CLAUDE_INPUT_READY_MARKER='❯'` the post-trust wait would
+succeed trivially on the same pane content that already satisfied the
+pre-trust marker, silently bypassing the trust-accept Enter. The
+resolution (lead-5ig) set `CLAUDE_INPUT_READY_MARKER='bypass permissions
+on'` — footer text present ONLY once the trust prompt has cleared AND
+`--dangerously-skip-permissions` is active. This is a durable property of
+how Claude Code v2.1.x renders its TUI, not specific to lead-5ig.
+
 ## Your job
 
 Your job is the Architect activity catalogue, made operational. There are

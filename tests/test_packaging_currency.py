@@ -20,6 +20,17 @@ Building the sdist and reading version + content from inside it is what
 makes this a genuine *currency* guard: a stale 0.2.0 pyproject yields a
 0.2.0 sdist and fails (a), even though the source tree's SKILL.md content
 already satisfies (b). Both must hold on the same delivered artifact.
+
+NOTE (lead-q1wy): the guards in THIS module assert that each
+`[project.scripts]` declaration is present and that the backing module rides
+in the sdist/wheel — they are import-BLIND (they never check that the
+installed console-script actually IMPORTS on a clean install). A
+module-top-level import of an undeclared/transitive dep passes both
+assertions yet dies at first invocation (the tmpl-20n bug class). That
+import-currency check is covered GENERICALLY for every current and future
+console-script in `tests/test_console_script_import_currency.py`; extend
+THAT guard (it enumerates `[project.scripts]` automatically) rather than
+adding another bc-emit-specific importability test.
 """
 from __future__ import annotations
 

@@ -15818,20 +15818,78 @@ def then_each_lead_skill_byte_for_byte(skill_ph, context: dict) -> None:
         )
 
 
-@then(
-    'the directory ".claude/skills/" in the target directory contains no '
-    'skill directories other than the members of the canonical lead skill-group'
+@given(
+    parsers.parse(
+        'the target directory contains an unmanaged skill directory '
+        '".claude/skills/{unmanaged}/" with a "SKILL.md" file whose '
+        'directory name is not a member of the canonical lead skill-group'
+    )
 )
-def then_no_skills_outside_lead_group(context: dict) -> None:
+def given_unmanaged_skill_dir(
+    unmanaged: str, context: dict, tmp_path: Path
+) -> None:
+    # The preceding bare "an existing git repository at a target directory"
+    # Given stashes bootstrap_workspace and creates the target-alias mapping
+    # for the scenario's single "<target>" (/tmp/example-lead-shop). Resolve
+    # that same alias so the unmanaged dir is seeded under the very target the
+    # When will bootstrap. (setdefault guards against ordering surprises.)
+    context.setdefault("bootstrap_workspace", tmp_path)
+    real = _real_target_for_alias("/tmp/example-lead-shop", context)
+    members = set(_lead_skill_group_members())
+    assert unmanaged not in members, (
+        f"premise of Given violated: {unmanaged!r} is a canonical "
+        f"lead-skill-group member"
+    )
+    unmanaged_dir = real / ".claude" / "skills" / unmanaged
+    unmanaged_dir.mkdir(parents=True, exist_ok=True)
+    body = (
+        f"# {unmanaged}\n\nExperimentally-adopted unmanaged skill body.\n"
+    ).encode()
+    (unmanaged_dir / "SKILL.md").write_bytes(body)
+    context["unmanaged_skill_name"] = unmanaged
+    context["unmanaged_skill_body"] = body
+
+
+@then(
+    parsers.parse(
+        'any pruning the invocation performs under ".claude/skills/" removes '
+        'only directories whose name is a member of the canonical lead '
+        'skill-group, and never removes a directory whose name is not a '
+        'canonical lead skill-group member'
+    )
+)
+def then_pruning_scoped_to_managed_members(context: dict) -> None:
     real = context["last_invocation_target"]
     skills_root = real / ".claude" / "skills"
-    poured_dirs = {
+    present_dirs = {
         p.name for p in skills_root.iterdir() if p.is_dir()
     } if skills_root.exists() else set()
-    members = set(_lead_skill_group_members())
-    extra = poured_dirs - members
-    assert not extra, (
-        f"lead .claude/skills/ contains non-lead-group skill dirs: {sorted(extra)}"
+    # A non-member directory present before the invocation must NOT have been
+    # pruned — its name must still be present afterwards.
+    unmanaged = context["unmanaged_skill_name"]
+    assert unmanaged in present_dirs, (
+        f"the invocation pruned non-member skill dir {unmanaged!r}: "
+        f"pruning is not scoped to canonical-managed members "
+        f"(present dirs: {sorted(present_dirs)})"
+    )
+
+
+@then(
+    parsers.parse(
+        'the unmanaged skill directory ".claude/skills/{unmanaged}/" and its '
+        '"SKILL.md" file are still present after the invocation with their '
+        'pre-invocation contents preserved byte-for-byte'
+    )
+)
+def then_unmanaged_skill_survives(unmanaged: str, context: dict) -> None:
+    real = context["last_invocation_target"]
+    skill_md = real / ".claude" / "skills" / unmanaged / "SKILL.md"
+    assert skill_md.is_file(), (
+        f"unmanaged skill {unmanaged!r} was over-pruned: {skill_md!s} absent"
+    )
+    assert skill_md.read_bytes() == context["unmanaged_skill_body"], (
+        f"unmanaged skill {unmanaged!r} SKILL.md content was not preserved "
+        f"byte-for-byte"
     )
 
 

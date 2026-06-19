@@ -18698,3 +18698,190 @@ def then_block_no_how_should_i_proceed_park(context: dict) -> None:
         "paragraphs.\n"
         f"bound block was: {block!r}"
     )
+
+
+# -----------------------------------------------------------------------
+# Scenario 21c07707c418c6ed (lead-mzvp / tmpl-kp3): the canonical lead
+# primer (read_claude_md_primer("lead")) carries the product-authority
+# discovery gate standing rule alongside the existing standing rules. The
+# Given / When legs reuse given_package_ships_canonical_primer and
+# when_ask_for_that_canonical_primer_body above (shop type "lead"); the
+# "non-empty template body" leg reuses then_returned_body_non_empty. These
+# Then steps bind the discovery-gate STANDING-RULE SECTION (its heading
+# through the next markdown heading) and assert its load-bearing elements,
+# plus that the existing idle-detection and choice-suppression rules remain.
+# -----------------------------------------------------------------------
+
+
+_MZVP_GATE_HEADING_MARKER = "product-authority discovery gate"
+
+
+def _mzvp_gate_section(context: dict) -> str:
+    """Return the contiguous text of the product-authority discovery gate
+    standing-rule section: from its heading line through (not including) the
+    next markdown heading (a line whose stripped form starts with '#'), so
+    every assertion below is scoped to THAT one standing rule rather than
+    scattered across the whole primer."""
+    body = _hdn3_body(context)
+    lines = body.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if s.startswith("#") and _MZVP_GATE_HEADING_MARKER in s.lower():
+            start = i
+            break
+    assert start is not None, (
+        "lead primer carries no standing-rule heading naming the "
+        f"{_MZVP_GATE_HEADING_MARKER!r}; the discovery gate rule is absent"
+    )
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].strip().startswith("#"):
+            end = j
+            break
+    return "\n".join(lines[start:end])
+
+
+@then("the returned body carries a standing rule named for the product-authority discovery gate")
+def then_mzvp_gate_named_standing_rule(context: dict) -> None:
+    section = _mzvp_gate_section(context)
+    low = section.lower()
+    # Heading both names a standing rule and the product-authority discovery gate.
+    heading = section.splitlines()[0].strip().lower()
+    assert "standing rule" in heading, (
+        "the discovery-gate section heading must name it a standing rule "
+        f"(heading was: {section.splitlines()[0]!r})"
+    )
+    assert _MZVP_GATE_HEADING_MARKER in heading, (
+        "the standing-rule heading must name the product-authority discovery gate "
+        f"(heading was: {section.splitlines()[0]!r})"
+    )
+    assert "product authority" in low or "product-authority" in low
+
+
+@then(
+    "that standing rule names the dispatch of a discovery subagent as the "
+    "trigger and states the gate fires on the dispatch boundary because the "
+    "subagent is non-interactive and cannot conduct the dialogue"
+)
+def then_mzvp_gate_trigger_dispatch_boundary(context: dict) -> None:
+    low = _mzvp_gate_section(context).lower()
+    names_discovery_subagent = "discovery subagent" in low or (
+        "discovery" in low and "subagent" in low
+    )
+    assert names_discovery_subagent, (
+        "the discovery gate must name dispatching a discovery subagent as its trigger"
+    )
+    assert "dispatch boundary" in low or "dispatch-boundary" in low or (
+        "dispatch" in low and "boundary" in low
+    ), "the rule must state the gate fires on the dispatch boundary"
+    assert "non-interactive" in low or "noninteractive" in low or "not interactive" in low, (
+        "the rule must state the subagent is non-interactive"
+    )
+    assert "cannot conduct" in low or "can't conduct" in low or (
+        "cannot" in low and "dialogue" in low
+    ), "the rule must state the subagent cannot conduct the dialogue"
+
+
+@then(
+    "that standing rule requires the router to either conduct the "
+    "product-authority discovery dialogue at the main-agent level capturing "
+    "the answers as interview-notes on the bead or brief the subagent "
+    "receives, or cite an existing brief or PDR that already pins scope and "
+    "product vocabulary as the recorded reason the dialogue is not required, "
+    "before the discovery subagent may be dispatched"
+)
+def then_mzvp_gate_conduct_or_cite(context: dict) -> None:
+    section = _mzvp_gate_section(context)
+    low = section.lower()
+    # Branch 1: conduct the dialogue at the main-agent level + capture as interview-notes.
+    assert "conduct" in low and "dialogue" in low, (
+        "the rule must require the router to CONDUCT the discovery dialogue"
+    )
+    assert "main-agent" in low or "main agent" in low or "router" in low, (
+        "the conduct branch must place the dialogue at the router / main-agent level"
+    )
+    assert "interview-notes" in low or "interview notes" in low, (
+        "the conduct branch must capture answers as interview-notes on the bead/brief"
+    )
+    assert "bead" in low or "brief" in low, (
+        "interview-notes must attach to the bead or brief the subagent receives"
+    )
+    # Branch 2: cite an existing brief/PDR pinning scope + product vocabulary.
+    assert "cite" in low or "citation" in low or "cited" in low, (
+        "the rule must offer citing an existing brief/PDR as the alternative"
+    )
+    assert "brief" in low or "pdr" in low, (
+        "the cite branch must reference an existing brief or PDR"
+    )
+    assert "scope" in low and ("vocabulary" in low or "vocab" in low), (
+        "the cite branch must require the brief/PDR to pin scope and product vocabulary"
+    )
+    # Order: dialogue/citation precedes dispatch.
+    assert "dispatch" in low, (
+        "the rule must gate the dispatch on the conduct-or-cite step being done first"
+    )
+
+
+@then(
+    "that standing rule distinguishes itself from the choice-suppression rule "
+    "as the mandatory genuine product-judgment round-trip rather than an "
+    "operational question"
+)
+def then_mzvp_gate_distinct_from_choice_suppression(context: dict) -> None:
+    low = _mzvp_gate_section(context).lower()
+    assert "choice-suppression" in low or "choice suppression" in low, (
+        "the rule must explicitly distinguish itself from the choice-suppression rule"
+    )
+    assert "product-judgment" in low or "product judgment" in low or (
+        "product" in low and "judgment" in low
+    ), "the rule must frame itself as a genuine product-judgment round-trip"
+    assert "round-trip" in low or "round trip" in low
+    assert "operational question" in low, (
+        "the rule must contrast itself with an operational question (which "
+        "choice-suppression resolves)"
+    )
+    assert "mandatory" in low or "mandates" in low or "mandate" in low, (
+        "the rule must make the engagement mandatory at the discovery boundary"
+    )
+
+
+@then(
+    "that standing rule adds a named discovery-dispatch item to the router's "
+    "pre-dispatch path requiring the dialogue conducted or a cited reason "
+    "recorded before dispatch"
+)
+def then_mzvp_gate_enforcement_checklist_item(context: dict) -> None:
+    low = _mzvp_gate_section(context).lower()
+    assert "discovery dispatch" in low or "discovery-dispatch" in low, (
+        "the enforcement item must be named for the discovery dispatch"
+    )
+    # The checklist-item shape: dialogue conducted OR cited reason recorded.
+    assert ("conducted" in low or "conduct" in low), (
+        "the enforcement item must require the dialogue conducted"
+    )
+    assert ("cited reason" in low or "cited" in low or "citation" in low), (
+        "the enforcement item must accept a cited reason recorded as the alternative"
+    )
+    assert "do not" in low or "don't" in low or "not dispatch" in low, (
+        "the enforcement item must direct NOT dispatching when neither holds"
+    )
+
+
+@then("the returned body still carries the idle-detection and choice-suppression standing rules unaltered")
+def then_mzvp_existing_standing_rules_intact(context: dict) -> None:
+    body = _hdn3_body(context)
+    assert "### Standing rule: idle-detection checklist" in body, (
+        "the existing idle-detection standing-rule heading must remain unaltered"
+    )
+    assert "### Standing rule: choice suppression" in body, (
+        "the existing choice-suppression standing-rule heading must remain unaltered"
+    )
+    # The choice-suppression body's load-bearing positive directive and closer
+    # must survive the additive edit (guards against accidentally rewriting it).
+    assert "DECIDE EVERY OPERATIONAL QUESTION YOURSELF AND ACT ON IT" in body, (
+        "choice-suppression body must keep its positive DECIDE-AND-ACT directive"
+    )
+    assert "This is a positive standing order, not a prohibition." in body, (
+        "choice-suppression body must keep its positive-standing-order closer"
+    )

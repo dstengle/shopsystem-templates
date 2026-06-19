@@ -12005,6 +12005,15 @@ def then_no_file(rel, context):
     assert not (Path(context["bootstrap_workspace"]) / rel).exists()
 
 
+@then(parsers.parse('the target directory still contains the file "{rel}"'))
+def then_still_contains_file(rel, context):
+    path = Path(context["bootstrap_workspace"]) / rel
+    assert path.is_file(), (
+        f"expected {rel!r} to survive the invocation, but it is absent at "
+        f"{path!s} — pruning is not scoped to canonical-managed members"
+    )
+
+
 # -----------------------------------------------------------------------
 # Then steps — lead-architect Maintain structurizr workspace activity
 # (lead-y8rz scenario 9fac437e075784fe)

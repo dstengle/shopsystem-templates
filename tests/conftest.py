@@ -10738,6 +10738,93 @@ def then_file_from_instruction_image(
     )
 
 
+def _arg_default(body: str, arg_name: str) -> str | None:
+    """Return the declared default value of an ARG instruction, or None.
+
+    Parses `ARG <name>=<default>` (Dockerfile build-arg syntax), returning the
+    `<default>` token for the named build argument. An ARG with no `=` (no
+    declared default) yields None.
+    """
+    for ln in body.splitlines():
+        stripped = ln.strip()
+        if not stripped.startswith("ARG"):
+            continue
+        rest = stripped[len("ARG"):].strip()
+        if "=" not in rest:
+            continue
+        name, _, default = rest.partition("=")
+        if name.strip() == arg_name:
+            return default.split()[0].strip() if default.split() else ""
+    return None
+
+
+@then(
+    parsers.re(
+        r'the file at "(?P<rel>[^"]+)" in the target directory contains an '
+        r'"(?P<kw>[^"]+)" instruction declaring a build argument named '
+        r'"(?P<arg>[^"]+)" whose declared default value is a '
+        r'publicly-pullable image reference(?:,.*)?$'
+    )
+)
+def then_file_arg_declares_public_default(
+    rel: str, kw: str, arg: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    has_arg = any(
+        ln.lstrip().startswith(kw) and arg in ln for ln in body.splitlines()
+    )
+    assert has_arg, f"{rel}: no {kw} instruction declaring build arg {arg!r}"
+    default = _arg_default(body, arg)
+    assert default, (
+        f"{rel}: {kw} {arg} must declare a non-empty default image reference"
+    )
+
+
+@then(
+    parsers.re(
+        r'the "(?P<kw>[^"]+)" instruction in that file references the '
+        r'"(?P<arg>[^"]+)" build argument by the literal substring '
+        r'"(?P<needle>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_from_references_build_arg(
+    kw: str, arg: str, needle: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    # The scenario's surrounding Then steps fix the file as the Dockerfile.
+    rel = "Dockerfile.shopsystem-shell"
+    body = (real / rel).read_text()
+    matched = any(
+        ln.lstrip().startswith(kw) and needle in ln for ln in body.splitlines()
+    )
+    assert matched, (
+        f"{rel}: no {kw} instruction references {arg} via {needle!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the literal image reference that is the declared default of '
+        r'"(?P<arg>[^"]+)" does not contain the substring '
+        r'"(?P<needle>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_arg_default_excludes_substring(
+    arg: str, needle: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    rel = "Dockerfile.shopsystem-shell"
+    body = (real / rel).read_text()
+    default = _arg_default(body, arg)
+    assert default is not None, (
+        f"{rel}: no ARG {arg} with a declared default to inspect"
+    )
+    assert needle not in default, (
+        f"{rel}: ARG {arg} default {default!r} must not contain {needle!r}"
+    )
+
+
 @then(
     parsers.re(
         r'the file at "(?P<rel>[^"]+)" in the target directory does not '

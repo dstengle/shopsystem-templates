@@ -18599,6 +18599,54 @@ def then_subsection_no_bare_verb_respond(
 # -----------------------------------------------------------------------
 
 
+def _yxsr_rearm_block(context: dict) -> str:
+    """Return THE single contiguous block (markdown paragraph) that satisfies
+    directive 1: after completing a work item the BC re-arms its in-session
+    Monitor watcher on its "shop-msg watch --bc" pipeline rather than treating
+    completion as the end of its reactive posture.
+
+    The scenario demands a CONTIGUOUS block carrying all three directives —
+    "a contiguous block directing… And THAT block directs… And THAT block
+    states…". The three @then steps must therefore bind the SAME block, not
+    each scan the whole document independently. This helper locates that one
+    block once; directives 2 and 3 then assert membership in the SAME block.
+    A non-contiguous realization (the three directives split across distant
+    paragraphs) yields a directive-1 block that lacks directives 2/3, so the
+    later assertions fail — which is the contiguity the scenario forbids
+    losing.
+    """
+    body = _hdn3_body(context)
+    matches: list[str] = []
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        after_completion = (
+            "completing a work item" in low
+            or "completes a work item" in low
+            or "after completing" in low
+        )
+        re_arms = "re-arm" in low or "re-arms" in low or "rearm" in low
+        names_monitor = "monitor" in low and ("watcher" in low or "watch" in low)
+        names_pipeline = "shop-msg watch --bc" in block
+        not_end_of_posture = (
+            "rather than treating completion as the end of its reactive posture" in low
+            or (
+                "reactive posture" in low
+                and ("not the end" in low or "rather than" in low or "not treat" in low)
+            )
+        )
+        if after_completion and re_arms and names_monitor and names_pipeline and not_end_of_posture:
+            matches.append(block)
+    assert matches, (
+        "primer body has no contiguous block directing the BC that, after "
+        "completing a work item, it re-arms its in-session Monitor watcher on "
+        'its "shop-msg watch --bc" pipeline rather than treating completion '
+        "as the end of its reactive posture"
+    )
+    # Store for the dependent Thens so all three bind the SAME block.
+    context["yxsr_rearm_block"] = matches[0]
+    return matches[0]
+
+
 @then(
     "the returned body contains a contiguous block directing the BC that, "
     "after completing a work item, it re-arms its in-session Monitor watcher "
@@ -18606,40 +18654,23 @@ def then_subsection_no_bare_verb_respond(
     "the end of its reactive posture"
 )
 def then_block_directs_rearm_monitor_after_work_item(context: dict) -> None:
-    body = _hdn3_body(context)
-    for block in _hdn3_paragraphs(body):
-        low = block.lower()
-        after_completion = "completing a work item" in low or "completes a work item" in low or "after completing" in low
-        re_arms = "re-arm" in low or "re-arms" in low or "rearm" in low
-        names_monitor = "monitor" in low and ("watcher" in low or "watch" in low)
-        names_pipeline = "shop-msg watch --bc" in block
-        not_end_of_posture = (
-            "rather than treating completion as the end of its reactive posture" in low
-            or ("reactive posture" in low and ("not the end" in low or "rather than" in low or "not treat" in low))
-        )
-        if after_completion and re_arms and names_monitor and names_pipeline and not_end_of_posture:
-            return
-    assert False, (
-        "primer body has no contiguous block directing the BC that, after "
-        "completing a work item, it re-arms its in-session Monitor watcher on "
-        'its "shop-msg watch --bc" pipeline rather than treating completion '
-        "as the end of its reactive posture"
-    )
+    # Establishes the bound block; directives 2 and 3 assert against THIS block.
+    _yxsr_rearm_block(context)
 
 
 @then("that block directs the BC to drain its inbox immediately after re-arming the watcher")
 def then_block_directs_drain_after_rearm(context: dict) -> None:
-    body = _hdn3_body(context)
-    for block in _hdn3_paragraphs(body):
-        low = block.lower()
-        re_arms = "re-arm" in low or "re-arms" in low or "rearm" in low or "re-arming" in low
-        drains = "drain" in low and "inbox" in low
-        immediately = "immediately after" in low
-        if re_arms and drains and immediately:
-            return
-    assert False, (
-        "primer body has no contiguous block directing the BC to drain its "
-        "inbox immediately after re-arming the watcher"
+    block = context.get("yxsr_rearm_block") or _yxsr_rearm_block(context)
+    low = block.lower()
+    re_arms = "re-arm" in low or "re-arms" in low or "rearm" in low or "re-arming" in low
+    drains = "drain" in low and "inbox" in low
+    immediately = "immediately after" in low
+    assert re_arms and drains and immediately, (
+        "the SAME contiguous block that directs re-arming the Monitor watcher "
+        "does not also direct the BC to drain its inbox immediately after "
+        "re-arming the watcher; the three directives must be co-located in one "
+        "contiguous block, not scattered across separate paragraphs.\n"
+        f"bound block was: {block!r}"
     )
 
 
@@ -18649,19 +18680,21 @@ def then_block_directs_drain_after_rearm(context: dict) -> None:
     "item while the re-arm-and-drain step remains undone"
 )
 def then_block_no_how_should_i_proceed_park(context: dict) -> None:
-    body = _hdn3_body(context)
-    for block in _hdn3_paragraphs(body):
-        low = block.lower()
-        names_lead = "session-lead" in low or "session lead" in low
-        negated = "must not" in low or "does not" in low or "do not" in low or "never" in low
-        names_park = "park" in low or "wait" in low or "ask" in low
-        how_proceed = "how should i proceed" in low
-        while_undone = "remains undone" in low or "while the re-arm-and-drain" in low or "undone" in low
-        if names_lead and negated and names_park and how_proceed and while_undone:
-            return
-    assert False, (
-        "primer body has no contiguous block stating the BC must not park at, "
-        'wait on, or ask its session-lead a "how should I proceed?" prompt '
-        "after completing a work item while the re-arm-and-drain step remains "
-        "undone"
+    block = context.get("yxsr_rearm_block") or _yxsr_rearm_block(context)
+    low = block.lower()
+    names_lead = "session-lead" in low or "session lead" in low
+    negated = "must not" in low or "does not" in low or "do not" in low or "never" in low
+    names_park = "park" in low or "wait" in low or "ask" in low
+    how_proceed = "how should i proceed" in low
+    while_undone = (
+        "remains undone" in low or "while the re-arm-and-drain" in low or "undone" in low
+    )
+    assert names_lead and negated and names_park and how_proceed and while_undone, (
+        "the SAME contiguous block that directs re-arming the Monitor watcher "
+        "does not also state the BC must not park at, wait on, or ask its "
+        'session-lead a "how should I proceed?" prompt while the '
+        "re-arm-and-drain step remains undone; the three directives must be "
+        "co-located in one contiguous block, not scattered across separate "
+        "paragraphs.\n"
+        f"bound block was: {block!r}"
     )

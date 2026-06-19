@@ -3183,6 +3183,28 @@ def given_previously_bootstrapped(
     _do_bootstrap_for_test(alias, shop_type, shop_name, context, tmp_path)
 
 
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'previously bootstrapped as a lead shop'
+    )
+)
+def given_previously_bootstrapped_lead_shop(
+    alias: str,
+    context: dict,
+    tmp_path: Path,
+) -> None:
+    # lead-bdsq / scenario 159: the UPDATE-path over-prune pin. Establishes a
+    # real previously-bootstrapped LEAD shop at the alias so the subsequent
+    # "shop-templates update ... with shop type lead" When mirrors the lead
+    # skill-group (the path where _mirror_skills actually prunes). Stashes
+    # bootstrap_shop_type="lead" so the update When passes --shop-type lead.
+    context["bootstrap_workspace"] = tmp_path
+    _do_bootstrap_for_test(
+        alias, "lead", "shopsystem-product", context, tmp_path
+    )
+
+
 # -----------------------------------------------------------------------
 # Given steps — manipulated post-bootstrap state for update scenarios
 # -----------------------------------------------------------------------
@@ -3631,6 +3653,30 @@ def when_invoke_update(
     if shop_type is not None:
         args.extend(["--shop-type", shop_type])
     result = _run_shop_templates_with_bd_shim(args, context, tmp_path)
+    context["cli_returncode"] = result.returncode
+    context["cli_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+    context["last_invocation_target"] = real
+
+
+@when(
+    parsers.parse(
+        'I invoke the "shop-templates" update entry point with shop type '
+        '"{shop_type}" and target directory "{alias}"'
+    )
+)
+def when_invoke_update_with_shop_type(
+    shop_type: str, alias: str, context: dict, tmp_path: Path
+) -> None:
+    # lead-bdsq / scenario 159: explicit-shop-type update entry point. Runs the
+    # update CLI with --shop-type so _mirror_skills mirrors the matching skill
+    # set (lead group) and exercises its prune-scoping over the unmanaged dir.
+    real = _real_target_for_alias(alias, context)
+    result = _run_shop_templates_with_bd_shim(
+        ["update", "--shop-type", shop_type, "--target", str(real)],
+        context,
+        tmp_path,
+    )
     context["cli_returncode"] = result.returncode
     context["cli_stdout"] = result.stdout
     context["cli_stderr"] = result.stderr

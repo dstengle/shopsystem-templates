@@ -89,6 +89,30 @@ not write YAML by hand to work around it.
   `--status complete` to `--status blocked` with the offending evidence
   named in the summary.
 
+## Doing the work
+
+The RED→GREEN→REFACTOR inner loop lives in `test-driven-development`. The
+following step is a **discrete required step** of doing the work — not
+optional advice you may skip.
+
+1. **Recompute every `@scenario_hash` tag you wrote or edited (REQUIRED).**
+   On `assign_scenarios` or a `request_bugfix` whose `scenarios[]` is
+   non-empty, after writing or editing any `@scenario_hash:<value>` tag in
+   a file under `features/`, you **must** recompute that hash by piping the
+   scenario block through the canonical `scenarios hash` CLI using
+   **scenario-block-only** canonicalization (the block-only form settled by
+   ADR-019 / scenario 117 — the enclosing `Feature:` line is NOT part of the
+   hashed text). The recomputed value **must equal** the `<value>` written
+   in the on-disk `@scenario_hash:<value>` tag, for **every** tag you wrote
+   or edited. This recompute-equality check also applies on a
+   `request_maintenance` dispatch whenever that maintenance touches a
+   `@scenario_hash` tag. You **may not** compose your **terminal response**
+   — the work-completion handoff to the Reviewer, or `shop-msg respond` on a
+   non-scenario-carrying path — while any `@scenario_hash` tag you touched
+   fails this recompute-equality check. This catches a fabricated or stale
+   hash at the implementer before the costly Reviewer round-trip (ADR-010 /
+   ADR-019).
+
 ## BC-root-only constraint
 
 Read and modify only files inside the BC root. (`shop-msg`, `bd`, and the

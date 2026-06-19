@@ -1102,38 +1102,53 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     if shop_type == "lead":
         _render_lead_ops_scaffolding(target, _ops_slug(shop_name))
 
-    # Initialize .beads/ via a `bd init` subprocess, stamping the
-    # product-derived issue prefix via `bd init --prefix <prefix>` (scenario
-    # 0636fba2c1445f9f). The prefix reuses the established product-slug
-    # derivation (`_ops_slug`: the --shop-name with a single trailing
-    # "-product" stripped), tracking shop identity from the single source of
-    # truth. shop-templates MUST NOT import bd / beads internals and MUST NOT
-    # write to .beads/ directly (scenario 0c6f1c5d9bc4226e).
-    rc = _bd_init_in(target, prefix=_ops_slug(shop_name))
-    if rc != 0:
-        return rc
+    # Bootstrap is idempotent over an already-initialized ".beads/" (scenario
+    # 5786b555ee0732bf, lead-i8u — the "wrap an existing beads workspace"
+    # case, brief 002). `bd init` aborts ("Found existing Dolt database...
+    # Aborting") against a target that already carries a ".beads/" directory,
+    # which would fail the whole bootstrap with no scaffold written. Per
+    # architect option (a), DETECT the already-initialized ".beads/" and SKIP
+    # the entire bd-tracker block — `bd init`, the `bd dolt remote add`, and
+    # the `bd dolt push` smoke-test — so the pre-existing ".beads/" is
+    # preserved byte-for-byte (every one of those subprocesses would mutate
+    # it) while the rest of the canonical scaffold above is still written;
+    # exit 0. The no-".beads/" init path (scenarios 2277308ce4fb92d2 /
+    # 31a044e7d2eceaf4) is precondition-disjoint and runs unchanged below.
+    if not (target / ".beads").exists():
+        # Initialize .beads/ via a `bd init` subprocess, stamping the
+        # product-derived issue prefix via `bd init --prefix <prefix>`
+        # (scenario 0636fba2c1445f9f). The prefix reuses the established
+        # product-slug derivation (`_ops_slug`: the --shop-name with a single
+        # trailing "-product" stripped), tracking shop identity from the
+        # single source of truth. shop-templates MUST NOT import bd / beads
+        # internals and MUST NOT write to .beads/ directly (scenario
+        # 0c6f1c5d9bc4226e).
+        rc = _bd_init_in(target, prefix=_ops_slug(shop_name))
+        if rc != 0:
+            return rc
 
-    # Configure the new shop's bd dolt push remote via `bd dolt remote add`
-    # (scenario 0636fba2c1445f9f, supersedes the cosmetic 9e15d8cfd55b9541).
-    # This wires the tracker to the product beads remote the way bd actually
-    # reads it (a DB-side dolt remote, not a cosmetic YAML key); it spawns the
-    # `bd` subprocess and does not import bd / beads internals.
-    try:
-        remote = _configure_bd_dolt_remote(target, shop_name)
-    except _BdConfigError as exc:
-        return exc.returncode
+        # Configure the new shop's bd dolt push remote via `bd dolt remote
+        # add` (scenario 0636fba2c1445f9f, supersedes the cosmetic
+        # 9e15d8cfd55b9541). This wires the tracker to the product beads
+        # remote the way bd actually reads it (a DB-side dolt remote, not a
+        # cosmetic YAML key); it spawns the `bd` subprocess and does not
+        # import bd / beads internals.
+        try:
+            remote = _configure_bd_dolt_remote(target, shop_name)
+        except _BdConfigError as exc:
+            return exc.returncode
 
-    # Smoke-test the freshly-wired tracker: run `bd dolt push` against the
-    # configured dolt remote (scenario 5ae67969a7f205d5, supersedes the retired
-    # 62eb2a8b9b617f4b). The smoke-test first guards that a dolt remote is
-    # actually configured (a bare push against an unconfigured tracker no-ops
-    # and exits 0), failing loud with a diagnostic naming the missing remote;
-    # on a non-zero push it likewise exits non-zero — so a misconfigured /
-    # unreachable remote is caught here, not at the first mid-work work_done
-    # emission.
-    rc = _bd_dolt_push_smoke_test(target, remote)
-    if rc != 0:
-        return rc
+        # Smoke-test the freshly-wired tracker: run `bd dolt push` against the
+        # configured dolt remote (scenario 5ae67969a7f205d5, supersedes the
+        # retired 62eb2a8b9b617f4b). The smoke-test first guards that a dolt
+        # remote is actually configured (a bare push against an unconfigured
+        # tracker no-ops and exits 0), failing loud with a diagnostic naming
+        # the missing remote; on a non-zero push it likewise exits non-zero —
+        # so a misconfigured / unreachable remote is caught here, not at the
+        # first mid-work work_done emission.
+        rc = _bd_dolt_push_smoke_test(target, remote)
+        if rc != 0:
+            return rc
 
     # Lead-shop bootstrap installs each sibling BC clone under repos/
     # editable into the product venv, per brief 003 scope item E

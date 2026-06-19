@@ -3093,6 +3093,64 @@ def given_existing_git_repo_at_target_no_beads_dir(
     assert not (real / ".beads").exists()
 
 
+def _snapshot_beads_dir(beads: Path) -> dict[str, bytes]:
+    """Return a {relpath: contents} map of every file under a ".beads/"
+    directory, so a later comparison can assert byte-for-byte preservation.
+
+    Symlinks and directories are not content-bearing; only regular files
+    contribute bytes. Relative paths (posix-style) key the map so two
+    snapshots taken before/after an invocation compare structurally.
+    """
+    snapshot: dict[str, bytes] = {}
+    for path in sorted(beads.rglob("*")):
+        if path.is_file():
+            rel = path.relative_to(beads).as_posix()
+            snapshot[rel] = path.read_bytes()
+    return snapshot
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" '
+        'with an already-initialized ".beads/" directory whose contents '
+        'are recorded before the invocation'
+    )
+)
+def given_existing_git_repo_with_initialized_beads(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    # lead-i8u / scenario 5786b555ee0732bf: the "wrap an existing beads
+    # workspace" idempotency case. Establish a target that already carries
+    # an initialized ".beads/" directory whose contents we record, so the
+    # Then step can assert bootstrap preserved them byte-for-byte and ran
+    # no `bd init` subprocess.
+    #
+    # We model a realistic already-initialized ".beads/" the way real `bd
+    # init` would leave it: a directory with at least one content-bearing
+    # file (config + a DB-shaped sentinel). The exact contents do not
+    # matter — what the scenario pins is that whatever was there before is
+    # present byte-for-byte after. Crucially we DON'T leave the bd-shim's
+    # own "__shim_init__" marker here: that way, if bootstrap (wrongly) ran
+    # `bd init`, the marker would appear and the preservation check would
+    # also surface drift.
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    beads = real / ".beads"
+    beads.mkdir(parents=True, exist_ok=True)
+    # A config file and a nested DB-shaped file with distinctive bytes.
+    (beads / "config.yaml").write_text(
+        "issue-prefix: preexisting\nremote: git+https://example.test/x-beads.git\n"
+    )
+    dolt_dir = beads / ".dolt"
+    dolt_dir.mkdir(parents=True, exist_ok=True)
+    (dolt_dir / "noms_sentinel").write_bytes(b"\x00\x01\x02preexisting-db\x03\x04")
+    assert beads.exists(), "premise of Given violated: .beads/ not created"
+    # Record the pre-invocation snapshot, keyed by alias so a multi-target
+    # outline keeps each target's snapshot distinct.
+    snapshots = context.setdefault("beads_snapshots", {})
+    snapshots[str(real)] = _snapshot_beads_dir(beads)
+
+
 @given(
     parsers.parse(
         'an existing git repository at a target directory "{alias}" '
@@ -4020,6 +4078,121 @@ def then_no_bd_subprocess(context: dict) -> None:
     invocations = _bd_invocations(context)
     assert not invocations, (
         f"expected no `bd` subprocess invocations; got: {invocations!r}"
+    )
+
+
+@then(
+    'during the invocation no subprocess named "bd" was executed with '
+    'first argument "init"'
+)
+def then_no_bd_init_subprocess(context: dict) -> None:
+    # lead-i8u / scenario 5786b555ee0732bf: the idempotent-over-existing-
+    # ".beads/" case. Bootstrap must DETECT the already-initialized ".beads/"
+    # and skip the `bd init` subprocess. Other `bd` subprocesses are out of
+    # scope for this assertion — what is pinned is that NO `bd` invocation
+    # carried first-arg "init". (The bd-shim logs every invocation's argv;
+    # we scan the recorded first args for "init".)
+    invocations = _bd_invocations(context)
+    first_args = [inv[0] if inv else None for inv in invocations]
+    assert "init" not in first_args, (
+        f"expected no `bd init` subprocess; bd-shim recorded invocations "
+        f"with first args {first_args!r}"
+    )
+
+
+@then(
+    'after the invocation the contents of the ".beads/" directory are '
+    'byte-for-byte identical to the contents recorded before the invocation'
+)
+def then_beads_preserved_byte_for_byte(context: dict) -> None:
+    # lead-i8u / scenario 5786b555ee0732bf. Compare the post-invocation
+    # ".beads/" snapshot against the snapshot the Given recorded. Any added
+    # file (e.g. the bd-shim's "__shim_init__" marker that would appear had
+    # bootstrap run `bd init`, or a "__shim_remotes__" written by a stray
+    # `bd dolt remote add`), any removed file, or any content drift fails.
+    real = context["last_invocation_target"]
+    snapshots = context.get("beads_snapshots", {})
+    before = snapshots.get(str(real))
+    assert before is not None, (
+        "no recorded pre-invocation .beads/ snapshot for "
+        f"{real!s}; the Given step must run first"
+    )
+    beads = real / ".beads"
+    assert beads.exists(), (
+        f"expected .beads/ to still exist at {beads!s} after the invocation"
+    )
+    after = _snapshot_beads_dir(beads)
+    added = sorted(set(after) - set(before))
+    removed = sorted(set(before) - set(after))
+    changed = sorted(
+        rel for rel in (set(after) & set(before)) if after[rel] != before[rel]
+    )
+    assert not (added or removed or changed), (
+        f"`.beads/` was not preserved byte-for-byte: added={added!r} "
+        f"removed={removed!r} changed={changed!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the remainder of the canonical scaffold for shop type '
+        '"{shop_type}" is written to the target directory by the same '
+        'invocation'
+    )
+)
+def then_remainder_of_scaffold_written(shop_type: str, context: dict) -> None:
+    # lead-i8u / scenario 5786b555ee0732bf. Skipping `bd init` must NOT
+    # skip the rest of the scaffold. Assert the canonical, shop-type-
+    # independent scaffold surface bootstrap pours for every shop type is
+    # present with real (non-empty where the canonical template is
+    # non-empty) content, plus the per-shop-type role files.
+    real = context["last_invocation_target"]
+    from shop_templates.cli import (
+        _CANONICAL_ROLE_SETS,
+        _render_claude_md,
+        read_claude_md_primer,
+        read_claude_settings_template,
+        read_gitignore_template,
+    )
+
+    # Shop-type-independent scaffold files, asserted byte-for-byte against
+    # the canonical templates so a partial / stubbed write is caught.
+    expected_files: dict[Path, str] = {
+        real / "CLAUDE.md": _render_claude_md(
+            shop_type, context["last_invocation_shop_name"]
+        ),
+        real / ".gitignore": read_gitignore_template(),
+        real / ".claude" / "settings.json": read_claude_settings_template(
+            shop_type
+        ),
+        real / ".claude" / "canonical" / f"{shop_type}-primer.md":
+            read_claude_md_primer(shop_type),
+        real / ".claude" / "shop" / "name.md":
+            context["last_invocation_shop_name"] + "\n",
+        real / ".claude" / "shop" / "type.md": shop_type + "\n",
+    }
+    for path, expected in expected_files.items():
+        assert path.is_file(), (
+            f"expected scaffold file {path!s} to be written; missing"
+        )
+        actual = path.read_text()
+        assert actual == expected, (
+            f"scaffold file {path!s} content differs from the canonical "
+            f"template"
+        )
+
+    # Per-shop-type role files under .claude/agents/.
+    agents_dir = real / ".claude" / "agents"
+    for role_name in _CANONICAL_ROLE_SETS[shop_type]:
+        role_file = agents_dir / f"{role_name}.md"
+        assert role_file.is_file() and role_file.read_text().strip(), (
+            f"expected role file {role_file!s} to be written with content"
+        )
+
+    # Skills tree must have been poured.
+    skills_root = real / ".claude" / "skills"
+    assert skills_root.is_dir() and any(skills_root.rglob("*")), (
+        f"expected canonical skills tree under {skills_root!s}"
     )
 
 

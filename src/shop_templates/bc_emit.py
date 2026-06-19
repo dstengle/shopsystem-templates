@@ -19,15 +19,16 @@ Preconditions (lead-m56e):
 
   Check 2 — reachability (hashes 461d6066ef7dca0a, 12c98d2f7e5259a9)
       Two deliverable modes:
-        commit  — a commit attributable to the work_id (the work_id
-                  substring in a commit subject/body) must be reachable from
+        commit  — a commit attributable to the work_id (the work_id as a
+                  WHOLE TOKEN — word-boundary match — in a commit
+                  subject/body, NOT a loose substring) must be reachable from
                   `origin/main` HEAD after a `git fetch origin`. A commit on
                   a local/unmerged branch does NOT satisfy. On refusal the
                   error names the work_id and the current origin/main HEAD
                   short SHA.
         tag     — the named release tag must exist after
                   `git fetch origin --tags` AND its commit lineage must
-                  carry/anchor the work_id (the same `--grep=<work_id>`
+                  carry/anchor the work_id (the same canonical word-boundary
                   attribution check_commit_reachable uses, scoped to the
                   tag's history). Satisfaction comes from the tag's lineage
                   anchoring the work_id, NOT from work_id reachability on
@@ -121,6 +122,32 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _work_id_attribution_grep(work_id: str) -> list[str]:
+    """The CANONICAL `git log` attribution arguments for a work_id.
+
+    Both attribution sites (`check_commit_reachable` over origin/main and
+    `check_tag_reachable` over a tag's lineage) recognize a commit as
+    attributable to the work_id by the SAME mechanism, so they stay
+    consistent — the bc-emit wrapper and the shared work-done-gate attribution
+    helper share this canonical form.
+
+    The match is EXACT / WORD-BOUNDARY (whole-token), NOT loose substring
+    (lead-8vwf): the work_id must appear as a WHOLE TOKEN — bounded by
+    start/end-of-line or non-identifier characters — in the commit subject or
+    body. A work_id that is a strict PREFIX of another commit's work_id (e.g.
+    `lead-8v` as a prefix of `lead-8vwf`) therefore does NOT match, so it can no
+    longer false-positive-attribute the wrong commit's lineage.
+
+    Implemented as an extended-regex (`-E`) `--grep` with `\\b` word boundaries
+    around the regex-escaped work_id. `re.escape` neutralizes any regex
+    metacharacters in the work_id so the only thing the boundaries gate is the
+    literal token. A hyphen in the work_id (e.g. `lead-8vwf`) is a
+    non-identifier character, so `\\b` correctly anchors at both ends of the
+    full token rather than at the internal hyphen.
+    """
+    return ["-E", f"--grep=\\b{re.escape(work_id)}\\b"]
+
+
 def _is_carved_out(path: str) -> bool:
     """Return True iff a porcelain path is an ambient carve-out.
 
@@ -195,22 +222,23 @@ def check_commit_reachable(repo: Path, work_id: str) -> None:
 
     Fetches origin first (so a stale local ref does not produce a false
     pass/fail), then searches commits reachable from origin/main HEAD for the
-    work_id substring in the subject or body. A commit attributable to the
+    work_id as a WHOLE TOKEN (word-boundary match) in the subject or body — a
+    strict-prefix work_id does NOT match. A commit attributable to the
     work_id that exists only on another branch (un-merged/un-pushed local
     branch) is NOT reachable from origin/main HEAD and therefore does NOT
     satisfy. On refusal names the work_id and the current origin/main HEAD
     short SHA.
     """
     _git(repo, "fetch", "origin")
-    # Search ONLY commits reachable from origin/main HEAD. --grep is applied
-    # over the commit message (subject + body) which is the attribution
-    # mechanism the gate names.
+    # Search ONLY commits reachable from origin/main HEAD. The attribution
+    # match is the canonical WORD-BOUNDARY (whole-token) form shared with the
+    # tag-mode site below — the work_id must appear as a whole token in the
+    # commit subject/body, so a strict-prefix work_id does NOT false-match.
     log = _git(
         repo,
         "log",
         "origin/main",
-        f"--grep={work_id}",
-        "--fixed-strings",
+        *_work_id_attribution_grep(work_id),
         "--oneline",
     )
     if log.stdout.strip():
@@ -238,8 +266,8 @@ def check_tag_reachable(repo: Path, work_id: str, tag: str) -> None:
 
     "Points at the expected commit lineage" means the work_id is attributable
     to a commit in the TAG's history — the SAME attribution mechanism
-    `check_commit_reachable` uses (a `--grep=<work_id>` over the commit
-    subject/body), but scoped to the tag's reachable history
+    `check_commit_reachable` uses (the canonical word-boundary `--grep` over
+    the commit subject/body), but scoped to the tag's reachable history
     (`git log <tag> ...`) instead of origin/main HEAD. Mere tag existence with
     a non-empty `git rev-list` does NOT satisfy: an unrelated tag pointing at
     a commit that bears no relationship to the work_id (e.g. the repo's seed
@@ -261,8 +289,9 @@ def check_tag_reachable(repo: Path, work_id: str, tag: str) -> None:
             f"HEAD ({head}). {_SELF_RESOLVE}"
         )
     # The tag's commit LINEAGE must carry/anchor the work_id. This mirrors
-    # check_commit_reachable's attribution (--grep over commit subject+body
-    # with --fixed-strings) but is scoped to the TAG's reachable history
+    # check_commit_reachable's attribution (the canonical word-boundary
+    # whole-token --grep over commit subject+body) but is scoped to the TAG's
+    # reachable history
     # rather than origin/main HEAD. A tag whose lineage is intact (non-empty
     # rev-list) but carries no work_id-attributed commit — e.g. a tag pointing
     # at the repo's unrelated seed commit — does NOT satisfy.
@@ -270,8 +299,7 @@ def check_tag_reachable(repo: Path, work_id: str, tag: str) -> None:
         repo,
         "log",
         tag,
-        f"--grep={work_id}",
-        "--fixed-strings",
+        *_work_id_attribution_grep(work_id),
         "--oneline",
     )
     if not in_lineage.stdout.strip():
@@ -280,7 +308,7 @@ def check_tag_reachable(repo: Path, work_id: str, tag: str) -> None:
             f"named release tag {tag!r} exists and resolves to a commit with a "
             f"non-empty `git rev-list`, but no commit attributable to work_id "
             f"{work_id!r} is present in the tag's commit lineage "
-            f"(`git log {tag} --grep={work_id} --fixed-strings`). Mere tag "
+            f"(`git log {tag} -E --grep=\\b{work_id}\\b`). Mere tag "
             "existence with a non-empty rev-list does NOT satisfy tag-mode "
             "reachability; only a tag whose lineage carries/anchors the "
             "dispatched work_id does (a tag pointing at an unrelated commit, "

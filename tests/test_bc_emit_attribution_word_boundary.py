@@ -30,15 +30,21 @@ HOW a commit is recognized as attributable.
 """
 from __future__ import annotations
 
+import importlib.util
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-# Import the two attribution sites under test directly.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from shop_templates import bc_emit  # noqa: E402
+# Import the two attribution sites under test directly FROM THIS REPO's source
+# tree, by file path — not via the ambient `shop_templates` install, which (in
+# a multi-worktree dev env with an editable install) may resolve to a different
+# checkout. Loading by path pins the module under test to the code in THIS
+# worktree, making the RED->GREEN transition order-independent.
+_BC_EMIT_SRC = Path(__file__).resolve().parent.parent / "src" / "shop_templates" / "bc_emit.py"
+_spec = importlib.util.spec_from_file_location("_bc_emit_under_test", _BC_EMIT_SRC)
+bc_emit = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(bc_emit)  # type: ignore[union-attr]
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:

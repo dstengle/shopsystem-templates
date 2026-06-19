@@ -2,9 +2,61 @@
 import pytest
 from shop_templates.cli import (
     iter_skill_files,
+    iter_lead_skill_files,
+    _mirror_skills,
     _read_template,
     read_gitignore_template,
 )
+
+
+# ---------------------------------------------------------------------------
+# lead-1e8d (supersede scenario 159, hash d29c551ef3f58dc9): skills-dir
+# pruning must be scoped to canonical-managed members ONLY. _mirror_skills
+# previously removed ANY file/dir under .claude/skills/ not in the shipped
+# set, over-pruning legitimate experimentally-adopted PM skill dirs
+# (problem-framing-canvas, jobs-to-be-done, ...). Architect option (b): a
+# .claude/skills/<name>/ dir is pruned IFF <name> is a canonical-managed
+# member; non-members survive byte-for-byte.
+# ---------------------------------------------------------------------------
+
+def test_mirror_skills_prunes_only_canonical_managed_members(tmp_path):
+    """_mirror_skills must never remove a .claude/skills/<name>/ directory
+    whose <name> is not a canonical-managed member. An experimentally-adopted
+    unmanaged skill dir must survive byte-for-byte across a mirror."""
+    skills_root = tmp_path / ".claude" / "skills"
+    skills_root.mkdir(parents=True)
+
+    # Seed an unmanaged, experimentally-adopted skill dir whose name is NOT a
+    # member of the lead skill-group being mirrored.
+    members = {
+        rel.split("/", 1)[0]
+        for rel, _ in iter_lead_skill_files()
+    }
+    assert "problem-framing-canvas" not in members, (
+        "test premise broken: problem-framing-canvas is now a managed member"
+    )
+    unmanaged_dir = skills_root / "problem-framing-canvas"
+    unmanaged_dir.mkdir()
+    unmanaged_body = b"# problem-framing-canvas\n\nexperimental PM skill\n"
+    (unmanaged_dir / "SKILL.md").write_bytes(unmanaged_body)
+
+    # Mirror the canonical LEAD skill-group into the same root.
+    _mirror_skills(tmp_path, iter_lead_skill_files)
+
+    # The managed members are present...
+    for name in members:
+        assert (skills_root / name / "SKILL.md").is_file(), (
+            f"managed member {name!r} missing after mirror"
+        )
+    # ...and the unmanaged dir survived byte-for-byte (the over-prune bug).
+    survivor = unmanaged_dir / "SKILL.md"
+    assert survivor.is_file(), (
+        "unmanaged skill dir problem-framing-canvas/ was over-pruned by "
+        "_mirror_skills; pruning is not scoped to canonical-managed members"
+    )
+    assert survivor.read_bytes() == unmanaged_body, (
+        "unmanaged skill content was not preserved byte-for-byte"
+    )
 
 
 def test_iter_skill_files_yields_relative_paths_and_bytes():

@@ -17,9 +17,15 @@ Feature: shop-templates update mirrors canonical skills into a BC
     And the mtime of ".claude/skills/test-driven-development/SKILL.md" is unchanged
 
   @bc:shopsystem-templates
-  Scenario: update removes a managed skill file that the package no longer ships
+  Scenario: update scopes pruning to canonical-managed members and leaves an unmanaged skill directory intact
+    # lead-1e8d (architect option b, supersedes scenario 159): pruning under
+    # .claude/skills/ is scoped to canonical-managed members ONLY. A directory
+    # whose name is not a canonical-managed member (an experimentally-adopted
+    # or otherwise unmanaged skill dir) is NEVER pruned by update — it survives
+    # byte-for-byte. This supersedes the prior "remove any non-shipped file"
+    # behavior, which over-pruned legitimate experimental PM skill dirs.
     Given a bootstrapped "bc" shop at a target directory "/tmp/upd-skills-orphan"
     And an extra file ".claude/skills/removed-skill/SKILL.md" exists in the target
     When I run update for shop type "bc" at "/tmp/upd-skills-orphan"
     Then the exit code of the update invocation is 0
-    And the target directory contains no file at ".claude/skills/removed-skill/SKILL.md"
+    And the target directory still contains the file ".claude/skills/removed-skill/SKILL.md"

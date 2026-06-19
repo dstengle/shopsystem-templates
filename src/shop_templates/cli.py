@@ -501,6 +501,13 @@ def _mirror_skills(target: Path, iterator=iter_skill_files) -> None:
     drifted/missing (idempotent on byte-equality), remove managed files no
     longer shipped, prune empty dirs.
 
+    Pruning is scoped to CANONICAL-MANAGED MEMBERS ONLY (lead-1e8d, supersedes
+    scenario 159 / hash d29c551ef3f58dc9): a top-level skill directory
+    "<name>/" is subject to pruning IFF "<name>" is a member of the canonical
+    skill-group this mirror manages. Files and empty dirs under an unmanaged
+    (e.g. experimentally-adopted) member-name directory are NEVER pruned, so
+    such directories survive a mirror byte-for-byte.
+
     `iterator` selects the canonical skill set (BC tree or LEAD group) so update
     mirrors the set that matches the shop type."""
     skills_root = target / ".claude" / "skills"
@@ -512,12 +519,30 @@ def _mirror_skills(target: Path, iterator=iter_skill_files) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(body)
     if skills_root.exists():
+        # Canonical-managed member names: the top-level skill dirs this mirror
+        # owns. Only paths under one of these are eligible for pruning; a
+        # directory whose name is not a managed member (unmanaged/experimental)
+        # is left untouched.
+        managed_members = {rel.split("/", 1)[0] for rel in shipped}
         shipped_abs = {skills_root / rel for rel in shipped}
+
+        def _is_under_managed_member(path: Path) -> bool:
+            rel_parts = path.relative_to(skills_root).parts
+            return bool(rel_parts) and rel_parts[0] in managed_members
+
         for path in sorted(skills_root.rglob("*")):
-            if path.is_file() and path not in shipped_abs:
+            if (
+                path.is_file()
+                and path not in shipped_abs
+                and _is_under_managed_member(path)
+            ):
                 path.unlink()
         for path in sorted(skills_root.rglob("*"), reverse=True):
-            if path.is_dir() and not any(path.iterdir()):
+            if (
+                path.is_dir()
+                and _is_under_managed_member(path)
+                and not any(path.iterdir())
+            ):
                 path.rmdir()
 
 

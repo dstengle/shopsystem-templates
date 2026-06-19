@@ -18582,3 +18582,86 @@ def then_subsection_no_bare_verb_respond(
         f"subsection {heading!r} has bare-verb mailbox-respond step(s) "
         f"missing {respond_cli!r}:\n  " + "\n  ".join(offenders)
     )
+
+
+# =======================================================================
+# lead-yxsr (scenario 803a735348b139f2) — the canonical bc primer pins the
+# POST-WORK-ITEM re-arm-and-drain contract: after completing a work item the
+# BC re-arms its in-session Monitor watcher on its "shop-msg watch --bc"
+# pipeline, drains its inbox immediately after re-arming, and must not park
+# at / wait on / ask a "how should I proceed?" prompt while that
+# re-arm-and-drain step remains undone. These steps assert against the
+# rendered bc primer body served through the public template-access surface
+# (read_claude_md_primer("bc")). "Contiguous block" is scoped to a markdown
+# paragraph via _hdn3_paragraphs (reused from the lead-hdn3 between-item
+# steps). The Given / When legs reuse given_package_ships_canonical_primer
+# and when_ask_for_that_canonical_primer_body above.
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the returned body contains a contiguous block directing the BC that, "
+    "after completing a work item, it re-arms its in-session Monitor watcher "
+    'on its "shop-msg watch --bc" pipeline rather than treating completion as '
+    "the end of its reactive posture"
+)
+def then_block_directs_rearm_monitor_after_work_item(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        after_completion = "completing a work item" in low or "completes a work item" in low or "after completing" in low
+        re_arms = "re-arm" in low or "re-arms" in low or "rearm" in low
+        names_monitor = "monitor" in low and ("watcher" in low or "watch" in low)
+        names_pipeline = "shop-msg watch --bc" in block
+        not_end_of_posture = (
+            "rather than treating completion as the end of its reactive posture" in low
+            or ("reactive posture" in low and ("not the end" in low or "rather than" in low or "not treat" in low))
+        )
+        if after_completion and re_arms and names_monitor and names_pipeline and not_end_of_posture:
+            return
+    assert False, (
+        "primer body has no contiguous block directing the BC that, after "
+        "completing a work item, it re-arms its in-session Monitor watcher on "
+        'its "shop-msg watch --bc" pipeline rather than treating completion '
+        "as the end of its reactive posture"
+    )
+
+
+@then("that block directs the BC to drain its inbox immediately after re-arming the watcher")
+def then_block_directs_drain_after_rearm(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        re_arms = "re-arm" in low or "re-arms" in low or "rearm" in low or "re-arming" in low
+        drains = "drain" in low and "inbox" in low
+        immediately = "immediately after" in low
+        if re_arms and drains and immediately:
+            return
+    assert False, (
+        "primer body has no contiguous block directing the BC to drain its "
+        "inbox immediately after re-arming the watcher"
+    )
+
+
+@then(
+    "that block states the BC must not park at, wait on, or ask its "
+    'session-lead a "how should I proceed?" prompt after completing a work '
+    "item while the re-arm-and-drain step remains undone"
+)
+def then_block_no_how_should_i_proceed_park(context: dict) -> None:
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        names_lead = "session-lead" in low or "session lead" in low
+        negated = "must not" in low or "does not" in low or "do not" in low or "never" in low
+        names_park = "park" in low or "wait" in low or "ask" in low
+        how_proceed = "how should i proceed" in low
+        while_undone = "remains undone" in low or "while the re-arm-and-drain" in low or "undone" in low
+        if names_lead and negated and names_park and how_proceed and while_undone:
+            return
+    assert False, (
+        "primer body has no contiguous block stating the BC must not park at, "
+        'wait on, or ask its session-lead a "how should I proceed?" prompt '
+        "after completing a work item while the re-arm-and-drain step remains "
+        "undone"
+    )

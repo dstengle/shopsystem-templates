@@ -127,6 +127,14 @@ def when_run_show(name: str, context: dict) -> None:
     )
 )
 def when_read_template_via_show(name: str, name_again: str, context: dict) -> None:
+    # The Scenario Outline variant (942895d284cf0ec7 / lead-4qy) phrases the
+    # template name as "<template>", so the rendered "the {name} template"
+    # slot captures the name wrapped in double quotes while the
+    # "shop-templates show {name_again}" slot captures it bare. Strip a
+    # single layer of surrounding double quotes before comparing so the one
+    # step serves both the unquoted READ scenarios and the quoted outline.
+    name = name.strip('"')
+    name_again = name_again.strip('"')
     # Belt-and-braces: the two name slots must agree, otherwise the
     # scenario text is internally inconsistent and any Then assertion
     # would be assertion-by-coincidence.
@@ -18266,4 +18274,138 @@ def then_impl_recompute_is_discrete_required_step(context: dict) -> None:
     assert "scenarios hash" in content, (
         "bc-implementer template's discrete recompute step must name the "
         "'scenarios hash' CLI (lead-4qy / 3a6689d8e7db94ef)"
+    )
+
+
+# =======================================================================
+# Step definitions — scenario 189 (@scenario_hash:942895d284cf0ec7 /
+# lead-4qy, folding lead-6t3): the WRITE-side parallel to the READ-mailbox
+# per-step CLI-naming scenarios (46-49). Each canonical template's
+# write-mailbox subsection must name its "shop-msg respond ..." CLI on the
+# same numbered step whose action is responding into a mailbox; and no
+# numbered step may describe responding into a mailbox with a bare action
+# verb (send/emit/post/write/reply/drop) or a bare path-shaped reference
+# (outbox/, inbox/, the response file) WITHOUT naming the respond CLI on
+# that step. ADDITIVE — does not retire/supersede 46-49 (which pin only the
+# READ direction).
+#
+# The When steps (read template, locate subsection between headings) are
+# reused from the read-side block above. Only the two Then assertions are
+# new; they are registered with parsers.re so the per-row "<respond_cli>"
+# Examples value is captured.
+# =======================================================================
+
+
+_RESPOND_BARE_VERBS = (
+    "send", "emit", "post", "write", "reply", "drop",
+)
+# Path-shaped references to the mailbox/response that, when used in place
+# of the respond CLI, are exactly the regression this scenario guards.
+_RESPOND_PATH_SHAPES = (
+    "outbox/", "inbox/", "the response file",
+)
+
+
+def _step_describes_responding_into_mailbox(step_text: str) -> bool:
+    """Discriminator: does the numbered step's action describe responding
+    into a mailbox? Symmetrical to the read-side `_step_describes_reading_*`
+    discriminators.
+
+    Fires when the step EITHER:
+      (a) names a "shop-msg respond" invocation (definitively a respond
+          action — the per-step naming check then passes trivially), OR
+      (b) carries a respond-shape signal: a bare respond verb from
+          `_RESPOND_BARE_VERBS` co-occurring with a mailbox-response target
+          (a path-shape from `_RESPOND_PATH_SHAPES`, or the response nouns
+          "respond"/"response").
+
+    A step that merely mentions a bare verb without any mailbox-response
+    target (e.g. lead-po's "note the routing question in your reply") does
+    NOT fire — its action is not responding into a mailbox.
+    """
+    lower = step_text.lower()
+    if "shop-msg respond" in step_text:
+        return True
+    has_target = any(shape in lower for shape in _RESPOND_PATH_SHAPES) or (
+        "respond" in lower or "response" in lower
+    )
+    if not has_target:
+        return False
+    for verb in _RESPOND_BARE_VERBS:
+        if re.search(rf"\b{re.escape(verb)}\b", lower):
+            return True
+    return False
+
+
+@then(
+    parsers.re(
+        r'^within that subsection, every numbered step whose action is '
+        r'responding into a mailbox names the literal substring '
+        r'"(?P<respond_cli>[^"]+)" on the same step$'
+    )
+)
+def then_subsection_respond_steps_name_cli(
+    respond_cli: str, context: dict
+) -> None:
+    subsection = context["located_subsection"]
+    heading = context["located_subsection_heading"]
+    offenders: list[str] = []
+    for number, step_text in _numbered_steps_in_subsection(subsection):
+        if not _step_describes_responding_into_mailbox(step_text):
+            continue
+        if respond_cli in step_text:
+            continue
+        offenders.append(f"step {number}: {step_text!r}")
+    assert not offenders, (
+        f"subsection {heading!r} has step(s) whose action is responding "
+        f"into a mailbox but do not name {respond_cli!r} on the same "
+        f"step:\n  " + "\n  ".join(offenders)
+    )
+
+
+@then(
+    parsers.re(
+        r'^within that subsection, no numbered step describes responding '
+        r'into a mailbox using a bare action verb . "send", "emit", '
+        r'"post", "write", "reply", "drop", or a bare path-shaped '
+        r'reference such as "outbox/", "inbox/", or "the response file" . '
+        r'without naming the literal substring "(?P<respond_cli>[^"]+)" on '
+        r'the same step$'
+    )
+)
+def then_subsection_no_bare_verb_respond(
+    respond_cli: str, context: dict
+) -> None:
+    subsection = context["located_subsection"]
+    heading = context["located_subsection_heading"]
+    offenders: list[str] = []
+    for number, step_text in _numbered_steps_in_subsection(subsection):
+        if respond_cli in step_text:
+            continue
+        lower = step_text.lower()
+        # A step is a bare-verb respond offender only when it describes
+        # responding into a mailbox (carries a mailbox-response target:
+        # a path-shape, or the respond/response nouns) AND uses a bare
+        # respond verb / path-shape WITHOUT naming the respond CLI.
+        has_target = any(shape in lower for shape in _RESPOND_PATH_SHAPES) or (
+            "respond" in lower or "response" in lower
+        )
+        if not has_target:
+            continue
+        bare_hits: list[str] = []
+        for verb in _RESPOND_BARE_VERBS:
+            if re.search(rf"\b{re.escape(verb)}\b", lower):
+                bare_hits.append(verb)
+        for shape in _RESPOND_PATH_SHAPES:
+            if shape in lower:
+                bare_hits.append(shape)
+        if bare_hits:
+            offenders.append(
+                f"step {number}: bare respond verbs/paths {bare_hits!r} in "
+                f"a step that responds into a mailbox without naming "
+                f"{respond_cli!r}; step text: {step_text!r}"
+            )
+    assert not offenders, (
+        f"subsection {heading!r} has bare-verb mailbox-respond step(s) "
+        f"missing {respond_cli!r}:\n  " + "\n  ".join(offenders)
     )

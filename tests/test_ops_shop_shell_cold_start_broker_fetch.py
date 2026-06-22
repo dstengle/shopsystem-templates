@@ -205,8 +205,79 @@ def test_cold_start_broker_fetch_fills_multiline_ca_no_donor(tmp_path):
 def test_broker_fetch_reachable_when_only_broker_address_is_known(tmp_path):
     """The broker fetch must NOT be gated on broker-token presence: the
     `agent-vault ca fetch` path is reachable when only the broker ADDRESS is
-    known (no token). The CA must still be obtained from the broker."""
-    proc = _run_cold_start(tmp_path, env_token="")
+    known (no token). The CA must still be obtained from the broker.
+
+    Executes only up to and including the broker-fetch line (stopping before
+    the unrelated downstream token fail-loud guard, which on a no-token cold
+    start would abort the region for a reason orthogonal to this property),
+    then echoes the CA to prove the fetch filled it with no token present.
+    """
+    body = _shop_shell_body()
+    lines = body.splitlines()
+    start = next(
+        i for i, ln in enumerate(lines)
+        if ln.strip().startswith("AGENT_VAULT_ADDR=")
+    )
+    # Take everything through the closing `fi` of the broker-fetch `if` block
+    # (the first `agent-vault ca fetch` and its enclosing guard), so the
+    # captured assignment is syntactically complete.
+    fetch = next(
+        i for i, ln in enumerate(lines)
+        if i >= start and "agent-vault ca fetch" in ln
+    )
+    fetch_fi = next(
+        i for i, ln in enumerate(lines)
+        if i > fetch and ln.strip() == "fi"
+    )
+    region = "\n".join(lines[start : fetch_fi + 1])
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    docker_stub = bin_dir / "docker"
+    docker_stub.write_text(
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "exec" ]]; then
+              for a in "$@"; do
+                if [[ "$a" == "fetch" ]]; then
+                  printf '%s\\n' "{_MULTILINE_CA}"
+                  exit 0
+                fi
+              done
+              exit 0
+            fi
+            exit 0
+            """
+        )
+    )
+    docker_stub.chmod(0o755)
+
+    script = (
+        "set -euo pipefail\n"
+        f'REPO_ROOT="{repo_root}"\n'
+        # NO token, NO .env — only the broker ADDRESS is known.
+        'AGENT_VAULT_TOKEN=""\n'
+        'AGENT_VAULT_ADDR="broker-addr:14322"\n'
+        'AGENT_VAULT_CA_PEM=""\n'
+        "export AGENT_VAULT_TOKEN AGENT_VAULT_ADDR AGENT_VAULT_CA_PEM\n"
+        + region
+        + "\n"
+        'echo "__CA_BEGIN__"\nprintf "%s\\n" "$AGENT_VAULT_CA_PEM"\n'
+        'echo "__CA_END__"\n'
+    )
+    env = dict(os.environ)
+    env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+    env.pop("AGENT_VAULT_VAULT", None)
+    proc = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, env=env
+    )
+    assert proc.returncode == 0, (
+        f"broker fetch region must not abort with no token. "
+        f"stderr={proc.stderr!r}"
+    )
     ca = _extract_ca(proc.stdout)
     assert ca == _MULTILINE_CA, (
         "with only the broker ADDRESS known (no token), the broker-fetch of "
@@ -242,6 +313,18 @@ def test_body_broker_fetch_runs_against_agent_vault_container(slug):
     )
 
 
+def _first_code_line(body: str, needle: str) -> int:
+    """Index of the first NON-COMMENT line containing needle; -1 if absent.
+    Comments may mention these literals in prose, so order/launch assertions
+    must look only at executable lines."""
+    for i, ln in enumerate(body.splitlines()):
+        if ln.lstrip().startswith("#"):
+            continue
+        if needle in ln:
+            return i
+    return -1
+
+
 @pytest.mark.parametrize("slug", ["shopsystem", "dummyco"])
 def test_body_broker_fetch_ordered_before_donor_inspect(slug):
     """CA sourcing orders the broker fetch before / independently of donor-BC
@@ -249,8 +332,10 @@ def test_body_broker_fetch_ordered_before_donor_inspect(slug):
     before the donor `docker inspect` so donor recovery is a lower-priority
     fallback, not required for the cold-start CA."""
     body = _shop_shell_body(slug)
-    fetch_idx = body.index("agent-vault ca fetch")
-    inspect_idx = body.index("docker inspect")
+    fetch_idx = _first_code_line(body, "agent-vault ca fetch")
+    inspect_idx = _first_code_line(body, "docker inspect")
+    assert fetch_idx != -1, "no `agent-vault ca fetch` code line"
+    assert inspect_idx != -1, "no `docker inspect` code line"
     assert fetch_idx < inspect_idx, (
         "the broker fetch (`agent-vault ca fetch`) must be ordered before the "
         "donor-BC recovery (`docker inspect`) so the CA is obtained on a cold "
@@ -264,8 +349,10 @@ def test_body_passes_ca_pem_on_docker_run(slug):
     """The resulting CA material is passed into the launched container by
     referencing AGENT_VAULT_CA_PEM on the `docker run` invocation."""
     body = _shop_shell_body(slug)
-    run_idx = body.index("docker run")
-    tail = body[run_idx:]
+    lines = body.splitlines()
+    run_idx = _first_code_line(body, "docker run")
+    assert run_idx != -1, "no `docker run` launch line"
+    tail = "\n".join(lines[run_idx:])
     assert "AGENT_VAULT_CA_PEM" in tail, (
         "AGENT_VAULT_CA_PEM must be referenced on the `docker run` invocation."
     )

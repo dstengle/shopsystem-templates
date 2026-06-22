@@ -14336,8 +14336,13 @@ def _shop_shell_lines(rel: str, context: dict) -> list[str]:
 
 def _docker_run_index(lines: list[str]) -> int:
     """Index of the line that begins the `docker run` invocation launching
-    claude (the `exec docker run` / `docker run` line). -1 if absent."""
+    claude (the `exec docker run` / `docker run` line). -1 if absent.
+
+    Skips comment lines so an incidental `docker run` mention in a comment
+    (e.g. explanatory prose) is never mistaken for the launch line."""
     for idx, ln in enumerate(lines):
+        if ln.lstrip().startswith("#"):
+            continue
         if "docker run" in ln:
             return idx
     return -1
@@ -14500,18 +14505,22 @@ def then_body_excludes_four(
 
 
 def _docker_inspect_index(lines: list[str]) -> int:
-    """Index of the first line referencing donor-BC recovery (`docker
-    inspect`). -1 if absent."""
+    """Index of the first CODE line referencing donor-BC recovery (`docker
+    inspect`). Skips comment lines. -1 if absent."""
     for idx, ln in enumerate(lines):
+        if ln.lstrip().startswith("#"):
+            continue
         if "docker inspect" in ln:
             return idx
     return -1
 
 
 def _ca_fetch_index(lines: list[str]) -> int:
-    """Index of the first line containing the literal `agent-vault ca fetch`.
-    -1 if absent."""
+    """Index of the first CODE line containing the literal `agent-vault ca
+    fetch`. Skips comment lines. -1 if absent."""
     for idx, ln in enumerate(lines):
+        if ln.lstrip().startswith("#"):
+            continue
         if "agent-vault ca fetch" in ln:
             return idx
     return -1

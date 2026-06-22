@@ -431,6 +431,77 @@ def test_dockerfile_shell_is_brokered_runnable_claude_and_ca(tmp_path):
     ), "135: a CMD/ENTRYPOINT must reference bash"
 
 
+def test_dockerfile_shell_installs_framework_clis_from_vcs_pins(tmp_path):
+    # lead-30fs (empty-scenario request_bugfix): the framework-CLI install step
+    # must NOT use bare `pipx install <name>` against PyPI — shop-msg /
+    # scenarios / shop-templates are NOT published to public PyPI, so that form
+    # makes `docker build` fail at the CLI-install step with "No matching
+    # distribution found for shop-msg". Install each CLI from its PUBLIC
+    # git+https source pinned to a RELEASED TAG (the scenario-129
+    # @scenario_hash:7568d14e0a13eca4 VCS-pin shape), and KEEP all three
+    # literal substrings present so scenario 135's literal-substring assertion
+    # (@scenario_hash:6f53ce53c10e3c09) is not weakened.
+    raw = (
+        Path(_SRC)
+        / "shop_templates"
+        / "templates"
+        / "ops"
+        / "Dockerfile.shopsystem-shell"
+    ).read_text()
+    body = raw.replace("{{OPS_SLUG}}", "dummyco")
+
+    # The three PUBLIC source repos, each VCS-pinned to a released tag.
+    pinned_specs = [
+        "git+https://github.com/dstengle/shopsystem-messaging.git@v0.4.0",
+        "git+https://github.com/dstengle/shopsystem-scenarios.git@v0.2.0",
+        "git+https://github.com/dstengle/shopsystem-templates.git@v0.18.0",
+    ]
+    for spec in pinned_specs:
+        assert spec in body, (
+            f"CLI-install step must pin the VCS source {spec!r} (released tag, "
+            "not a moving branch)"
+        )
+
+    # No bare unpublished-PyPI install of the three CLIs (the broken 0.18.0
+    # form). A bare `pipx install shop-msg` / `pip install scenarios` etc. is
+    # the form that fails docker build; the git+https pin replaces it.
+    import re as _re2
+
+    for name in ("shop-msg", "scenarios", "shop-templates"):
+        bare = _re2.search(
+            rf"\bpip(?:x)?\s+install\s+(?:[^\n]*\s)?{_re2.escape(name)}\b(?![\w./@-])",
+            body,
+        )
+        # A match is only a violation if it is NOT immediately part of a
+        # git+https spec; the git+https specs use the REPO names, never the
+        # bare CLI names, so any bare-name install token is the broken form.
+        assert bare is None, (
+            f"must not install {name!r} as a bare PyPI package (not on PyPI); "
+            f"offending text: {bare.group(0)!r}"
+        )
+
+    # The pin must be a RELEASED tag, never a moving branch (no @main / @master
+    # / @develop on the framework-CLI specs).
+    for moving in ("@main", "@master", "@develop", "@HEAD"):
+        for repo in (
+            "shopsystem-messaging",
+            "shopsystem-scenarios",
+            "shopsystem-templates",
+        ):
+            assert f"{repo}.git{moving}" not in body, (
+                f"CLI-install pin for {repo} must be a released tag, not {moving}"
+            )
+
+    # Scenario-135 literal-substring invariant: ALL THREE app names remain
+    # present as literal substrings (the dispatch's explicit requirement — do
+    # not let the repo-named git URLs erase shop-msg / shop-templates).
+    for cli in ("shop-msg", "scenarios", "shop-templates"):
+        assert cli in body, (
+            f"135 literal-substring set must keep {cli!r} present in the "
+            "rendered Dockerfile"
+        )
+
+
 # -----------------------------------------------------------------------
 # (2) Folded-in proven improvements (slug-scoped)
 # -----------------------------------------------------------------------

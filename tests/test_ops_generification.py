@@ -334,6 +334,103 @@ def test_dummyco_dockerfile_base_is_build_arg_overridable_and_public(tmp_path):
     ), "Dockerfile must have a CMD/ENTRYPOINT referencing bash"
 
 
+def test_dockerfile_shell_is_brokered_runnable_claude_and_ca(tmp_path):
+    # lead-hguw (empty-scenario request_bugfix): the default shop-shell image
+    # must be brokered-runnable OUT OF THE BOX, additive to scenario 135
+    # (@scenario_hash:6f53ce53c10e3c09). The shop-shell SCRIPT already delivers
+    # AGENT_VAULT_CA_PEM into the container env (-e AGENT_VAULT_CA_PEM,
+    # HTTPS_PROXY=http://agent-vault:14322); the IMAGE must (1) carry `claude`
+    # on PATH and (2) CONSUME AGENT_VAULT_CA_PEM into the system trust store
+    # at container START (before claude's first outbound TLS to the :14322
+    # MITM proxy), so claude's TLS validates against the broker CA.
+    #
+    # Read the canonical template from THIS worktree's src/ (the file under
+    # change), then apply the same slug substitution render_ops_template does,
+    # so the assertion pins the worktree source rather than an ambiently
+    # installed shop_templates copy.
+    raw = (
+        Path(_SRC)
+        / "shop_templates"
+        / "templates"
+        / "ops"
+        / "Dockerfile.shopsystem-shell"
+    ).read_text()
+    body = raw.replace("{{OPS_SLUG}}", "dummyco")
+    low = body.lower()
+
+    # (1) Claude Code install step is present -> `claude` lands on PATH.
+    assert "claude" in low, (
+        "Dockerfile must install Claude Code so `claude` is on PATH for the "
+        "brokered lead agent"
+    )
+
+    # (2) CA-materialization: writes AGENT_VAULT_CA_PEM to a trust-anchor path
+    # AND runs update-ca-certificates so the broker CA is trusted.
+    assert "AGENT_VAULT_CA_PEM" in body, (
+        "Dockerfile must consume AGENT_VAULT_CA_PEM (delivered into container "
+        "env by the shop-shell script) into the trust store"
+    )
+    assert "update-ca-certificates" in low, (
+        "Dockerfile must run update-ca-certificates to materialize the broker "
+        "CA into the system trust store"
+    )
+    # The PEM must be written under a trust-anchor directory consumed by
+    # update-ca-certificates.
+    assert "/usr/local/share/ca-certificates" in body or "/etc/ssl/certs" in body, (
+        "Dockerfile must write AGENT_VAULT_CA_PEM to a CA trust-anchor path"
+    )
+
+    # The CA materialization must run at container START, before claude's
+    # first TLS — i.e. an ENTRYPOINT that materializes the CA then execs the
+    # CMD/args. An /etc/profile.d-only hook fires only for login shells; an
+    # ENTRYPOINT is the mechanism that runs unconditionally before CMD.
+    assert any(
+        ln.lstrip().startswith("ENTRYPOINT") for ln in body.splitlines()
+    ), (
+        "Dockerfile must declare an ENTRYPOINT that materializes the CA at "
+        "container start, before claude's first outbound TLS"
+    )
+
+    # ---- Guard EVERY scenario-135 (@6f53ce53c10e3c09) invariant survives ----
+    # ARG SHELL_BASE_IMAGE with a publicly-pullable, NON-dstengle default.
+    arg_lines = [
+        ln.strip()
+        for ln in body.splitlines()
+        if ln.lstrip().startswith("ARG") and "SHELL_BASE_IMAGE" in ln
+    ]
+    assert arg_lines, "135: Dockerfile must declare ARG SHELL_BASE_IMAGE"
+    default = arg_lines[0].split("SHELL_BASE_IMAGE=", 1)[1].split()[0].strip()
+    assert default and "dstengle" not in default, (
+        f"135: ARG SHELL_BASE_IMAGE default must be public non-dstengle: {default!r}"
+    )
+    # FROM references the build arg.
+    assert any(
+        ln.lstrip().startswith("FROM") and "${SHELL_BASE_IMAGE}" in ln
+        for ln in body.splitlines()
+    ), "135: FROM must reference ${SHELL_BASE_IMAGE}"
+    # No docker-ce-cli apt layer.
+    assert "docker-ce-cli" not in body, "135: must not add a docker-ce-cli layer"
+    # Final image runs as a non-root USER (the last USER instruction).
+    user_targets = [
+        ln.split()[1]
+        for ln in body.splitlines()
+        if ln.lstrip().startswith("USER") and len(ln.split()) > 1
+    ]
+    assert user_targets, "135: Dockerfile must set a USER"
+    assert user_targets[-1] not in ("root", "0"), (
+        f"135: final image must run as non-root USER, got {user_targets[-1]!r}"
+    )
+    # At least one framework CLI present.
+    assert any(
+        cli in body for cli in ("shop-msg", "scenarios", "shop-templates")
+    ), "135: Dockerfile must install a framework CLI"
+    # CMD/ENTRYPOINT references bash (bash remains the effective shell).
+    assert any(
+        ("CMD" in ln or "ENTRYPOINT" in ln) and "bash" in ln
+        for ln in body.splitlines()
+    ), "135: a CMD/ENTRYPOINT must reference bash"
+
+
 # -----------------------------------------------------------------------
 # (2) Folded-in proven improvements (slug-scoped)
 # -----------------------------------------------------------------------

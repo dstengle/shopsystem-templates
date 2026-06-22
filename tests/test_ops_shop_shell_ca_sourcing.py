@@ -120,7 +120,10 @@ def _run_region(
     av_stub.chmod(0o755)
 
     script = (
-        "set -uo pipefail\n"
+        # Match the rendered shop-shell's own shell options exactly, so the
+        # extracted region is exercised under the same set -e / pipefail
+        # discipline production runs it under.
+        "set -euo pipefail\n"
         f'REPO_ROOT="{repo_root}"\n'
         f'AGENT_VAULT_TOKEN="{env_token}"\n'
         f'AGENT_VAULT_CA_PEM="{env_ca}"\n'

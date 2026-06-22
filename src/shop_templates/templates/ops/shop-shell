@@ -67,16 +67,30 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
   set -a; source "$REPO_ROOT/.env"; set +a
 fi
 
-# (2) recover from a running bc-* container (slug-derived grep) if still unset.
-if [[ -z "${AGENT_VAULT_TOKEN:-}" ]]; then
+# (2) recover from a running bc-* container (slug-derived grep) and BACKFILL
+# any AGENT_VAULT_* field source (1) left empty.
+#
+# Donor-recovery is DECOUPLED from token presence (lead-7gvm, conformance to
+# scenario 183 @scenario_hash:2adc62a25c401e4b): it must fire when ANY of the
+# broker coordinates is still empty — not only when the TOKEN is absent. The
+# common operator state is a .env that carries the TOKEN but NOT the multi-line
+# CA PEM (shop-shell's .env parser captures only the first line of a multi-line
+# value, so a CA PEM cannot survive there). Gating donor-recovery on
+# token-absence skipped it in exactly that state, launching claude with an
+# EMPTY CA and silently failing TLS to the :14322 broker proxy. Donor-recovery
+# is the intended and only working CA source, so it runs whenever the CA (or
+# ADDR/VAULT) is empty too. Recovery fills ONLY the empty fields — any value
+# .env already provided (e.g. the token) is PRESERVED, never clobbered.
+if [[ -z "${AGENT_VAULT_TOKEN:-}" || -z "${AGENT_VAULT_CA_PEM:-}" \
+      || -z "${AGENT_VAULT_ADDR:-}" || -z "${AGENT_VAULT_VAULT:-}" ]]; then
   BC_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '^{{OPS_SLUG}}-bc-|^bc-' | head -n1 || true)"
   if [[ -n "$BC_CONTAINER" ]]; then
     while IFS= read -r kv; do
       case "$kv" in
-        AGENT_VAULT_ADDR=*)   AGENT_VAULT_ADDR="${kv#AGENT_VAULT_ADDR=}";;
-        AGENT_VAULT_TOKEN=*)  AGENT_VAULT_TOKEN="${kv#AGENT_VAULT_TOKEN=}";;
-        AGENT_VAULT_VAULT=*)  AGENT_VAULT_VAULT="${kv#AGENT_VAULT_VAULT=}";;
-        AGENT_VAULT_CA_PEM=*) AGENT_VAULT_CA_PEM="${kv#AGENT_VAULT_CA_PEM=}";;
+        AGENT_VAULT_ADDR=*)   [[ -z "${AGENT_VAULT_ADDR:-}" ]]  && AGENT_VAULT_ADDR="${kv#AGENT_VAULT_ADDR=}";;
+        AGENT_VAULT_TOKEN=*)  [[ -z "${AGENT_VAULT_TOKEN:-}" ]] && AGENT_VAULT_TOKEN="${kv#AGENT_VAULT_TOKEN=}";;
+        AGENT_VAULT_VAULT=*)  [[ -z "${AGENT_VAULT_VAULT:-}" ]] && AGENT_VAULT_VAULT="${kv#AGENT_VAULT_VAULT=}";;
+        AGENT_VAULT_CA_PEM=*) [[ -z "${AGENT_VAULT_CA_PEM:-}" ]] && AGENT_VAULT_CA_PEM="${kv#AGENT_VAULT_CA_PEM=}";;
       esac
     done < <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$BC_CONTAINER" 2>/dev/null || true)
   fi

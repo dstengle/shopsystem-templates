@@ -24,6 +24,8 @@ live broker is validated by the lead's dummyco spike.
 """
 import re
 
+import yaml
+
 from shop_templates.cli import render_ops_template
 
 # The real agent-vault 0.32.0 top-level verbs (verified against the installed
@@ -231,6 +233,54 @@ def test_compose_agent_vault_healthcheck_is_sh_compatible():
     # an sh-shipped probe: nc or wget
     assert ("nc" in body and "14321" in body) or "wget" in body, (
         "compose agent-vault healthcheck must use an sh-compatible nc/wget probe"
+    )
+
+
+def _agent_vault_named_volume_mount(slug: str):
+    """Return the agent-vault service's named-volume mount dict (the entry whose
+    source is the ``<slug>-agent-vault-data`` named volume) from the rendered,
+    parsed compose document."""
+    doc = yaml.safe_load(_compose(slug))
+    svc = doc["services"]["agent-vault"]
+    named_source = f"{slug}-agent-vault-data"
+    for mount in svc["volumes"]:
+        if isinstance(mount, dict) and mount.get("source") == named_source:
+            return mount
+    raise AssertionError(
+        f"agent-vault service has no named-volume mount with source "
+        f"{named_source!r}; volumes={svc.get('volumes')!r}"
+    )
+
+
+def test_compose_agent_vault_named_volume_mounts_at_data():
+    """P0 credential-loss regression (lead-kznj): the agent-vault named volume
+    must mount at target ``/data`` — the infisical/agent-vault:latest declared
+    storage path (VOLUME /data, HOME=/data, CA at /data/agent-vault-ca.pem).
+
+    The 0.16.0 naming refactor regressed the target to ``/vault/file``, an
+    unused path, so the broker wrote its real vault to the unmounted image
+    default ``/data`` — an ephemeral anonymous volume destroyed on
+    recreate/restart, losing all provisioned credentials."""
+    mount = _agent_vault_named_volume_mount("dummyco")
+    assert mount["target"] == "/data", (
+        "agent-vault named volume must mount at /data (the image storage path); "
+        f"got target {mount.get('target')!r}"
+    )
+    assert mount["target"] != "/vault/file", (
+        "target /vault/file is the regressed, unmounted path — the persistent "
+        "vault is lost on recreate when the named volume is not at /data"
+    )
+
+
+def test_compose_agent_vault_named_volume_source_and_type_intact():
+    """Scenario 170 (@scenario_hash:8fcf898fdeebc6be) pins the volume NAME
+    ({{OPS_SLUG}}-agent-vault-data) and the long-form ``type: volume`` entry —
+    the target correction must leave both untouched."""
+    mount = _agent_vault_named_volume_mount("dummyco")
+    assert mount["type"] == "volume", "long-form `type: volume` entry must be preserved"
+    assert mount["source"] == "dummyco-agent-vault-data", (
+        "named-volume source ({{OPS_SLUG}}-agent-vault-data) must be unchanged "
+        "(scenario 170 pins the volume name)"
     )
 
 

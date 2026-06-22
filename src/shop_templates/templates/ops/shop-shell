@@ -163,8 +163,8 @@ fi
 
 # Route outbound traffic through the broker proxy so it can inject the real
 # secrets on the wire.
-HTTPS_PROXY="${HTTPS_PROXY:-http://agent-vault:14322}"
-HTTP_PROXY="${HTTP_PROXY:-http://agent-vault:14322}"
+HTTPS_PROXY="${HTTPS_PROXY:-http://${AGENT_VAULT_TOKEN}:${AGENT_VAULT_VAULT}@agent-vault:14322}"
+HTTP_PROXY="${HTTP_PROXY:-http://${AGENT_VAULT_TOKEN}:${AGENT_VAULT_VAULT}@agent-vault:14322}"
 export HTTPS_PROXY HTTP_PROXY
 
 # Forward the git IDENTITY (name+email — not a secret) from the host git

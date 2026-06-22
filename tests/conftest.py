@@ -14336,8 +14336,13 @@ def _shop_shell_lines(rel: str, context: dict) -> list[str]:
 
 def _docker_run_index(lines: list[str]) -> int:
     """Index of the line that begins the `docker run` invocation launching
-    claude (the `exec docker run` / `docker run` line). -1 if absent."""
+    claude (the `exec docker run` / `docker run` line). -1 if absent.
+
+    Skips comment lines so an incidental `docker run` mention in a comment
+    (e.g. explanatory prose) is never mistaken for the launch line."""
     for idx, ln in enumerate(lines):
+        if ln.lstrip().startswith("#"):
+            continue
         if "docker run" in ln:
             return idx
     return -1
@@ -14483,6 +14488,313 @@ def then_body_excludes_four(
         assert needle not in body, (
             f"{rel}: expected NOT to contain literal substring {needle!r}"
         )
+
+
+# -- Scenario 513cf8ea1a8ff4e9 (shop-shell COLD-START broker-fetch) ------
+#
+# Additive to scenarios 2adc62a25c401e4b (183, OR-permit + fail-loud) and
+# 5335c39eb06f7493 (172, broker wiring). The tightening (lead-4him): on a
+# fully-cold start — the agent-vault broker container running but ZERO BC
+# containers present — the bootstrap-rendered bin/shop-shell must OBTAIN the CA
+# FROM THE BROKER via the literal `agent-vault ca fetch` executed against the
+# agent-vault container, INDEPENDENT of any BC donor. The multi-line PEM is
+# captured intact (no single-line truncation), the fetch is not gated on
+# broker-token presence, the broker fetch is ordered before donor-BC recovery
+# (`docker inspect`, demoted to a lower-priority fallback), and the cold-start
+# path reaches the `docker run` launch with a non-empty AGENT_VAULT_CA_PEM.
+
+
+def _docker_inspect_index(lines: list[str]) -> int:
+    """Index of the first CODE line referencing donor-BC recovery (`docker
+    inspect`). Skips comment lines. -1 if absent."""
+    for idx, ln in enumerate(lines):
+        if ln.lstrip().startswith("#"):
+            continue
+        if "docker inspect" in ln:
+            return idx
+    return -1
+
+
+def _ca_fetch_index(lines: list[str]) -> int:
+    """Index of the first CODE line containing the literal `agent-vault ca
+    fetch`. Skips comment lines. -1 if absent."""
+    for idx, ln in enumerate(lines):
+        if ln.lstrip().startswith("#"):
+            continue
+        if "agent-vault ca fetch" in ln:
+            return idx
+    return -1
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)", on the path taken when '
+        r'"(?P<var>[^"]+)" is empty or unset, sources the agent-vault CA from '
+        r'the running broker by the literal substring "(?P<lit>[^"]+)" '
+        r'executed against the agent-vault container, and this broker-fetch '
+        r'path does not depend on any BC container being present'
+    )
+)
+def then_body_broker_fetch_ca_against_av_container(
+    rel: str, var: str, lit: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    # The CA is sourced from the broker by the literal `agent-vault ca fetch`.
+    assert lit in body, f"{rel}: missing literal {lit!r}"
+    # The fetch must run AGAINST the agent-vault container (a docker-exec into
+    # the slug-scoped {{OPS_SLUG}}-agent-vault container), so it does not depend
+    # on any BC donor container being present. The slug is product-scoped; we
+    # accept any `docker exec ... <slug>-agent-vault ... agent-vault ca fetch`.
+    assert re.search(
+        r"docker exec[^\n]*-agent-vault[^\n]*" + re.escape(lit),
+        body,
+    ), (
+        f"{rel}: the {lit!r} broker fetch must execute via `docker exec` into "
+        f"the *-agent-vault container, independent of any BC container"
+    )
+    # It must sit on the empty/unset-CA path.
+    lines = body.splitlines()
+    fetch = _ca_fetch_index(lines)
+    guard_idxs = [
+        idx
+        for idx, ln in enumerate(lines[:fetch])
+        if var in ln
+        and ('-z "' in ln or "-z " in ln or "unset" in ln or "empty" in ln)
+        and ("if " in ln or "[[" in ln or "[ " in ln)
+    ]
+    assert guard_idxs, (
+        f"{rel}: the {lit!r} broker fetch is not on an empty/unset {var} path"
+    )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" captures the multi-line PEM returned '
+        r'by that broker fetch intact into the environment variable '
+        r'"(?P<var>[^"]+)" — the capture is not truncated to a single '
+        r'line — and the resulting CA material is passed into the '
+        r'launched container by referencing "(?P=var)" on the '
+        r'"(?P<cmd>docker run)" invocation'
+    )
+)
+def then_body_captures_multiline_ca_and_passes_on_run(
+    rel: str, var: str, cmd: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    lines = body.splitlines()
+    fetch = _ca_fetch_index(lines)
+    assert fetch != -1, f"{rel}: no `agent-vault ca fetch`"
+    # The fetch output must be captured into the CA env var. A command
+    # substitution `VAR="$(... agent-vault ca fetch ...)"` preserves a
+    # multi-line value intact; a `read -r line` / `| head -n1` / `.env`-style
+    # single-line capture would truncate it. Assert the fetch is captured via
+    # command substitution into the CA var, not piped through a line-truncating
+    # filter.
+    fetch_line = lines[fetch]
+    assert var in fetch_line and "$(" in fetch_line, (
+        f"{rel}: the broker fetch must be captured into {var} via command "
+        f"substitution (preserving the multi-line PEM intact). Got: "
+        f"{fetch_line!r}"
+    )
+    for bad in ("head -n1", "head -1", "head --lines=1", "read -r"):
+        assert bad not in fetch_line, (
+            f"{rel}: the broker fetch capture truncates the multi-line PEM "
+            f"via {bad!r}: {fetch_line!r}"
+        )
+    # And the CA material reaches the launched container on the `docker run`.
+    dr = _docker_run_index(lines)
+    assert dr != -1, f"{rel}: no {cmd!r} invocation"
+    invocation = [lines[dr]]
+    j = dr
+    while lines[j].rstrip().endswith("\\") and j + 1 < len(lines):
+        j += 1
+        invocation.append(lines[j])
+    assert var in "\n".join(invocation), (
+        f"{rel}: {cmd!r} does not reference {var!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" does not gate the broker-fetch of the '
+        r'CA on the presence of the broker token: the "(?P<lit>[^"]+)" path '
+        r'is reachable even when only the broker address is known'
+    )
+)
+def then_body_broker_fetch_not_token_gated(
+    rel: str, lit: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    lines = body.splitlines()
+    fetch = _ca_fetch_index(lines)
+    assert fetch != -1, f"{rel}: no {lit!r}"
+    # Walk outward from the fetch line, collecting the enclosing `if`/`[[`
+    # guard CONDITIONS (the lines that open the blocks the fetch sits inside).
+    # NONE of those conditions may predicate on AGENT_VAULT_TOKEN — the broker
+    # fetch must be reachable when only the broker ADDRESS is known.
+    depth = 0
+    enclosing_conditions: list[str] = []
+    for ln in reversed(lines[:fetch]):
+        stripped = ln.strip()
+        if stripped == "fi":
+            depth += 1
+        elif stripped.startswith("if ") or stripped == "if":
+            if depth == 0:
+                enclosing_conditions.append(stripped)
+            else:
+                depth -= 1
+    for cond in enclosing_conditions:
+        assert "AGENT_VAULT_TOKEN" not in cond, (
+            f"{rel}: the {lit!r} broker fetch is gated on the broker token "
+            f"by an enclosing guard condition: {cond!r}. It must be reachable "
+            f"when only the broker address is known."
+        )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" orders CA sourcing so that the broker '
+        r'fetch is attempted before, or independently of, any donor-BC '
+        r'recovery that inspects existing containers — donor-BC recovery '
+        r'\(the literal substring "(?P<inspect>[^"]+)"\) is present only as a '
+        r'lower-priority fallback and is not required for the CA to be '
+        r'obtained on a cold start'
+    )
+)
+def then_body_broker_fetch_before_donor_inspect(
+    rel: str, inspect: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    lines = body.splitlines()
+    fetch = _ca_fetch_index(lines)
+    insp = _docker_inspect_index(lines)
+    assert fetch != -1, f"{rel}: no `agent-vault ca fetch`"
+    assert insp != -1, f"{rel}: no {inspect!r} donor recovery"
+    assert fetch < insp, (
+        f"{rel}: the broker fetch (`agent-vault ca fetch`, line {fetch}) must "
+        f"be ordered BEFORE the donor-BC recovery ({inspect!r}, line {insp}) "
+        f"so the CA is obtained on a cold start without a donor; donor "
+        f"recovery is only a lower-priority fallback."
+    )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" reaches the "(?P<cmd>docker run)" '
+        r'invocation that launches the brokered shell with a non-empty '
+        r'"(?P<var>[^"]+)" on the cold-start path where the broker is '
+        r'reachable and zero BC containers are present, so a fresh operator '
+        r'gets a working shell with a trusted CA and no donor BC'
+    )
+)
+def then_body_cold_start_reaches_run_with_nonempty_ca(
+    rel: str, cmd: str, var: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    # Behavioral proof: execute the rendered CA-sourcing region on a COLD start
+    # (agent-vault container reachable via `docker exec ... agent-vault ca
+    # fetch`, ZERO bc-* donor containers, donor `docker inspect` empty) and
+    # assert the region fills the CA from the broker, intact, and succeeds.
+    import os as _os
+    import subprocess as _sp
+    import tempfile as _tf
+    import textwrap as _tw
+
+    lines = body.splitlines()
+    start = next(
+        i for i, ln in enumerate(lines)
+        if ln.strip().startswith("AGENT_VAULT_ADDR=")
+    )
+    end = next(
+        i for i, ln in enumerate(lines)
+        if i > start and ln.strip().startswith("HTTPS_PROXY=")
+    )
+    region = "\n".join(lines[start:end])
+
+    multiline_ca = (
+        "-----BEGIN CERTIFICATE-----\n"
+        "COLDSTARTline1\nCOLDSTARTline2\nCOLDSTARTline3\n"
+        "-----END CERTIFICATE-----"
+    )
+    # Derive the slug from the agent-vault container name baked into the
+    # rendered body (the `docker ps` grep names `<slug>-agent-vault`).
+    m_slug = re.search(r"\^([A-Za-z0-9][A-Za-z0-9_-]*)-agent-vault\$", body)
+    slug = m_slug.group(1) if m_slug else "dummyco"
+    with _tf.TemporaryDirectory() as td:
+        td_p = Path(td)
+        bin_dir = td_p / "bin"
+        bin_dir.mkdir()
+        repo_root = td_p / "repo"
+        repo_root.mkdir()
+        docker_stub = bin_dir / "docker"
+        docker_stub.write_text(
+            _tw.dedent(
+                f"""\
+                #!/usr/bin/env bash
+                if [[ "$1" == "compose" ]]; then exit 0; fi
+                if [[ "$1" == "ps" ]]; then
+                  echo "{slug}-postgres"
+                  echo "{slug}-agent-vault"
+                  exit 0
+                fi
+                if [[ "$1" == "exec" ]]; then
+                  for a in "$@"; do
+                    if [[ "$a" == "fetch" ]]; then
+                      printf '%s\\n' "{multiline_ca}"
+                      exit 0
+                    fi
+                  done
+                  exit 0
+                fi
+                if [[ "$1" == "inspect" ]]; then exit 0; fi
+                exit 0
+                """
+            )
+        )
+        docker_stub.chmod(0o755)
+        (bin_dir / "agent-vault").write_text("#!/usr/bin/env bash\nexit 1\n")
+        (bin_dir / "agent-vault").chmod(0o755)
+        (bin_dir / "agent-vault-check").write_text(
+            "#!/usr/bin/env bash\nexit 0\n"
+        )
+        (bin_dir / "agent-vault-check").chmod(0o755)
+
+        script = (
+            "set -euo pipefail\n"
+            f'REPO_ROOT="{repo_root}"\n'
+            'AGENT_VAULT_TOKEN="cold-token"\n'
+            'AGENT_VAULT_ADDR="broker-addr:14322"\n'
+            'AGENT_VAULT_CA_PEM=""\n'
+            "export AGENT_VAULT_TOKEN AGENT_VAULT_ADDR AGENT_VAULT_CA_PEM\n"
+            + region
+            + '\necho "__CA_B__"\n'
+            + 'printf "%s\\n" "$AGENT_VAULT_CA_PEM"\necho "__CA_E__"\n'
+        )
+        env = dict(_os.environ)
+        env["PATH"] = str(bin_dir) + _os.pathsep + env.get("PATH", "")
+        env.pop("AGENT_VAULT_VAULT", None)
+        proc = _sp.run(
+            ["bash", "-c", script], capture_output=True, text=True, env=env
+        )
+
+    assert proc.returncode == 0, (
+        f"{rel}: cold-start CA-sourcing must reach the launch (not fail loud) "
+        f"with a non-empty {var}. stdout={proc.stdout!r} "
+        f"stderr={proc.stderr!r}"
+    )
+    out = proc.stdout
+    captured = out.split("__CA_B__\n", 1)[-1].split("__CA_E__", 1)[0].rstrip(
+        "\n"
+    )
+    assert captured == multiline_ca, (
+        f"{rel}: cold-start path must reach the launch with a non-empty, "
+        f"intact (multi-line) {var}. Got: {captured!r}"
+    )
 
 
 # -- Scenario abe57dcb4d6f6554 (host port crc32, collision-free) --------

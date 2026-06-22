@@ -48,13 +48,16 @@ fi
 # -----------------------------------------------------------------------
 # Broker credential acquisition (ADR-028 zero-host-coupling).
 #
-# Source the agent-vault broker coordinates from one of two places, in
+# Source the agent-vault broker coordinates from these places, in priority
 # order:
-#   (1) a repo-local .env carrying AGENT_VAULT_* keys; else
-#   (2) recovered from a running bc-* container's environment via
-#       `docker inspect` (the bc-launcher containers already hold them).
-# If neither yields a broker TOKEN, ERROR OUT — there is no host-cred
-# fallback.
+#   (1) a repo-local .env carrying AGENT_VAULT_* keys; then
+#   (2) the agent-vault BROKER ITSELF for the MITM CA, via
+#       `agent-vault ca fetch` executed against the {{OPS_SLUG}}-agent-vault
+#       container (cold-start primary CA source — see below); then
+#   (3) recovered from a running bc-* donor container's environment via
+#       `docker inspect` (the bc-launcher containers already hold them) — a
+#       LOWER-PRIORITY fallback, not required for the CA on a cold start.
+# If none yields a broker TOKEN, ERROR OUT — there is no host-cred fallback.
 # -----------------------------------------------------------------------
 AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-}"
 AGENT_VAULT_TOKEN="${AGENT_VAULT_TOKEN:-}"
@@ -67,20 +70,44 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
   set -a; source "$REPO_ROOT/.env"; set +a
 fi
 
-# (2) recover from a running bc-* container (slug-derived grep) and BACKFILL
-# any AGENT_VAULT_* field source (1) left empty.
+# (2) COLD-START broker fetch of the MITM CA (scenario 192
+# @scenario_hash:513cf8ea1a8ff4e9). On a fully-cold start — the agent-vault
+# broker container running but ZERO BC containers present — there is no donor
+# to recover the CA from, so the warm-path donor recovery below (step 3) yields
+# NOTHING and the shell would launch with an empty CA (silent TLS failure to
+# the :14322 proxy). Source the CA DIRECTLY FROM THE BROKER instead: the
+# {{OPS_SLUG}}-agent-vault container ships the `agent-vault` CLI, and
+# `agent-vault ca fetch` prints the root CA PEM (same mechanism
+# agent-vault-provision uses to write agent-vault-ca.pem). We exec it INSIDE
+# the broker container so the fetch depends only on the broker being up — NOT
+# on any BC container being present.
+#
+# The fetch is NOT gated on broker-token presence: it is reachable whenever the
+# CA is still empty, so an operator who knows only the broker ADDRESS still gets
+# a CA. The multi-line PEM is captured INTACT via command substitution (no
+# `head`/`read` single-line truncation) so the full certificate survives into
+# AGENT_VAULT_CA_PEM and is passed to `docker run` below. This broker fetch is
+# ordered BEFORE the donor-BC recovery (step 3), which is demoted to a
+# lower-priority fallback for the remaining coordinates.
+if [[ -z "${AGENT_VAULT_CA_PEM:-}" ]]; then
+  AGENT_VAULT_CA_PEM="$(docker exec -i {{OPS_SLUG}}-agent-vault agent-vault ca fetch 2>/dev/null || true)"
+fi
+
+# (3) recover from a running bc-* container (slug-derived grep) and BACKFILL
+# any AGENT_VAULT_* field the steps above left empty.
 #
 # Donor-recovery is DECOUPLED from token presence (lead-7gvm, conformance to
 # scenario 183 @scenario_hash:2adc62a25c401e4b): it must fire when ANY of the
 # broker coordinates is still empty — not only when the TOKEN is absent. The
 # common operator state is a .env that carries the TOKEN but NOT the multi-line
 # CA PEM (shop-shell's .env parser captures only the first line of a multi-line
-# value, so a CA PEM cannot survive there). Gating donor-recovery on
-# token-absence skipped it in exactly that state, launching claude with an
-# EMPTY CA and silently failing TLS to the :14322 broker proxy. Donor-recovery
-# is the intended and only working CA source, so it runs whenever the CA (or
-# ADDR/VAULT) is empty too. Recovery fills ONLY the empty fields — any value
-# .env already provided (e.g. the token) is PRESERVED, never clobbered.
+# value, so a CA PEM cannot survive there). On a cold start the CA is already
+# filled by the broker fetch (step 2); this donor recovery is a LOWER-PRIORITY
+# fallback (scenario 192) and is no longer the only working CA source. It still
+# runs whenever the CA (or ADDR/VAULT/TOKEN) is empty too, e.g. when a warm BC
+# donor is the only place a TOKEN can be recovered from. Recovery fills ONLY the
+# empty fields — any value already obtained (e.g. the broker-fetched CA, or the
+# .env token) is PRESERVED, never clobbered.
 if [[ -z "${AGENT_VAULT_TOKEN:-}" || -z "${AGENT_VAULT_CA_PEM:-}" \
       || -z "${AGENT_VAULT_ADDR:-}" || -z "${AGENT_VAULT_VAULT:-}" ]]; then
   BC_CONTAINER="$(docker ps --format '{{.Names}}' | grep -E '^{{OPS_SLUG}}-bc-|^bc-' | head -n1 || true)"
@@ -118,8 +145,9 @@ export AGENT_VAULT_ADDR AGENT_VAULT_TOKEN AGENT_VAULT_VAULT AGENT_VAULT_CA_PEM
 # an empty CA (the silent-MITM-failure this guard exists to prevent).
 # -----------------------------------------------------------------------
 if [[ -z "${AGENT_VAULT_CA_PEM:-}" ]]; then
-  # (1) self-source from the broker.
-  AGENT_VAULT_CA_PEM="$(agent-vault ca fetch 2>/dev/null || true)"
+  # (1) retry the broker fetch via `agent-vault ca fetch` against the
+  #     {{OPS_SLUG}}-agent-vault container (multi-line PEM captured intact).
+  AGENT_VAULT_CA_PEM="$(docker exec -i {{OPS_SLUG}}-agent-vault agent-vault ca fetch 2>/dev/null || true)"
   # (2) fall back to the host CA file the broker writes alongside the repo.
   if [[ -z "${AGENT_VAULT_CA_PEM:-}" && -f "$REPO_ROOT/agent-vault-ca.pem" ]]; then
     AGENT_VAULT_CA_PEM="$(cat "$REPO_ROOT/agent-vault-ca.pem")"

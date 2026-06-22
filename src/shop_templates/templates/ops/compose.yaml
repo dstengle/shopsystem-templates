@@ -73,7 +73,7 @@ services:
     volumes:
       - type: volume
         source: {{OPS_SLUG}}-agent-vault-data
-        target: /vault/file
+        target: /data
     ports:
       - "${{{OPS_SLUG_UPPER}}_VAULT_API_PORT:-{{OPS_VAULT_API_PORT}}}:14321"
       - "${{{OPS_SLUG_UPPER}}_VAULT_PROXY_PORT:-{{OPS_VAULT_PROXY_PORT}}}:14322"

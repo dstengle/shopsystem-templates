@@ -343,7 +343,19 @@ def test_dockerfile_shell_is_brokered_runnable_claude_and_ca(tmp_path):
     # on PATH and (2) CONSUME AGENT_VAULT_CA_PEM into the system trust store
     # at container START (before claude's first outbound TLS to the :14322
     # MITM proxy), so claude's TLS validates against the broker CA.
-    body = render_ops_template("Dockerfile.shopsystem-shell", "dummyco")
+    #
+    # Read the canonical template from THIS worktree's src/ (the file under
+    # change), then apply the same slug substitution render_ops_template does,
+    # so the assertion pins the worktree source rather than an ambiently
+    # installed shop_templates copy.
+    raw = (
+        Path(_SRC)
+        / "shop_templates"
+        / "templates"
+        / "ops"
+        / "Dockerfile.shopsystem-shell"
+    ).read_text()
+    body = raw.replace("{{OPS_SLUG}}", "dummyco")
     low = body.lower()
 
     # (1) Claude Code install step is present -> `claude` lands on PATH.

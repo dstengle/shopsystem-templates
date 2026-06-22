@@ -464,17 +464,22 @@ def test_dockerfile_shell_installs_framework_clis_from_vcs_pins(tmp_path):
 
     # No bare unpublished-PyPI install of the three CLIs (the broken 0.18.0
     # form). A bare `pipx install shop-msg` / `pip install scenarios` etc. is
-    # the form that fails docker build; the git+https pin replaces it.
+    # the form that fails docker build; the git+https pin replaces it. Scan
+    # only INSTRUCTION text (strip `#` comment prose, which legitimately names
+    # the broken form when explaining why it was replaced).
     import re as _re2
 
+    instruction_text = "\n".join(
+        ln for ln in body.splitlines() if not ln.lstrip().startswith("#")
+    )
     for name in ("shop-msg", "scenarios", "shop-templates"):
         bare = _re2.search(
-            rf"\bpip(?:x)?\s+install\s+(?:[^\n]*\s)?{_re2.escape(name)}\b(?![\w./@-])",
-            body,
+            rf"\bpip(?:x)?\s+install\s+(?:--?\S+\s+)*{_re2.escape(name)}\b(?![\w./@-])",
+            instruction_text,
         )
-        # A match is only a violation if it is NOT immediately part of a
-        # git+https spec; the git+https specs use the REPO names, never the
-        # bare CLI names, so any bare-name install token is the broken form.
+        # The git+https specs use the REPO names, never the bare CLI names, so
+        # any bare-CLI-name install token in instruction text is the broken
+        # unpublished-PyPI form.
         assert bare is None, (
             f"must not install {name!r} as a bare PyPI package (not on PyPI); "
             f"offending text: {bare.group(0)!r}"

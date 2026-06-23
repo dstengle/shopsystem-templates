@@ -19469,3 +19469,148 @@ def then_anti_lag(version: str, context: dict) -> None:
         f"{context['tag']} is an EARLIER release than {version!r} — the "
         f"dist metadata would lag the tag"
     )
+
+
+# -----------------------------------------------------------------------
+# scenario 846e4e663198ce78 (lead-ucpj): the surviving templates
+# release.yml declares no repository_dispatch emit to bc-launcher and
+# references no BC_LAUNCHER_DISPATCH_TOKEN, while its version-hygiene guard
+# remains intact. The assertions run against the EXECUTABLE body (YAML
+# comments stripped) so a token living only in release.yml's descriptive
+# header comment does not false-positive.
+# -----------------------------------------------------------------------
+
+import yaml as _yaml  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _release_workflow import (  # noqa: E402
+    executable_body as _release_executable_body,
+    release_workflow_path as _release_workflow_path_fn,
+)
+
+
+@given(parsers.parse(
+    'the shopsystem-templates repository carries a '
+    '"{rel_path}" workflow file'
+))
+def given_release_workflow_present(rel_path: str, context: dict) -> None:
+    wf = _release_workflow_path_fn()
+    assert wf.is_file(), f"missing workflow at {rel_path} ({wf})"
+    context["release_yml_raw"] = wf.read_text()
+
+
+@given(parsers.parse(
+    'that workflow retains its version-hygiene "{job}" job that enforces '
+    'the scenario-192 release-tag-equals-pyproject-version invariant'
+))
+def given_release_guard_job_present(job: str, context: dict) -> None:
+    parsed = _yaml.safe_load(_release_executable_body(context["release_yml_raw"]))
+    jobs = (parsed or {}).get("jobs") or {}
+    assert job in jobs, f"executable body has no {job!r} job"
+    context["release_guard_job_name"] = job
+
+
+@when("the workflow's executable body is read with YAML comment lines excluded")
+def when_read_executable_body(context: dict) -> None:
+    context["release_yml_executable"] = _release_executable_body(
+        context["release_yml_raw"]
+    )
+
+
+@then(parsers.parse(
+    'the executable body declares no "{token}" step or job that targets '
+    '"{target}"'
+))
+def then_no_repository_dispatch_target(token: str, target: str, context: dict) -> None:
+    body = context["release_yml_executable"]
+    assert token not in body, (
+        f"executable body still declares {token!r}; ADR-022 retired the "
+        f"cross-repo dispatch fan-in"
+    )
+    assert target not in body, (
+        f"executable body still targets {target!r}; the dispatch step was "
+        f"retired by ADR-022"
+    )
+    # Structurally: no step targets a dispatches endpoint.
+    parsed = _yaml.safe_load(body)
+    for jobdef in ((parsed or {}).get("jobs") or {}).values():
+        for step in (jobdef.get("steps") or []):
+            text = "\n".join(
+                v for v in (step.get("uses"), step.get("run"), step.get("name"))
+                if isinstance(v, str)
+            )
+            assert "dispatches" not in text, (
+                "a step still targets a dispatches endpoint in the "
+                "executable body"
+            )
+
+
+@then(parsers.parse(
+    'the executable body references no "{token}" secret or any other '
+    'cross-repo dispatch credential'
+))
+def then_no_dispatch_token(token: str, context: dict) -> None:
+    body = context["release_yml_executable"]
+    assert token not in body, (
+        f"executable body still references {token!r}; ADR-022 "
+        f"decommissioned the cross-repo dispatch credential"
+    )
+
+
+@then(parsers.parse(
+    'a "{dispatch_token}" target or a "{cred_token}" reference appearing '
+    'only in a descriptive YAML comment, absent from the executable body, '
+    'does not cause this scenario to fail'
+))
+def then_comment_only_token_does_not_fail(
+    dispatch_token: str, cred_token: str, context: dict
+) -> None:
+    # Realize the comment-vs-executable distinction directly: a body whose
+    # only mention of the emit constants is in comments must survive the
+    # assert-absent legs. This guards against a future naive raw-substring
+    # scan regressing the distinction.
+    sentinel = (
+        "name: release\n"
+        f"# descriptive: no {dispatch_token} to dstengle/shopsystem-bc-launcher\n"
+        f"# descriptive: uses no {cred_token}\n"
+        "jobs:\n"
+        "  release-guard:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: python3 scripts/check_tag_matches_pyproject_version.py\n"
+    )
+    stripped = _release_executable_body(sentinel)
+    assert dispatch_token not in stripped
+    assert cred_token not in stripped
+    assert "shopsystem-bc-launcher" not in stripped
+    # And the real workflow's comment header DOES name the launcher (to
+    # explain that nothing is emitted to it) — a raw-substring scan would
+    # false-positive on it, but the executable body excludes it. This is
+    # exactly the comment-vs-executable distinction this step pins.
+    assert "bc-launcher" in context["release_yml_raw"], (
+        "expected the release.yml header comment to name the bc-launcher"
+    )
+    assert "bc-launcher" not in context["release_yml_executable"], (
+        "the bc-launcher mention must live only in the comment header, not "
+        "the executable body"
+    )
+
+
+@then(parsers.parse(
+    'the "{job}" version-hygiene job and its scenario-192 assertions remain '
+    'present and undisturbed in the executable body'
+))
+def then_release_guard_intact(job: str, context: dict) -> None:
+    parsed = _yaml.safe_load(context["release_yml_executable"])
+    jobs = (parsed or {}).get("jobs") or {}
+    assert job in jobs, f"{job!r} job missing from executable body"
+    step_text = "\n".join(
+        v
+        for step in (jobs[job].get("steps") or [])
+        for v in (step.get("uses"), step.get("run"), step.get("name"))
+        if isinstance(v, str)
+    )
+    assert "check_tag_matches_pyproject_version" in step_text, (
+        f"{job!r} no longer invokes the scenario-192 tag-equals-pyproject "
+        f"version guard"
+    )

@@ -15212,10 +15212,28 @@ def then_body_invokes_launch_with_flags(
 def then_body_hands_leaf_bc_runtime_image(
     rel: str, needle: str, context: dict
 ) -> None:
-    """172 (da8ea23429b8bdc9): the inner `bc-container launch` hands the leaf-BC
-    session its runtime image (shopsystem-bc-base) via `--image`, so the
-    launched leaf-BC session runs on bc-base while the launcher runs on
-    bc-lead."""
+    """172 (725562869d9df919, superseded by lead-ss6k): the inner
+    `bc-container launch` hands the leaf-BC session its runtime image
+    (shopsystem-bc-lead) via `--image`, so the launched leaf-BC session runs on
+    bc-lead too — it needs the docker CLI to run `bc-container launch` itself."""
+    _ops_body_contains(rel, needle, context)
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" attaches the launched leaf-BC session to '
+        r'the slug-scoped compose network by the inner "bc-container launch" '
+        r'carrying the literal substring "(?P<needle>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_body_attaches_leaf_to_network(
+    rel: str, needle: str, context: dict
+) -> None:
+    """172 (725562869d9df919, lead-ss6k DEFECT 1): the inner `bc-container
+    launch` carries `--network` so the SEPARATE leaf container it creates is
+    attached to the slug-scoped compose network and reaches postgres +
+    agent-vault by compose hostname (the outer launcher's --network does not
+    attach the leaf)."""
     _ops_body_contains(rel, needle, context)
 
 

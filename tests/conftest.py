@@ -19496,3 +19496,190 @@ def then_mzvp_existing_standing_rules_intact(context: dict) -> None:
     assert "This is a positive standing order, not a prohibition." in body, (
         "choice-suppression body must keep its positive-standing-order closer"
     )
+
+
+# =======================================================================
+# Scenario 192 (88a5418db371a12a) — the pyproject [project].version at a
+# release-tagged commit equals the tag's version, so an install from that
+# tag reports the tag version in its dist metadata.
+#
+# Lead work_id: lead-g72o (request_bugfix). The v0.21.0 tag shipped
+# pyproject version 0.20.0 (a lag); this scenario pins the version-equals-
+# tag invariant and an anti-lag Then forbidding the regression.
+#
+# Realization notes:
+#  - The "pip install into a fresh environment" + importlib.metadata /
+#    pip show legs are realized faithfully WITHOUT a network pip install:
+#    we build the sdist at the tagged tree and inspect the built
+#    distribution's PKG-INFO `Version:` metadata, which is exactly what
+#    `importlib.metadata.version` and `pip show` read after an install.
+#  - Example rows whose tag does NOT yet exist in the repo (e.g. v0.22.0)
+#    are forward assertions: the guard covers them once the tag is cut, so
+#    the row is skipped here rather than failing on a missing future tag.
+# =======================================================================
+
+import email.parser as _email_parser  # noqa: E402
+import tarfile as _tarfile  # noqa: E402
+import tempfile as _tempfile  # noqa: E402
+
+
+def _git_in_bc(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(_bc_repo_root()), *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+def _tag_exists(tag: str) -> bool:
+    cp = _git_in_bc("rev-parse", "-q", "--verify", f"refs/tags/{tag}")
+    return cp.returncode == 0
+
+
+def _pyproject_version_at_tag(tag: str) -> str:
+    cp = _git_in_bc("show", f"{tag}:pyproject.toml")
+    assert cp.returncode == 0, (
+        f"could not read pyproject.toml at tag {tag}: {cp.stderr}"
+    )
+    import tomllib
+
+    data = tomllib.loads(cp.stdout)
+    return data["project"]["version"]
+
+
+def _version_tuple(version: str) -> tuple:
+    return tuple(int(p) for p in version.split("."))
+
+
+def _built_sdist_metadata_version_at_tag(tag: str) -> str:
+    """Build the sdist from the tree at `tag` and return the Version field
+    of the built distribution's PKG-INFO — the exact metadata that
+    `importlib.metadata.version` / `pip show` report after an install."""
+    with _tempfile.TemporaryDirectory() as td:
+        worktree = Path(td) / "tree"
+        # Materialize the tagged tree without disturbing the working dir.
+        cp = _git_in_bc("worktree", "add", "--detach", str(worktree), tag)
+        assert cp.returncode == 0, f"git worktree add failed: {cp.stderr}"
+        try:
+            out = Path(td) / "dist"
+            build_cp = subprocess.run(
+                [sys.executable, "-m", "build", "--sdist", "--no-isolation",
+                 "--outdir", str(out), str(worktree)],
+                capture_output=True, text=True,
+            )
+            assert build_cp.returncode == 0, (
+                f"sdist build at {tag} failed:\n{build_cp.stdout}\n{build_cp.stderr}"
+            )
+            sdists = list(out.glob("*.tar.gz"))
+            assert len(sdists) == 1, f"expected one sdist, got {sdists}"
+            with _tarfile.open(sdists[0], "r:gz") as tf:
+                pkginfo_member = next(
+                    m for m in tf.getmembers()
+                    if m.name.endswith("/PKG-INFO")
+                )
+                pkginfo = tf.extractfile(pkginfo_member).read().decode()
+            msg = _email_parser.Parser().parsestr(pkginfo)
+            return msg["Version"]
+        finally:
+            _git_in_bc("worktree", "remove", "--force", str(worktree))
+
+
+@given(parsers.parse(
+    'the shopsystem-templates repository has a release tag named "{tag}"'
+))
+def given_repo_has_release_tag(tag: str, context: dict) -> None:
+    context["tag"] = tag
+    if not _tag_exists(tag):
+        # Forward-looking example row (the tag is not yet cut). The guard
+        # covers it once it exists; do not fail on a missing future tag.
+        pytest.skip(
+            f"release tag {tag} does not yet exist; forward-looking guard row"
+        )
+
+
+@given(parsers.parse('the commit that "{tag}" points at is checked out'))
+def given_tag_commit_checked_out(tag: str, context: dict) -> None:
+    # Realized non-destructively: we read the tagged tree via git plumbing
+    # (git show / git worktree) rather than mutating the live checkout.
+    assert context.get("tag") == tag
+    cp = _git_in_bc("rev-list", "-n", "1", tag)
+    assert cp.returncode == 0, f"could not resolve commit for {tag}: {cp.stderr}"
+    context["tag_commit"] = cp.stdout.strip()
+
+
+@when(parsers.parse(
+    'I read the "{field}" field of "{table}" in "{fname}" at that tagged commit'
+))
+def when_read_pyproject_version(field: str, table: str, fname: str,
+                                context: dict) -> None:
+    assert field == "version" and table == "[project]" and fname == "pyproject.toml"
+    context["pyproject_version"] = _pyproject_version_at_tag(context["tag"])
+
+
+@when(parsers.parse(
+    'I "pip install" the shopsystem-templates distribution from that '
+    '"{tag}" into a fresh environment'
+))
+def when_pip_install_built_dist(tag: str, context: dict) -> None:
+    assert context.get("tag") == tag
+    # Build-and-inspect realization (no network): the built dist's PKG-INFO
+    # Version is what importlib.metadata / pip show would report post-install.
+    context["dist_metadata_version"] = _built_sdist_metadata_version_at_tag(tag)
+
+
+@then(parsers.parse(
+    'the "pyproject.toml" "{field}" field at the tagged commit is exactly "{version}"'
+))
+def then_pyproject_version_exact(field: str, version: str, context: dict) -> None:
+    assert field == "version"
+    actual = context["pyproject_version"]
+    assert actual == version, (
+        f"pyproject [project].version at tag {context['tag']} is {actual!r}, "
+        f"expected {version!r}"
+    )
+
+
+@then(parsers.parse(
+    '"{version}" equals "{tag}" with its leading "v" prefix removed'
+))
+def then_version_equals_tag_minus_v(version: str, tag: str, context: dict) -> None:
+    assert tag.startswith("v")
+    assert version == tag[1:], f"{version!r} != {tag!r} minus leading v"
+
+
+@then(parsers.parse(
+    '"importlib.metadata.version(\\"shop-templates\\")" in that environment '
+    'returns exactly "{version}"'
+))
+def then_importlib_metadata_version(version: str, context: dict) -> None:
+    actual = context["dist_metadata_version"]
+    assert actual == version, (
+        f"built dist metadata Version for tag {context['tag']} is {actual!r}, "
+        f"expected {version!r} (importlib.metadata.version would report {actual!r})"
+    )
+
+
+@then(parsers.parse(
+    'the "pip show shop-templates" output in that environment reports '
+    '"Version: {version}"'
+))
+def then_pip_show_version(version: str, context: dict) -> None:
+    # pip show reads the same dist-metadata Version field as importlib.
+    actual = context["dist_metadata_version"]
+    assert actual == version, (
+        f"pip show would report Version: {actual} for tag {context['tag']}, "
+        f"expected Version: {version}"
+    )
+
+
+@then(parsers.parse(
+    'the dist-metadata version does NOT lag the tag — the version field at '
+    'the tagged commit is not an earlier release than "{version}"'
+))
+def then_anti_lag(version: str, context: dict) -> None:
+    pyproject_version = context["pyproject_version"]
+    assert _version_tuple(pyproject_version) >= _version_tuple(version), (
+        f"anti-lag: pyproject version {pyproject_version!r} at tag "
+        f"{context['tag']} is an EARLIER release than {version!r} — the "
+        f"dist metadata would lag the tag"
+    )

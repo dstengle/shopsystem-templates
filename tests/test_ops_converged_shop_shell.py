@@ -51,11 +51,11 @@ _REQUIRED_SUBSTRINGS = (
     "docker run --rm",
     "-it",
     "shopsystem-bc-lead",
-    "shopsystem-bc-base",
     "/var/run/docker.sock:/var/run/docker.sock",
     "bc-container launch",
     "--workspace-mount",
     "--mount-docker-socket",
+    "--network",
     "--startup-prompt",
     "bc-container attach",
 )
@@ -189,14 +189,15 @@ def test_lead_ops_files_enumeration_is_five_without_dockerfile():
 
 
 def test_dummyco_render_has_zero_cross_product_slug_literals(tmp_path):
-    """175 (166b86d779ecd0e7): a non-default-slug render (dummyco) carries zero
-    cross-product SLUG-derived literals — compose.yaml has no case-insensitive
-    `shopsystem`/`fleet`; bin/shop-shell permits `shopsystem` ONLY as part of
-    the product-neutral framework image references `shopsystem-bc-lead`
-    (launcher) and `shopsystem-bc-base` (leaf-BC runtime) — after removing every
-    occurrence of BOTH refs, no `shopsystem`/`fleet` remains — and MUST still
-    contain both `shopsystem-bc-lead` and `shopsystem-bc-base` (not
-    slug-rewritten); and no dedicated shell Dockerfile is written."""
+    """175 (re-pinned, lead-ss6k): a non-default-slug render (dummyco) carries
+    zero cross-product SLUG-derived literals — compose.yaml has no
+    case-insensitive `shopsystem`/`fleet`; bin/shop-shell permits `shopsystem`
+    ONLY as part of the product-neutral framework image reference
+    `shopsystem-bc-lead` (now BOTH the launcher AND the leaf-BC runtime, since
+    the leaf needs the docker CLI too) — after removing every occurrence of that
+    ref, no `shopsystem`/`fleet` remains — and MUST still contain
+    `shopsystem-bc-lead` (not slug-rewritten); and no dedicated shell Dockerfile
+    is written."""
     target = _bootstrap(tmp_path, "dummyco")
 
     # compose.yaml: zero case-insensitive shopsystem/fleet.
@@ -205,24 +206,18 @@ def test_dummyco_render_has_zero_cross_product_slug_literals(tmp_path):
     assert "fleet" not in compose, "compose.yaml leaked a 'fleet' literal"
 
     # bin/shop-shell: the ONLY permitted shopsystem literals are within the
-    # product-neutral image refs shopsystem-bc-lead and shopsystem-bc-base.
-    # Strip every occurrence of BOTH refs (case-insensitively) and assert
+    # product-neutral image ref shopsystem-bc-lead (launcher AND leaf-BC).
+    # Strip every occurrence of that ref (case-insensitively) and assert
     # nothing else remains.
     shell = (target / "bin" / "shop-shell").read_text()
     assert "shopsystem-bc-lead" in shell, (
-        "bin/shop-shell must preserve the product-neutral launcher image "
+        "bin/shop-shell must preserve the product-neutral framework image "
         "reference shopsystem-bc-lead (not slug-rewritten to dummyco-bc-lead)"
     )
-    assert "shopsystem-bc-base" in shell, (
-        "bin/shop-shell must preserve the product-neutral leaf-BC runtime image "
-        "reference shopsystem-bc-base (not slug-rewritten to dummyco-bc-base)"
-    )
     shell_lower = shell.lower()
-    residual = shell_lower.replace("shopsystem-bc-lead", "").replace(
-        "shopsystem-bc-base", ""
-    )
+    residual = shell_lower.replace("shopsystem-bc-lead", "")
     assert "shopsystem" not in residual, (
-        "bin/shop-shell leaked a 'shopsystem' literal outside the framework refs"
+        "bin/shop-shell leaked a 'shopsystem' literal outside the framework ref"
     )
     assert "fleet" not in residual, "bin/shop-shell leaked a 'fleet' literal"
 
@@ -351,6 +346,7 @@ def _parse_shop_shell(slug):
     launch_positional = None
     attach_positional = None
     launch_image_flag = None
+    launch_network_flag = None
     for raw_line in logical.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -380,6 +376,9 @@ def _parse_shop_shell(slug):
                 launch_image_flag = _flag_value_after_subcommand(
                     inner, "bc-container", "launch", "--image"
                 )
+                launch_network_flag = _flag_value_after_subcommand(
+                    inner, "bc-container", "launch", "--network"
+                )
             elif inner[:2] == ["bc-container", "attach"]:
                 attach_positional = _positional_after_subcommand(
                     inner, "bc-container", "attach"
@@ -389,6 +388,7 @@ def _parse_shop_shell(slug):
         "launch_positional": launch_positional,
         "attach_positional": attach_positional,
         "launch_image_flag": launch_image_flag,
+        "launch_network_flag": launch_network_flag,
     }
 
 
@@ -409,31 +409,48 @@ def test_both_docker_run_blocks_use_full_pullable_launcher_image_ref():
 
 
 def test_launch_hands_leaf_bc_its_runtime_image_via_image_flag():
-    """PDR-020 Addendum II (b): while the launcher runs on bc-lead, the inner
-    `bc-container launch` hands the leaf-BC session its runtime image by
-    `--image ghcr.io/dstengle/shopsystem-bc-base:latest` — so the launched
-    leaf-BC session runs on the bc-base runtime image, not on the launcher."""
+    """lead-ss6k (172 superseded): the inner `bc-container launch` hands the
+    leaf-BC session its runtime image by `--image
+    ghcr.io/dstengle/shopsystem-bc-lead:latest` — the SAME bc-lead image the
+    launcher runs on, because the leaf-BC's own router needs the docker CLI to
+    run `bc-container launch` itself, and bc-base carries no docker CLI."""
     for slug in ("shopsystem", "dummyco"):
         parsed = _parse_shop_shell(slug)
-        assert parsed["launch_image_flag"] == _FULL_BC_BASE_REF, (
-            f"bc-container launch must carry --image {_FULL_BC_BASE_REF!r} for "
-            f"slug {slug!r} (leaf-BC runtime image); got "
+        assert parsed["launch_image_flag"] == _FULL_BC_LEAD_REF, (
+            f"bc-container launch must carry --image {_FULL_BC_LEAD_REF!r} for "
+            f"slug {slug!r} (leaf-BC runtime image — bc-lead, not bc-base); got "
             f"{parsed['launch_image_flag']!r}"
         )
 
 
-def test_both_framework_image_literals_present_in_render():
-    """PDR-020 Addendum II (b) / 172 / 175: the rendered shop-shell carries BOTH
-    framework image literals — `shopsystem-bc-lead` (launcher) and
-    `shopsystem-bc-base` (leaf-BC runtime). The launcher image ref provides the
-    bc-lead substring; the --image flag provides the bc-base substring."""
+def test_launch_attaches_leaf_to_slug_scoped_network_via_network_flag():
+    """lead-ss6k DEFECT 1 (172 superseded, additive assertion): the inner
+    `bc-container launch` carries `--network <slug>` so the SEPARATE leaf
+    container it creates is attached to the slug-scoped compose network and can
+    reach postgres + agent-vault by compose hostname. The outer launcher's
+    --network does NOT attach the leaf, so the inner launch must carry its own."""
+    for slug in ("shopsystem", "dummyco"):
+        parsed = _parse_shop_shell(slug)
+        assert parsed["launch_network_flag"] == slug, (
+            f"bc-container launch must carry --network {slug!r} (slug-scoped) so "
+            f"the leaf reaches the compose postgres/agent-vault; got "
+            f"{parsed['launch_network_flag']!r}"
+        )
+
+
+def test_framework_image_literal_present_in_render():
+    """lead-ss6k (172 superseded): the rendered shop-shell carries the
+    `shopsystem-bc-lead` framework image literal — now BOTH the launcher image
+    ref AND the inner --image leaf-BC runtime ref — and no longer carries
+    `shopsystem-bc-base` (the leaf collapsed onto bc-lead)."""
     for slug in ("shopsystem", "dummyco"):
         body = _render_shop_shell(slug)
         assert "shopsystem-bc-lead" in body, (
-            f"slug {slug!r} render must carry the bc-lead launcher image literal"
+            f"slug {slug!r} render must carry the bc-lead framework image literal"
         )
-        assert "shopsystem-bc-base" in body, (
-            f"slug {slug!r} render must carry the bc-base leaf-BC runtime literal"
+        assert "shopsystem-bc-base" not in body, (
+            f"slug {slug!r} render must NOT carry shopsystem-bc-base — the leaf-BC "
+            f"now runs on bc-lead (it needs the docker CLI too)"
         )
 
 
@@ -456,35 +473,29 @@ def test_launch_and_attach_carry_slug_lead_positional():
 
 
 def test_full_image_ref_preserves_172_and_175_constraints():
-    """PDR-020 Addendum II (b) keeps scenario 172 (substring) and 175 (dummyco
-    cross-product-literal) green: both framework refs still CONTAIN their
-    `shopsystem-bc-lead` / `shopsystem-bc-base` substrings; the dummyco render,
-    after stripping every `shopsystem-bc-lead` AND `shopsystem-bc-base`
-    occurrence, retains NO `shopsystem`/`fleet`; and the `<slug>-lead`
-    positional introduces no forbidden literal."""
-    # 172: full refs still carry the framework-image substrings.
+    """lead-ss6k keeps scenario 172 (substring) and 175 (dummyco
+    cross-product-literal) green: the bc-lead framework ref still CONTAINS its
+    `shopsystem-bc-lead` substring; the dummyco render, after stripping every
+    `shopsystem-bc-lead` occurrence, retains NO `shopsystem`/`fleet`; and the
+    `<slug>-lead` positional introduces no forbidden literal."""
+    # 172: the bc-lead ref still carries the framework-image substring.
     assert "shopsystem-bc-lead" in _FULL_BC_LEAD_REF
-    assert "shopsystem-bc-base" in _FULL_BC_BASE_REF
 
-    # 175 on the dummyco render: no shopsystem/fleet residue outside the two
-    # exempt framework image refs, and the bc_name positional is dummyco-lead.
+    # 175 on the dummyco render: no shopsystem/fleet residue outside the single
+    # exempt framework image ref, and the bc_name positional is dummyco-lead.
     dummyco = _render_shop_shell("dummyco")
     assert "shopsystem-bc-lead" in dummyco
-    assert "shopsystem-bc-base" in dummyco
-    residual = dummyco.lower().replace("shopsystem-bc-lead", "").replace(
-        "shopsystem-bc-base", ""
-    )
+    residual = dummyco.lower().replace("shopsystem-bc-lead", "")
     assert "shopsystem" not in residual, (
         "dummyco shop-shell leaked a 'shopsystem' literal outside the framework "
-        "image refs after the PDR-020 Addendum II (b) edits"
+        "image ref after the lead-ss6k edits"
     )
     assert "fleet" not in residual, "dummyco shop-shell leaked a 'fleet' literal"
     assert "dummyco-lead" in dummyco, (
         "dummyco render must carry the dummyco-lead bc_name positional"
     )
-    # And the full ghcr refs minus the framework substrings leave no shopsystem.
+    # And the full ghcr ref minus the framework substring leaves no shopsystem.
     assert "shopsystem" not in _FULL_BC_LEAD_REF.replace("shopsystem-bc-lead", "")
-    assert "shopsystem" not in _FULL_BC_BASE_REF.replace("shopsystem-bc-base", "")
 
 
 def test_dockerfile_template_is_removed_from_package_data():

@@ -15024,26 +15024,28 @@ def then_body_does_not_contain_literal_with_tail(
     parsers.re(
         r'the byte contents of "(?P<rel>[^"]+)" in the target directory, '
         r'after every case-insensitive occurrence of the product-neutral '
-        r'framework image reference literal "(?P<imgref>[^"]+)" is removed, '
+        r'framework image reference literals "(?P<imgref1>[^"]+)" and '
+        r'"(?P<imgref2>[^"]+)" is removed, '
         r'contain no remaining case-insensitive occurrence of the literal '
         r'substring "(?P<a>[^"]+)" and no case-insensitive occurrence of the '
         r'literal substring "(?P<b>[^"]+)"'
     )
 )
-def then_byte_contents_no_ci_after_imgref_removed(
-    rel: str, imgref: str, a: str, b: str, context: dict
+def then_byte_contents_no_ci_after_imgrefs_removed(
+    rel: str, imgref1: str, imgref2: str, a: str, b: str, context: dict
 ) -> None:
-    """175 (399d16c31084dbfc): the ONLY permitted shopsystem literal in the
-    dummyco render of bin/shop-shell is the product-neutral framework image
-    reference; strip every (case-insensitive) occurrence of it and assert no
+    """175 (166b86d779ecd0e7): the ONLY permitted shopsystem literals in the
+    dummyco render of bin/shop-shell are the product-neutral framework image
+    references shopsystem-bc-lead (launcher) and shopsystem-bc-base (leaf-BC
+    runtime); strip every (case-insensitive) occurrence of BOTH and assert no
     other cross-product literal remains."""
     real = _ops_target(context)
     raw = (real / rel).read_bytes().decode("utf-8", errors="replace").lower()
-    residual = raw.replace(imgref.lower(), "")
+    residual = raw.replace(imgref1.lower(), "").replace(imgref2.lower(), "")
     for needle in (a, b):
         assert needle.lower() not in residual, (
             f"{rel} contains a case-insensitive occurrence of {needle!r} "
-            f"outside the product-neutral image reference {imgref!r}"
+            f"outside the product-neutral image references {imgref1!r}/{imgref2!r}"
         )
 
 
@@ -15140,15 +15142,18 @@ def then_body_assembles_env_file(rel: str, needle: str, context: dict) -> None:
 
 @then(
     parsers.re(
-        r'the body of "(?P<rel>[^"]+)" launches an ephemeral bc-base by the '
+        r'the body of "(?P<rel>[^"]+)" launches the ephemeral LAUNCHER by the '
         r'literal substring "(?P<run>[^"]+)" carrying the interactive flag '
-        r'literal substring "(?P<it>[^"]+)" and the bc-base image reference '
+        r'literal substring "(?P<it>[^"]+)" and the launcher image reference '
         r'by the literal substring "(?P<img>[^"]+)"(?:,.*)?$'
     )
 )
-def then_body_launches_ephemeral_bc_base(
+def then_body_launches_ephemeral_launcher(
     rel: str, run: str, it: str, img: str, context: dict
 ) -> None:
+    """172 (da8ea23429b8bdc9): the wrapper launches the ephemeral LAUNCHER
+    image (shopsystem-bc-lead, carries the docker CLI) via `docker run --rm
+    -it ... ghcr.io/dstengle/shopsystem-bc-lead:latest`."""
     real = _ops_target(context)
     body = (real / rel).read_text()
     for needle in (run, it, img):
@@ -15158,7 +15163,7 @@ def then_body_launches_ephemeral_bc_base(
 @then(
     parsers.re(
         r'the body of "(?P<rel>[^"]+)" mounts the host docker socket into '
-        r'that ephemeral bc-base by the literal substring "(?P<needle>[^"]+)"'
+        r'that ephemeral launcher by the literal substring "(?P<needle>[^"]+)"'
         r'(?:,.*)?$'
     )
 )
@@ -15169,22 +15174,22 @@ def then_body_mounts_docker_socket(rel: str, needle: str, context: dict) -> None
 @then(
     parsers.re(
         r'the body of "(?P<rel>[^"]+)" mounts the lead repository into that '
-        r'ephemeral bc-base so the inner "(?P<_inner>[^"]+)" can see it(?:,.*)?$'
+        r'ephemeral launcher so the inner "(?P<_inner>[^"]+)" can see it(?:,.*)?$'
     )
 )
 def then_body_mounts_lead_repo(rel: str, _inner: str, context: dict) -> None:
-    """172: the wrapper bind-mounts the lead repo into the ephemeral bc-base.
+    """172: the wrapper bind-mounts the lead repo into the ephemeral launcher.
     The rendered wrapper expresses this as `-v "$REPO_ROOT:$REPO_ROOT"`."""
     real = _ops_target(context)
     body = (real / rel).read_text()
     assert "$REPO_ROOT:$REPO_ROOT" in body or "-v " in body, (
-        f"{rel} does not bind-mount the lead repository into the bc-base"
+        f"{rel} does not bind-mount the lead repository into the launcher"
     )
 
 
 @then(
     parsers.re(
-        r'the body of "(?P<rel>[^"]+)" inside that ephemeral bc-base invokes '
+        r'the body of "(?P<rel>[^"]+)" inside that ephemeral launcher invokes '
         r'"(?P<launch>[^"]+)" carrying the literal substring "(?P<a>[^"]+)" '
         r'and the literal substring "(?P<b>[^"]+)"(?:,.*)?$'
     )
@@ -15196,6 +15201,22 @@ def then_body_invokes_launch_with_flags(
     body = (real / rel).read_text()
     for needle in (launch, a, b):
         assert needle in body, f"{rel} missing literal substring {needle!r}"
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" hands the leaf-BC session its runtime '
+        r'image by the literal substring "(?P<needle>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_body_hands_leaf_bc_runtime_image(
+    rel: str, needle: str, context: dict
+) -> None:
+    """172 (da8ea23429b8bdc9): the inner `bc-container launch` hands the leaf-BC
+    session its runtime image (shopsystem-bc-base) via `--image`, so the
+    launched leaf-BC session runs on bc-base while the launcher runs on
+    bc-lead."""
+    _ops_body_contains(rel, needle, context)
 
 
 @then(

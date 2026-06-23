@@ -221,6 +221,204 @@ def test_dummyco_render_has_zero_cross_product_slug_literals(tmp_path):
     assert not (target / "Dockerfile.shopsystem-shell").exists()
 
 
+# The full, pullable public framework image reference. The bare name
+# `shopsystem-bc-base` resolves to docker.io/library/shopsystem-bc-base which
+# does not exist; only the registry-qualified, tagged ref is pullable on a
+# fresh host (request_bugfix lead-zcob, DEFECT 1).
+_FULL_BC_BASE_REF = "ghcr.io/dstengle/shopsystem-bc-base:latest"
+
+
+def _docker_run_image(block_tokens):
+    """Given the shlex tokens of a `docker run ... <image> <cmd...>` invocation,
+    return the image reference: the first non-option token after `run` that is
+    not consumed as the value of a preceding flag."""
+    # Flags in these blocks that take a value argument.
+    value_flags = {
+        "--network",
+        "--env-file",
+        "--group-add",
+        "-v",
+        "-w",
+    }
+    assert block_tokens[0] == "docker" and block_tokens[1] == "run", block_tokens
+    i = 2
+    while i < len(block_tokens):
+        tok = block_tokens[i]
+        if tok in value_flags:
+            i += 2
+            continue
+        if tok.startswith("-"):
+            # value-less flag (e.g. --rm, -it)
+            i += 1
+            continue
+        # first bare (non-flag) token => the image reference
+        return tok
+    raise AssertionError(f"no image ref found in docker run block: {block_tokens}")
+
+
+def _positional_after_subcommand(tokens, prog, subcommand):
+    """For a `<prog> <subcommand> ...` token stream, return the first bare
+    (non-flag, non-flag-value) token after the subcommand — the positional
+    argument. Returns None if there is no positional before the next flag."""
+    assert tokens[0] == prog and tokens[1] == subcommand, tokens
+    # Flags on bc-container launch/attach that take a value.
+    value_flags = {
+        "--workspace-mount",
+        "--startup-prompt",
+        "--repo-url",
+        "--shopmsg-dsn",
+        "--image",
+        "--network",
+        "--agent-vault-broker",
+        "--env-file",
+    }
+    i = 2
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in value_flags:
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        return tok
+    return None
+
+
+def _render_shop_shell(slug):
+    """Render the bin/shop-shell ops template for ``slug``, resolved
+    out-of-process against the worktree ``src/`` (via PYTHONPATH) — the same
+    hermetic convention ``_bootstrap`` and the file-set enumeration test use, so
+    the render reflects THIS branch's canonical template rather than any
+    installed/editable copy that an in-process import would resolve to first."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = _SRC + os.pathsep + env.get("PYTHONPATH", "")
+    probe = (
+        "import sys;"
+        "from shop_templates.cli import render_ops_template;"
+        "sys.stdout.write(render_ops_template('shop-shell', %r))" % slug
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0, f"render probe failed: {proc.stderr}"
+    return proc.stdout
+
+
+def _parse_shop_shell(slug):
+    """Render bin/shop-shell for ``slug`` and return a structured view of the
+    two docker-run invocations and the embedded bc-container launch/attach
+    commands, parsed with shlex (so we assert on command STRUCTURE, not loose
+    substrings)."""
+    import shlex
+
+    body = _render_shop_shell(slug)
+
+    # Collapse line-continuations so each logical command is one token stream.
+    logical = body.replace("\\\n", " ")
+
+    docker_run_images = []
+    launch_positional = None
+    attach_positional = None
+    for raw_line in logical.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # The shop-shell prefixes the second docker run with `exec`.
+        probe = line[len("exec ") :].strip() if line.startswith("exec ") else line
+        try:
+            tokens = shlex.split(probe)
+        except ValueError:
+            continue
+        if not tokens:
+            continue
+        if tokens[:2] != ["docker", "run"]:
+            continue
+        # Image ref = the first bare token after `run` flags.
+        docker_run_images.append(_docker_run_image(tokens))
+        # The container command (`bc-container launch|attach ...`) is the tail
+        # of the same line-continued docker run invocation: everything from the
+        # `bc-container` token onward.
+        if "bc-container" in tokens:
+            ci = tokens.index("bc-container")
+            inner = tokens[ci:]
+            if inner[:2] == ["bc-container", "launch"]:
+                launch_positional = _positional_after_subcommand(
+                    inner, "bc-container", "launch"
+                )
+            elif inner[:2] == ["bc-container", "attach"]:
+                attach_positional = _positional_after_subcommand(
+                    inner, "bc-container", "attach"
+                )
+    return {
+        "docker_run_images": docker_run_images,
+        "launch_positional": launch_positional,
+        "attach_positional": attach_positional,
+    }
+
+
+def test_both_docker_run_blocks_use_full_pullable_image_ref():
+    """lead-zcob DEFECT 1: BOTH `docker run` blocks reference the full,
+    registry-qualified, tagged public image ref (not the bare
+    `shopsystem-bc-base`, which resolves to a nonexistent docker.io image and
+    cannot be pulled on a fresh host)."""
+    parsed = _parse_shop_shell("shopsystem")
+    images = parsed["docker_run_images"]
+    assert len(images) == 2, f"expected two docker run blocks; got {images}"
+    for img in images:
+        assert img == _FULL_BC_BASE_REF, (
+            f"docker run image ref must be the full pullable ref "
+            f"{_FULL_BC_BASE_REF!r}, not {img!r}"
+        )
+
+
+def test_launch_and_attach_carry_slug_lead_positional():
+    """lead-zcob DEFECT 2: BOTH `bc-container launch` AND `bc-container attach`
+    carry the required `bc_name` positional, derived from the slug as
+    `<slug>-lead` (so the dummyco render yields `dummyco-lead`). Without the
+    positional, bc-container fails 'the following arguments are required:
+    bc_name'."""
+    for slug, expected in (("shopsystem", "shopsystem-lead"), ("dummyco", "dummyco-lead")):
+        parsed = _parse_shop_shell(slug)
+        assert parsed["launch_positional"] == expected, (
+            f"bc-container launch must carry the {expected!r} positional for "
+            f"slug {slug!r}; got {parsed['launch_positional']!r}"
+        )
+        assert parsed["attach_positional"] == expected, (
+            f"bc-container attach must carry the {expected!r} positional for "
+            f"slug {slug!r}; got {parsed['attach_positional']!r}"
+        )
+
+
+def test_full_image_ref_preserves_172_and_175_constraints():
+    """The DEFECT-1/DEFECT-2 edits keep scenario 172 (substring) and 175
+    (dummyco cross-product-literal) green: the full ref still CONTAINS the
+    `shopsystem-bc-base` substring; the dummyco render, after stripping every
+    `shopsystem-bc-base` occurrence, retains NO `shopsystem`/`fleet`; and the
+    `<slug>-lead` positional introduces no forbidden literal."""
+    # 172: full ref still carries the framework-image substring.
+    assert "shopsystem-bc-base" in _FULL_BC_BASE_REF
+
+    # 175 on the dummyco render: no shopsystem/fleet residue outside the
+    # exempt framework image ref, and the bc_name positional is dummyco-lead.
+    dummyco = _render_shop_shell("dummyco")
+    assert "shopsystem-bc-base" in dummyco
+    residual = dummyco.lower().replace("shopsystem-bc-base", "")
+    assert "shopsystem" not in residual, (
+        "dummyco shop-shell leaked a 'shopsystem' literal outside "
+        "shopsystem-bc-base after the lead-zcob edits"
+    )
+    assert "fleet" not in residual, "dummyco shop-shell leaked a 'fleet' literal"
+    assert "dummyco-lead" in dummyco, (
+        "dummyco render must carry the dummyco-lead bc_name positional"
+    )
+    # And the full ghcr ref minus the framework substring leaves no shopsystem.
+    assert "shopsystem" not in _FULL_BC_BASE_REF.replace("shopsystem-bc-base", "")
+
+
 def test_dockerfile_template_is_removed_from_package_data():
     """174: the shell Dockerfile template is gone from the source tree's ops
     package data."""

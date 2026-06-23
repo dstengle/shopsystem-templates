@@ -50,6 +50,7 @@ _REQUIRED_SUBSTRINGS = (
     "--env-file",
     "docker run --rm",
     "-it",
+    "shopsystem-bc-lead",
     "shopsystem-bc-base",
     "/var/run/docker.sock:/var/run/docker.sock",
     "bc-container launch",
@@ -227,6 +228,13 @@ def test_dummyco_render_has_zero_cross_product_slug_literals(tmp_path):
 # fresh host (request_bugfix lead-zcob, DEFECT 1).
 _FULL_BC_BASE_REF = "ghcr.io/dstengle/shopsystem-bc-base:latest"
 
+# The ephemeral LAUNCHER image. Per PDR-020 Addendum II decision (b), the
+# launcher must run on the thin lead-launcher image (bc-base + docker CLI) so
+# it can run `bc-container launch`; bc-base itself carries NO docker CLI. The
+# leaf-BC session the launcher stands up keeps the bc-base runtime image,
+# handed in via `bc-container launch --image`.
+_FULL_BC_LEAD_REF = "ghcr.io/dstengle/shopsystem-bc-lead:latest"
+
 
 def _docker_run_image(block_tokens):
     """Given the shlex tokens of a `docker run ... <image> <cmd...>` invocation,
@@ -254,6 +262,17 @@ def _docker_run_image(block_tokens):
         # first bare (non-flag) token => the image reference
         return tok
     raise AssertionError(f"no image ref found in docker run block: {block_tokens}")
+
+
+def _flag_value_after_subcommand(tokens, prog, subcommand, flag):
+    """For a `<prog> <subcommand> ...` token stream, return the value token
+    immediately following ``flag`` (e.g. the ``--image`` argument), or None if
+    the flag is absent."""
+    assert tokens[0] == prog and tokens[1] == subcommand, tokens
+    for i in range(2, len(tokens) - 1):
+        if tokens[i] == flag:
+            return tokens[i + 1]
+    return None
 
 
 def _positional_after_subcommand(tokens, prog, subcommand):
@@ -323,6 +342,7 @@ def _parse_shop_shell(slug):
     docker_run_images = []
     launch_positional = None
     attach_positional = None
+    launch_image_flag = None
     for raw_line in logical.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -349,6 +369,9 @@ def _parse_shop_shell(slug):
                 launch_positional = _positional_after_subcommand(
                     inner, "bc-container", "launch"
                 )
+                launch_image_flag = _flag_value_after_subcommand(
+                    inner, "bc-container", "launch", "--image"
+                )
             elif inner[:2] == ["bc-container", "attach"]:
                 attach_positional = _positional_after_subcommand(
                     inner, "bc-container", "attach"
@@ -357,21 +380,52 @@ def _parse_shop_shell(slug):
         "docker_run_images": docker_run_images,
         "launch_positional": launch_positional,
         "attach_positional": attach_positional,
+        "launch_image_flag": launch_image_flag,
     }
 
 
-def test_both_docker_run_blocks_use_full_pullable_image_ref():
-    """lead-zcob DEFECT 1: BOTH `docker run` blocks reference the full,
-    registry-qualified, tagged public image ref (not the bare
-    `shopsystem-bc-base`, which resolves to a nonexistent docker.io image and
-    cannot be pulled on a fresh host)."""
+def test_both_docker_run_blocks_use_full_pullable_launcher_image_ref():
+    """PDR-020 Addendum II (b) + lead-zcob DEFECT 1: BOTH `docker run` blocks
+    reference the full, registry-qualified, tagged LAUNCHER image ref
+    `ghcr.io/dstengle/shopsystem-bc-lead:latest` — the thin lead-launcher image
+    (bc-base + docker CLI). bc-base carries NO docker CLI and cannot run
+    `bc-container launch`, so the launcher must run on bc-lead, not bc-base."""
     parsed = _parse_shop_shell("shopsystem")
     images = parsed["docker_run_images"]
     assert len(images) == 2, f"expected two docker run blocks; got {images}"
     for img in images:
-        assert img == _FULL_BC_BASE_REF, (
-            f"docker run image ref must be the full pullable ref "
-            f"{_FULL_BC_BASE_REF!r}, not {img!r}"
+        assert img == _FULL_BC_LEAD_REF, (
+            f"docker run LAUNCHER image ref must be the full pullable bc-lead ref "
+            f"{_FULL_BC_LEAD_REF!r}, not {img!r}"
+        )
+
+
+def test_launch_hands_leaf_bc_its_runtime_image_via_image_flag():
+    """PDR-020 Addendum II (b): while the launcher runs on bc-lead, the inner
+    `bc-container launch` hands the leaf-BC session its runtime image by
+    `--image ghcr.io/dstengle/shopsystem-bc-base:latest` — so the launched
+    leaf-BC session runs on the bc-base runtime image, not on the launcher."""
+    for slug in ("shopsystem", "dummyco"):
+        parsed = _parse_shop_shell(slug)
+        assert parsed["launch_image_flag"] == _FULL_BC_BASE_REF, (
+            f"bc-container launch must carry --image {_FULL_BC_BASE_REF!r} for "
+            f"slug {slug!r} (leaf-BC runtime image); got "
+            f"{parsed['launch_image_flag']!r}"
+        )
+
+
+def test_both_framework_image_literals_present_in_render():
+    """PDR-020 Addendum II (b) / 172 / 175: the rendered shop-shell carries BOTH
+    framework image literals — `shopsystem-bc-lead` (launcher) and
+    `shopsystem-bc-base` (leaf-BC runtime). The launcher image ref provides the
+    bc-lead substring; the --image flag provides the bc-base substring."""
+    for slug in ("shopsystem", "dummyco"):
+        body = _render_shop_shell(slug)
+        assert "shopsystem-bc-lead" in body, (
+            f"slug {slug!r} render must carry the bc-lead launcher image literal"
+        )
+        assert "shopsystem-bc-base" in body, (
+            f"slug {slug!r} render must carry the bc-base leaf-BC runtime literal"
         )
 
 
@@ -394,28 +448,34 @@ def test_launch_and_attach_carry_slug_lead_positional():
 
 
 def test_full_image_ref_preserves_172_and_175_constraints():
-    """The DEFECT-1/DEFECT-2 edits keep scenario 172 (substring) and 175
-    (dummyco cross-product-literal) green: the full ref still CONTAINS the
-    `shopsystem-bc-base` substring; the dummyco render, after stripping every
-    `shopsystem-bc-base` occurrence, retains NO `shopsystem`/`fleet`; and the
-    `<slug>-lead` positional introduces no forbidden literal."""
-    # 172: full ref still carries the framework-image substring.
+    """PDR-020 Addendum II (b) keeps scenario 172 (substring) and 175 (dummyco
+    cross-product-literal) green: both framework refs still CONTAIN their
+    `shopsystem-bc-lead` / `shopsystem-bc-base` substrings; the dummyco render,
+    after stripping every `shopsystem-bc-lead` AND `shopsystem-bc-base`
+    occurrence, retains NO `shopsystem`/`fleet`; and the `<slug>-lead`
+    positional introduces no forbidden literal."""
+    # 172: full refs still carry the framework-image substrings.
+    assert "shopsystem-bc-lead" in _FULL_BC_LEAD_REF
     assert "shopsystem-bc-base" in _FULL_BC_BASE_REF
 
-    # 175 on the dummyco render: no shopsystem/fleet residue outside the
-    # exempt framework image ref, and the bc_name positional is dummyco-lead.
+    # 175 on the dummyco render: no shopsystem/fleet residue outside the two
+    # exempt framework image refs, and the bc_name positional is dummyco-lead.
     dummyco = _render_shop_shell("dummyco")
+    assert "shopsystem-bc-lead" in dummyco
     assert "shopsystem-bc-base" in dummyco
-    residual = dummyco.lower().replace("shopsystem-bc-base", "")
+    residual = dummyco.lower().replace("shopsystem-bc-lead", "").replace(
+        "shopsystem-bc-base", ""
+    )
     assert "shopsystem" not in residual, (
-        "dummyco shop-shell leaked a 'shopsystem' literal outside "
-        "shopsystem-bc-base after the lead-zcob edits"
+        "dummyco shop-shell leaked a 'shopsystem' literal outside the framework "
+        "image refs after the PDR-020 Addendum II (b) edits"
     )
     assert "fleet" not in residual, "dummyco shop-shell leaked a 'fleet' literal"
     assert "dummyco-lead" in dummyco, (
         "dummyco render must carry the dummyco-lead bc_name positional"
     )
-    # And the full ghcr ref minus the framework substring leaves no shopsystem.
+    # And the full ghcr refs minus the framework substrings leave no shopsystem.
+    assert "shopsystem" not in _FULL_BC_LEAD_REF.replace("shopsystem-bc-lead", "")
     assert "shopsystem" not in _FULL_BC_BASE_REF.replace("shopsystem-bc-base", "")
 
 

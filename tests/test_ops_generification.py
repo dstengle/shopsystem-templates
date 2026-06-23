@@ -240,12 +240,14 @@ def test_dummyco_compose_host_ports_are_product_distinct(tmp_path):
 
 
 def test_dummyco_shop_shell_is_slug_scoped_thin_wrapper(tmp_path):
-    """175 (399d16c31084dbfc) + 172/134: the dummyco thin wrapper is
+    """175 (166b86d779ecd0e7) + 172/134: the dummyco thin wrapper is
     slug-scoped (DUMMYCO_DATA, --network dummyco) and delegates the brokered
-    launch to bc-container in an ephemeral product-neutral bc-base — the ONLY
-    `shopsystem` literal permitted is the framework image ref
-    shopsystem-bc-base; all other tokens are slug-parametric, and the wrapper
-    constructs no proxy URL, fetches no CA, and mounts no host credentials."""
+    launch to bc-container in an ephemeral product-neutral bc-lead launcher
+    (which stands up the leaf-BC on bc-base) — the ONLY `shopsystem` literals
+    permitted are the framework image refs shopsystem-bc-lead (launcher) and
+    shopsystem-bc-base (leaf-BC runtime); all other tokens are slug-parametric,
+    and the wrapper constructs no proxy URL, fetches no CA, and mounts no host
+    credentials."""
     target = _bootstrap(tmp_path, "dummyco-product")
     body = (target / "bin" / "shop-shell").read_text()
 
@@ -253,15 +255,21 @@ def test_dummyco_shop_shell_is_slug_scoped_thin_wrapper(tmp_path):
     assert "DUMMYCO_DATA" in body
     assert "--network dummyco" in body
 
-    # The ONLY permitted shopsystem literal is the product-neutral image ref.
+    # The ONLY permitted shopsystem literals are the product-neutral image refs.
+    assert "shopsystem-bc-lead" in body, (
+        "thin wrapper must preserve the product-neutral launcher image ref "
+        "shopsystem-bc-lead (not slug-rewritten to dummyco-bc-lead)"
+    )
     assert "shopsystem-bc-base" in body, (
-        "thin wrapper must preserve the product-neutral framework image ref "
+        "thin wrapper must preserve the product-neutral leaf-BC runtime image ref "
         "shopsystem-bc-base (not slug-rewritten to dummyco-bc-base)"
     )
-    residual = body.lower().replace("shopsystem-bc-base", "")
+    residual = body.lower().replace("shopsystem-bc-lead", "").replace(
+        "shopsystem-bc-base", ""
+    )
     assert "shopsystem" not in residual, (
-        f"dummyco shop-shell leaked a shopsystem literal outside "
-        f"shopsystem-bc-base:\n{body}"
+        f"dummyco shop-shell leaked a shopsystem literal outside the framework "
+        f"refs:\n{body}"
     )
     assert "fleet" not in residual, f"dummyco shop-shell leaked a fleet literal:\n{body}"
 

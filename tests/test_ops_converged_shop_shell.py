@@ -189,13 +189,14 @@ def test_lead_ops_files_enumeration_is_five_without_dockerfile():
 
 
 def test_dummyco_render_has_zero_cross_product_slug_literals(tmp_path):
-    """175 (399d16c31084dbfc): a non-default-slug render (dummyco) carries zero
+    """175 (166b86d779ecd0e7): a non-default-slug render (dummyco) carries zero
     cross-product SLUG-derived literals — compose.yaml has no case-insensitive
     `shopsystem`/`fleet`; bin/shop-shell permits `shopsystem` ONLY as part of
-    the product-neutral framework image reference `shopsystem-bc-base` (after
-    removing every occurrence of that ref, no `shopsystem`/`fleet` remains) and
-    MUST still contain `shopsystem-bc-base` (not slug-rewritten); and no
-    dedicated shell Dockerfile is written."""
+    the product-neutral framework image references `shopsystem-bc-lead`
+    (launcher) and `shopsystem-bc-base` (leaf-BC runtime) — after removing every
+    occurrence of BOTH refs, no `shopsystem`/`fleet` remains — and MUST still
+    contain both `shopsystem-bc-lead` and `shopsystem-bc-base` (not
+    slug-rewritten); and no dedicated shell Dockerfile is written."""
     target = _bootstrap(tmp_path, "dummyco")
 
     # compose.yaml: zero case-insensitive shopsystem/fleet.
@@ -203,18 +204,25 @@ def test_dummyco_render_has_zero_cross_product_slug_literals(tmp_path):
     assert "shopsystem" not in compose, "compose.yaml leaked a 'shopsystem' literal"
     assert "fleet" not in compose, "compose.yaml leaked a 'fleet' literal"
 
-    # bin/shop-shell: the ONLY permitted shopsystem literal is within the
-    # product-neutral image ref shopsystem-bc-base. Strip every occurrence of
-    # that ref (case-insensitively) and assert nothing else remains.
+    # bin/shop-shell: the ONLY permitted shopsystem literals are within the
+    # product-neutral image refs shopsystem-bc-lead and shopsystem-bc-base.
+    # Strip every occurrence of BOTH refs (case-insensitively) and assert
+    # nothing else remains.
     shell = (target / "bin" / "shop-shell").read_text()
+    assert "shopsystem-bc-lead" in shell, (
+        "bin/shop-shell must preserve the product-neutral launcher image "
+        "reference shopsystem-bc-lead (not slug-rewritten to dummyco-bc-lead)"
+    )
     assert "shopsystem-bc-base" in shell, (
-        "bin/shop-shell must preserve the product-neutral framework image "
+        "bin/shop-shell must preserve the product-neutral leaf-BC runtime image "
         "reference shopsystem-bc-base (not slug-rewritten to dummyco-bc-base)"
     )
     shell_lower = shell.lower()
-    residual = shell_lower.replace("shopsystem-bc-base", "")
+    residual = shell_lower.replace("shopsystem-bc-lead", "").replace(
+        "shopsystem-bc-base", ""
+    )
     assert "shopsystem" not in residual, (
-        "bin/shop-shell leaked a 'shopsystem' literal outside shopsystem-bc-base"
+        "bin/shop-shell leaked a 'shopsystem' literal outside the framework refs"
     )
     assert "fleet" not in residual, "bin/shop-shell leaked a 'fleet' literal"
 

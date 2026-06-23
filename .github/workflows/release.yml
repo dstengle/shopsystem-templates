@@ -17,6 +17,24 @@ jobs:
   dispatch-bc-launcher:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+
+      - name: Guard — the pushed tag must match pyproject [project].version
+        # Release-process safeguard (scenario 192, 88a5418db371a12a): a tag
+        # cut with a lagging pyproject ships bad dist metadata (the v0.21.0
+        # -> 0.20.0 regression). This step runs the committed, in-repo
+        # unit-tested guard script and fails the run on any tag-vs-pyproject
+        # mismatch BEFORE the repository_dispatch below, so a bad tag never
+        # notifies downstream.
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 scripts/check_tag_matches_pyproject_version.py \
+            --tag "${RELEASE_TAG}" \
+            --pyproject pyproject.toml
+
       - name: Notify shopsystem-bc-launcher of the new release
         # A cross-repository repository_dispatch cannot use the default
         # GITHUB_TOKEN (scoped to this repo); it must carry a token

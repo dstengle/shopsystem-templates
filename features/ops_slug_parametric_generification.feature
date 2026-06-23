@@ -33,25 +33,6 @@ Feature: ops scaffolding is slug-parametric (lead shop) — compose/shop-shell/D
       | shopsystem | SHOPSYSTEM |
       | dummyco    | DUMMYCO    |
 
-  @scenario_hash:5335c39eb06f7493 @bc:shopsystem-templates
-  Scenario Outline: bootstrap of a "lead" shop named "<slug>" writes "bin/shop-shell" as an executable bash wrapper that is broker-wired (tightening scenario 134) — its body carries the agent-vault broker credentials and the :14322 HTTPS proxy, greps for the <slug>-derived container, errors when no token is present, and invokes "agent-vault-check"; while still preserving the executable bash wrapper, "docker compose up", "docker run", and "--user vscode" guarantees, and mounting no host "~/.claude" or "~/.gitconfig"
-    Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
-    When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"
-    Then the exit code is 0
-    And after the invocation the target directory contains a file at "bin/shop-shell" whose owner-execute permission bit is set and whose first line is exactly "#!/usr/bin/env bash"
-    And the body of "bin/shop-shell" contains the literal substring "docker compose" followed somewhere later in the file by the literal substring "up -d postgres", and contains the literal substring "docker run", and contains the literal substring "--user vscode"
-    And the body of "bin/shop-shell" references the environment variable "AGENT_VAULT_ADDR" and the environment variable "AGENT_VAULT_TOKEN" for broker credentials
-    And the body of "bin/shop-shell" references the proxy endpoint by the literal substring "14322" carried on an "HTTPS_PROXY" assignment
-    And the body of "bin/shop-shell" greps for a container name containing the literal substring "<slug>-postgres" or "<slug>-agent-vault"
-    And the body of "bin/shop-shell" contains a token-presence guard that exits non-zero with a diagnostic when the broker token is empty or unset
-    And the body of "bin/shop-shell" contains the literal substring "agent-vault-check"
-    And the body of "bin/shop-shell" does not contain the literal substring "$HOME/.claude" and does not contain the literal substring "$HOME/.gitconfig" and does not contain the literal substring "~/.claude" and does not contain the literal substring "~/.gitconfig"
-
-    Examples:
-      | slug       |
-      | shopsystem |
-      | dummyco    |
-
   @scenario_hash:abe57dcb4d6f6554 @bc:shopsystem-templates
   Scenario Outline: the postgres host port published by the bootstrap-rendered "compose.yaml" for a "lead" shop named "<slug>" is collision-free per slug — it is "5432 + crc32(<slug>) % 1000" and is overridable by the slug-parametric "<SLUG_UPPER>_POSTGRES_PORT" environment variable — so two distinct products bootstrapped on one host bind distinct host ports by default while each remains operator-overridable
     Given an existing git repository at a target directory "/tmp/example-lead-shop"
@@ -66,31 +47,3 @@ Feature: ops scaffolding is slug-parametric (lead shop) — compose/shop-shell/D
       | slug       | SLUG_UPPER | computed_port |
       | shopsystem | SHOPSYSTEM | 5829          |
       | dummyco    | DUMMYCO    | 5714          |
-
-  @scenario_hash:cb1e585684ff4a14 @bc:shopsystem-templates
-  Scenario Outline: the ops scaffolding file-set written by bootstrap for a "lead" shop named "<slug>" enumerates exactly six shop-owned files additively (growing the former four-file set) — "compose.yaml", "bin/shop-shell", "Dockerfile.<slug>-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", and "bin/agent-vault-check" — each at a shop-owned path outside any ".claude/" subdirectory, so the broker-provisioning pair ships alongside the existing ops files
-    Given an existing git repository at a target directory "/tmp/example-lead-shop"
-    When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"
-    Then the exit code is 0
-    And after the invocation the target directory contains a top-level file named "compose.yaml" not under any ".claude/" subdirectory
-    And after the invocation the target directory contains a file at "bin/shop-shell" not under any ".claude/" subdirectory
-    And after the invocation the target directory contains a top-level file named "Dockerfile.<slug>-shell" not under any ".claude/" subdirectory
-    And after the invocation the target directory contains a file at "bin/shop-scenario-completion" not under any ".claude/" subdirectory
-    And after the invocation the target directory contains a file at "bin/agent-vault-provision" not under any ".claude/" subdirectory
-    And after the invocation the target directory contains a file at "bin/agent-vault-check" not under any ".claude/" subdirectory
-    And the directory at "/tmp/example-lead-shop/.claude/canonical/" does not contain a file named "compose.yaml", "shop-shell", "Dockerfile.<slug>-shell", "shop-scenario-completion", "agent-vault-provision", or "agent-vault-check"
-
-    Examples:
-      | slug       |
-      | shopsystem |
-      | dummyco    |
-
-  @scenario_hash:1b6dbe8a0095fb8f @bc:shopsystem-templates
-  Scenario: the ops scaffolding rendered by bootstrap for a non-default-slug "lead" shop carries zero cross-product literals — for shop name "dummyco" the rendered "compose.yaml", "bin/shop-shell", and "Dockerfile.dummyco-shell" contain no case-insensitive occurrence of the literal "shopsystem" and no case-insensitive occurrence of the literal "fleet", confirming the generification leaves no default-product name baked into a non-default render
-    Given an existing git repository at a target directory "/tmp/example-lead-shop"
-    When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "dummyco", and target directory "/tmp/example-lead-shop"
-    Then the exit code is 0
-    And the byte contents of "compose.yaml" in the target directory contain no case-insensitive occurrence of the literal substring "shopsystem" and no case-insensitive occurrence of the literal substring "fleet"
-    And the byte contents of "bin/shop-shell" in the target directory contain no case-insensitive occurrence of the literal substring "shopsystem" and no case-insensitive occurrence of the literal substring "fleet"
-    And the byte contents of "Dockerfile.dummyco-shell" in the target directory contain no case-insensitive occurrence of the literal substring "shopsystem" and no case-insensitive occurrence of the literal substring "fleet"
-    And the target directory contains no top-level file named "Dockerfile.shopsystem-shell"

@@ -328,11 +328,14 @@ def canonical_skill_group(shop_type: str) -> tuple[tuple[str, bytes], ...]:
 # -----------------------------------------------------------------------
 # Lead-shop ops scaffolding (PDR-003 path F — shop-owned, NOT canonical).
 #
-# Per lead-8hxz (scenarios 90138f78dfa46697, 3d94639d5af360d7,
-# 314d4485b8197f2a, 82c069bd3fb3b1d4, 8cf5656c55b466e7, 43e085e8627c7756):
-# bootstrap of a "lead" shop renders three ops files — a top-level
-# compose.yaml, an executable bin/shop-shell, and a top-level
-# Dockerfile.shopsystem-shell — from package data under templates/ops/.
+# Per lead-8hxz / PDR-020 slice 2 (scenarios 90138f78dfa46697,
+# 82c069bd3fb3b1d4, 43e085e8627c7756, plus converged 03f1256aefc7fad4 /
+# 5e42381f435397f2 / 5730de0b80aa6a0b / 82c3a716143014a6): bootstrap of a
+# "lead" shop renders a top-level compose.yaml and an executable bin/shop-shell
+# (the THIN bc-container-delegating wrapper) from package data under
+# templates/ops/. Per PDR-020 the dedicated shell image and its
+# Dockerfile.<slug>-shell are RETIRED — bin/shop-shell launches an ephemeral
+# product-neutral bc-base instead, so no shell Dockerfile is written.
 # A "bc" shop bootstrap renders NONE of them (a BC runs inside a
 # bc-launcher container and never owns its own postgres or shell image).
 #
@@ -351,7 +354,6 @@ _OPS_TEMPLATES_PKG = "shop_templates.templates.ops"
 _LEAD_OPS_FILES: tuple[tuple[str, str, bool], ...] = (
     ("compose.yaml", "compose.yaml", False),
     ("shop-shell", "bin/shop-shell", True),
-    ("Dockerfile.shopsystem-shell", "Dockerfile.shopsystem-shell", False),
     # lead-csas (scenarios 5c0a34a0b9ad1be7 / e430bb96e91b89ab): the
     # cross-BC scenario-completion reconciliation view. Poured executable
     # under bin/ for "lead" shops only; a "bc" shop never renders it (the
@@ -377,9 +379,8 @@ def read_ops_template(name: str) -> str:
     Loaded via importlib.resources from templates/ops/; never read from a
     filesystem path under the product working directory. The returned
     string is the RAW (placeholder-bearing) source of truth from which
-    bootstrap renders a lead shop's compose.yaml / bin/shop-shell /
-    Dockerfile.<slug>-shell. To obtain the rendered, product-scoped body
-    use `render_ops_template(name, slug)`.
+    bootstrap renders a lead shop's compose.yaml / bin/shop-shell. To obtain
+    the rendered, product-scoped body use `render_ops_template(name, slug)`.
     """
     return (files(_TEMPLATES_PKG) / "ops" / name).read_text()
 
@@ -466,13 +467,11 @@ def render_ops_template(name: str, slug: str) -> str:
 def _ops_target_rel(rel_path: str, slug: str) -> str:
     """Return the on-disk relative target for an ops file, product-scoped.
 
-    The Dockerfile recipe filename is scoped to the slug
-    (Dockerfile.<slug>-shell) so a second product does not write a
-    `Dockerfile.shopsystem-shell` literal; all other ops targets keep their
-    fixed path.
+    Per PDR-020 the dedicated shell image and its Dockerfile.<slug>-shell are
+    retired, so every converged ops file keeps its fixed path (no slug-derived
+    target filename remains). `slug` is retained for signature stability and
+    future product-scoped target derivation.
     """
-    if rel_path == "Dockerfile.shopsystem-shell":
-        return f"Dockerfile.{slug}-shell"
     return rel_path
 
 
@@ -1092,13 +1091,14 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     _pour_skills(target, _skill_iterator_for(shop_type))
 
     # Lead-shop ops scaffolding (PDR-003 path F — shop-owned). For a
-    # "lead" shop, render the three ops files (compose.yaml,
-    # bin/shop-shell, Dockerfile.shopsystem-shell) at the repo top level /
-    # under bin/, NEVER under .claude/. For a "bc" shop, render NONE of
-    # them — a BC runs inside a bc-launcher container and never owns its
-    # own postgres or shell image (scenarios 90138f78dfa46697,
-    # 3d94639d5af360d7, 314d4485b8197f2a, 82c069bd3fb3b1d4,
-    # 8cf5656c55b466e7, 43e085e8627c7756).
+    # "lead" shop, render the converged five-file ops set (compose.yaml,
+    # bin/shop-shell, bin/shop-scenario-completion, bin/agent-vault-provision,
+    # bin/agent-vault-check) at the repo top level / under bin/, NEVER under
+    # .claude/, and NO dedicated shell Dockerfile (PDR-020 retires it). For a
+    # "bc" shop, render NONE of them — a BC runs inside a bc-launcher container
+    # and never owns its own postgres or shell image (scenarios
+    # 90138f78dfa46697, 82c069bd3fb3b1d4, 43e085e8627c7756, plus converged
+    # 5730de0b80aa6a0b / 82c3a716143014a6).
     if shop_type == "lead":
         _render_lead_ops_scaffolding(target, _ops_slug(shop_name))
 
@@ -1460,10 +1460,12 @@ def _cmd_update(args: argparse.Namespace) -> int:
             )
 
     # Step 7: surface (without modifying) drift in the lead-shop ops
-    # scaffolding files. Per lead-xjsq (scenarios 3e8c8087c483db9e,
-    # ebbe3f1b92258299, 59d41246cbd5235b): compose.yaml, bin/shop-shell,
-    # and Dockerfile.shopsystem-shell are SHOP-OWNED under PDR-003 path F's
-    # two-bucket model — update NEVER overwrites them (the ops-scaffolding
+    # scaffolding files. Per lead-xjsq / PDR-020 (scenarios 3c496f8858b6b033,
+    # 29caed838aebe9f7, 953b2102a6924c28): the converged ops set
+    # (compose.yaml, bin/shop-shell, and the bin/ ops tools) is SHOP-OWNED
+    # under PDR-003 path F's two-bucket model — update NEVER overwrites them;
+    # the retired shell Dockerfile is no longer part of the set (the
+    # ops-scaffolding
     # analogue of scenarios 86/87/88 for .claude/shop/). When an ops file's
     # on-disk content has drifted from the current canonical ops template
     # body, update emits a stderr advisory naming the file, noting the
@@ -1484,8 +1486,8 @@ def _advise_ops_scaffolding_drift(target: Path) -> None:
     """Emit a non-modifying stderr drift advisory for each lead-shop ops
     scaffolding file whose on-disk content differs from canonical.
 
-    The ops scaffolding files (compose.yaml, bin/shop-shell,
-    Dockerfile.<slug>-shell) are shop-owned: this function NEVER writes to
+    The converged ops scaffolding files (compose.yaml, bin/shop-shell, and the
+    bin/ ops tools) are shop-owned: this function NEVER writes to
     them. It only inspects on-disk content against the current canonical
     ops template body RENDERED for this shop's product slug (read from
     .claude/shop/name.md — the single identity source) and, on drift,

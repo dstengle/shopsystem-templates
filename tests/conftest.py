@@ -11561,7 +11561,6 @@ def _find_volume_for_target(node: object, target: str):
 _OPS_PATH_TO_TEMPLATE_NAME: dict[str, str] = {
     "compose.yaml": "compose.yaml",
     "bin/shop-shell": "shop-shell",
-    "Dockerfile.shopsystem-shell": "Dockerfile.shopsystem-shell",
 }
 
 
@@ -14973,6 +14972,267 @@ def then_no_top_level_file_named(name: str, context: dict) -> None:
         f"expected NO top-level file named {name!r} under {real!s}, but it "
         f"exists"
     )
+
+
+# =======================================================================
+# Converged ops scaffolding (PDR-020 slice 2) — thin bc-container-delegating
+# bin/shop-shell, five-file ops set, product-neutral-image-exempt 175.
+#
+# These step-defs tolerate an optional trailing rationale clause (", because
+# ..." / ", so ...") on the body-literal assertions — the converged Gherkin
+# carries such clauses inline, and pytest-bdd's parsers.re uses re.fullmatch,
+# so a $-anchored pattern without the optional tail does not match.
+# =======================================================================
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" contains the literal substring '
+        r'"(?P<first>[^"]+)" followed somewhere later in the file by the '
+        r'literal substring "(?P<second>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_body_contains_ordered_with_tail(
+    rel: str, first: str, second: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    i = body.find(first)
+    j = body.find(second)
+    assert i != -1, f"{rel} missing literal {first!r}"
+    assert j != -1, f"{rel} missing literal {second!r}"
+    assert i < j, f"{rel}: {first!r} (at {i}) must precede {second!r} (at {j})"
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" does not contain the literal '
+        r'substring "(?P<needle>[^"]+)", (?:because|so) .*$'
+    )
+)
+def then_body_does_not_contain_literal_with_tail(
+    rel: str, needle: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert needle not in body, (
+        f"{rel}: expected NOT to contain literal substring {needle!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the byte contents of "(?P<rel>[^"]+)" in the target directory, '
+        r'after every case-insensitive occurrence of the product-neutral '
+        r'framework image reference literal "(?P<imgref>[^"]+)" is removed, '
+        r'contain no remaining case-insensitive occurrence of the literal '
+        r'substring "(?P<a>[^"]+)" and no case-insensitive occurrence of the '
+        r'literal substring "(?P<b>[^"]+)"'
+    )
+)
+def then_byte_contents_no_ci_after_imgref_removed(
+    rel: str, imgref: str, a: str, b: str, context: dict
+) -> None:
+    """175 (399d16c31084dbfc): the ONLY permitted shopsystem literal in the
+    dummyco render of bin/shop-shell is the product-neutral framework image
+    reference; strip every (case-insensitive) occurrence of it and assert no
+    other cross-product literal remains."""
+    real = _ops_target(context)
+    raw = (real / rel).read_bytes().decode("utf-8", errors="replace").lower()
+    residual = raw.replace(imgref.lower(), "")
+    for needle in (a, b):
+        assert needle.lower() not in residual, (
+            f"{rel} contains a case-insensitive occurrence of {needle!r} "
+            f"outside the product-neutral image reference {imgref!r}"
+        )
+
+
+@then(
+    parsers.re(
+        r'the byte contents of "(?P<rel>[^"]+)" in the target directory '
+        r'contain the literal substring "(?P<needle>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_byte_contents_contain_literal_with_tail(
+    rel: str, needle: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    raw = (real / rel).read_bytes().decode("utf-8", errors="replace")
+    assert needle in raw, f"{rel} missing literal substring {needle!r}"
+
+
+@then(
+    parsers.re(
+        r'the directory at "(?P<dirpath>[^"]+)" does not contain a file '
+        r'named "(?P<n1>[^"]+)", "(?P<n2>[^"]+)", "(?P<n3>[^"]+)", '
+        r'"(?P<n4>[^"]+)", or "(?P<n5>[^"]+)"'
+    )
+)
+def then_canonical_dir_lacks_five(
+    dirpath: str,
+    n1: str,
+    n2: str,
+    n3: str,
+    n4: str,
+    n5: str,
+    context: dict,
+) -> None:
+    real = _ops_target(context)
+    rel = dirpath.split("/tmp/example-lead-shop/", 1)[-1].rstrip("/")
+    cdir = real / rel
+    for n in (n1, n2, n3, n4, n5):
+        assert not (cdir / n).exists(), f"{cdir!s} unexpectedly contains {n!r}"
+
+
+def _ops_body_contains(rel: str, needle: str, context: dict) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert needle in body, f"{rel} missing literal substring {needle!r}"
+
+
+def _ops_body_lacks_all(rel: str, needles: tuple[str, ...], context: dict) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    for needle in needles:
+        assert needle not in body, (
+            f"{rel}: expected NOT to contain literal substring {needle!r}"
+        )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" does not contain the literal '
+        r'substring "(?P<a>[^"]+)" and does not contain the literal substring '
+        r'"(?P<b>[^"]+)"(?:,(?! and ).*)?$'
+    )
+)
+def then_body_does_not_contain_two(
+    rel: str, a: str, b: str, context: dict
+) -> None:
+    _ops_body_lacks_all(rel, (a, b), context)
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" does not contain the literal '
+        r'substring "(?P<a>[^"]+)" and does not contain the literal substring '
+        r'"(?P<b>[^"]+)" and does not contain the literal substring '
+        r'"(?P<c>[^"]+)" and does not contain the literal substring '
+        r'"(?P<d>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_body_does_not_contain_four(
+    rel: str, a: str, b: str, c: str, d: str, context: dict
+) -> None:
+    _ops_body_lacks_all(rel, (a, b, c, d), context)
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" assembles the operator agent-vault '
+        r'credentials into an env-file by referencing the literal substring '
+        r'"(?P<needle>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_body_assembles_env_file(rel: str, needle: str, context: dict) -> None:
+    _ops_body_contains(rel, needle, context)
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" launches an ephemeral bc-base by the '
+        r'literal substring "(?P<run>[^"]+)" carrying the interactive flag '
+        r'literal substring "(?P<it>[^"]+)" and the bc-base image reference '
+        r'by the literal substring "(?P<img>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_body_launches_ephemeral_bc_base(
+    rel: str, run: str, it: str, img: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    for needle in (run, it, img):
+        assert needle in body, f"{rel} missing literal substring {needle!r}"
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" mounts the host docker socket into '
+        r'that ephemeral bc-base by the literal substring "(?P<needle>[^"]+)"'
+        r'(?:,.*)?$'
+    )
+)
+def then_body_mounts_docker_socket(rel: str, needle: str, context: dict) -> None:
+    _ops_body_contains(rel, needle, context)
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" mounts the lead repository into that '
+        r'ephemeral bc-base so the inner "(?P<_inner>[^"]+)" can see it(?:,.*)?$'
+    )
+)
+def then_body_mounts_lead_repo(rel: str, _inner: str, context: dict) -> None:
+    """172: the wrapper bind-mounts the lead repo into the ephemeral bc-base.
+    The rendered wrapper expresses this as `-v "$REPO_ROOT:$REPO_ROOT"`."""
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    assert "$REPO_ROOT:$REPO_ROOT" in body or "-v " in body, (
+        f"{rel} does not bind-mount the lead repository into the bc-base"
+    )
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" inside that ephemeral bc-base invokes '
+        r'"(?P<launch>[^"]+)" carrying the literal substring "(?P<a>[^"]+)" '
+        r'and the literal substring "(?P<b>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_body_invokes_launch_with_flags(
+    rel: str, launch: str, a: str, b: str, context: dict
+) -> None:
+    real = _ops_target(context)
+    body = (real / rel).read_text()
+    for needle in (launch, a, b):
+        assert needle in body, f"{rel} missing literal substring {needle!r}"
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" passes a lead-specific startup prompt '
+        r'into the launch by the literal substring "(?P<needle>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_body_passes_startup_prompt(rel: str, needle: str, context: dict) -> None:
+    _ops_body_contains(rel, needle, context)
+
+
+@then(
+    parsers.re(
+        r'the body of "(?P<rel>[^"]+)" drops the operator into the brokered '
+        r'session by the literal substring "(?P<needle>[^"]+)"(?:,.*)?$'
+    )
+)
+def then_body_drops_into_session(rel: str, needle: str, context: dict) -> None:
+    _ops_body_contains(rel, needle, context)
+
+
+# -- Given: record byte contents of the two named ops files (converged 139,
+#    3c496f8858b6b033 — compose.yaml + bin/shop-shell, Dockerfile dropped).
+@given('I record the byte contents of those two files before the invocation')
+def given_record_two_ops_files(context: dict) -> None:
+    real = _resolve_single_target(context)
+    snap = context.setdefault("two_file_snapshot", {})
+    for path in ("compose.yaml", "bin/shop-shell"):
+        target_file = real / path
+        assert target_file.exists(), (
+            f"premise of Given violated: {target_file!s} does not exist"
+        )
+        snap[path] = {
+            "bytes": target_file.read_bytes(),
+            "mtime_ns": target_file.stat().st_mtime_ns,
+        }
 
 
 # =======================================================================

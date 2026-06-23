@@ -14,36 +14,6 @@ Feature: bootstrap renders ops scaffolding (lead-shop only): compose.yaml, bin/s
   And the parsed YAML contains a top-level key "networks" whose value is a mapping containing a key "shopsystem"
   And no service entry under "services" mounts a volume whose source path resolves underneath "/tmp/example-lead-shop"
 
-  @scenario_hash:3d94639d5af360d7 @bc:shopsystem-templates
-  Scenario: bootstrap of a "lead" shop writes "bin/shop-shell" as an executable bash script whose body brings up the compose-defined postgres if not already running and execs "docker run" against the shell image, so a fresh operator can run "./bin/shop-shell" with no further configuration
-  Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
-  When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "shopsystem-product", and target directory "/tmp/example-lead-shop"
-  Then the exit code is 0
-  And after the invocation the target directory contains a file at "bin/shop-shell"
-  And the file at "bin/shop-shell" in the target directory has its owner-execute permission bit set
-  And the first line of the file at "bin/shop-shell" is exactly "#!/usr/bin/env bash"
-  And the body of "bin/shop-shell" contains the literal substring "docker compose" followed somewhere later in the file by the literal substring "up -d postgres"
-  And the body of "bin/shop-shell" contains the literal substring "docker run"
-  And the body of "bin/shop-shell" references the environment variable "SHOPSYSTEM_DATA" with a default of "$HOME/.local/share/shopsystem"
-  And the body of "bin/shop-shell" references the environment variable "SHOPSYSTEM_SHELL_IMAGE" for the shell image tag
-  And the body of "bin/shop-shell" contains the literal substring "/var/run/docker.sock:/var/run/docker.sock"
-  And the body of "bin/shop-shell" contains the literal substring "--user vscode"
-  And the body of "bin/shop-shell" does not contain the literal substring "--user $(id -u):$(id -g)"
-
-  @scenario_hash:6f53ce53c10e3c09 @bc:shopsystem-templates
-  Scenario: bootstrap of a "lead" shop writes a top-level "Dockerfile.shopsystem-shell" whose "FROM" base image is build-arg overridable and defaults to a publicly-pullable image, so an adopter without access to a private namespace can build the daily-driver shell image locally with "docker build -t shopsystem-shell:dev -f Dockerfile.shopsystem-shell ."
-  Given an existing git repository at a target directory "/tmp/example-lead-shop" with no top-level "Dockerfile.shopsystem-shell" file
-  When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "shopsystem-product", and target directory "/tmp/example-lead-shop"
-  Then the exit code is 0
-  And after the invocation the target directory contains a top-level file named "Dockerfile.shopsystem-shell"
-  And the file at "Dockerfile.shopsystem-shell" in the target directory contains an "ARG" instruction declaring a build argument named "SHELL_BASE_IMAGE" whose declared default value is a publicly-pullable image reference
-  And the "FROM" instruction in that file references the "SHELL_BASE_IMAGE" build argument by the literal substring "${SHELL_BASE_IMAGE}", so an adopter can override the base via "docker build --build-arg SHELL_BASE_IMAGE=<their-image>"
-  And the literal image reference that is the declared default of "SHELL_BASE_IMAGE" does not contain the substring "dstengle", so the default base is not a private dstengle-namespaced image an adopter cannot pull
-  And the file at "Dockerfile.shopsystem-shell" in the target directory does not contain the literal substring "docker-ce-cli", because the docker CLI is provided by the base image rather than by an explicit apt-install layer
-  And the file at "Dockerfile.shopsystem-shell" in the target directory contains a "USER" instruction whose literal token form names a non-root user, so the built image runs the shell as that user and the base image's socket-GID reconciler can make the mounted docker socket reachable
-  And the file at "Dockerfile.shopsystem-shell" in the target directory installs at least one of the framework CLIs by literal substring match against the set "shop-msg", "scenarios", or "shop-templates"
-  And the file at "Dockerfile.shopsystem-shell" in the target directory contains a "CMD" or "ENTRYPOINT" instruction whose literal token form references "/bin/bash" or "bash"
-
   @scenario_hash:82c069bd3fb3b1d4 @bc:shopsystem-templates
   Scenario: bootstrap of a "bc" shop does not write the lead-shop ops scaffolding (no "compose.yaml", no "bin/shop-shell", no "Dockerfile.shopsystem-shell") because a BC runs inside a bc-launcher container and never owns its own postgres or shell image
   Given an existing git repository at a target directory "/tmp/example-bc-shop" with no top-level "compose.yaml", no "bin/" subdirectory, and no top-level "Dockerfile.shopsystem-shell"
@@ -52,16 +22,6 @@ Feature: bootstrap renders ops scaffolding (lead-shop only): compose.yaml, bin/s
   And after the invocation the target directory contains no top-level file named "compose.yaml"
   And after the invocation the target directory contains no file at "bin/shop-shell"
   And after the invocation the target directory contains no top-level file named "Dockerfile.shopsystem-shell"
-
-  @scenario_hash:8cf5656c55b466e7 @bc:shopsystem-templates
-  Scenario: the ops scaffolding files written by bootstrap for a "lead" shop ("compose.yaml", "bin/shop-shell", "Dockerfile.shopsystem-shell") are shop-owned (in the PDR-003 path F sense) — they are bootstrap-time starter content the operator may freely customize, and they do not sit under ".claude/canonical/" because they are not subject to the canonical-managed re-pour contract that ".claude/canonical/" implies
-  Given an existing git repository at a target directory "/tmp/example-lead-shop"
-  When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "shopsystem-product", and target directory "/tmp/example-lead-shop"
-  Then the exit code is 0
-  And after the invocation the target directory contains a top-level file named "compose.yaml" at the path "/tmp/example-lead-shop/compose.yaml" (not under any ".claude/" subdirectory)
-  And after the invocation the target directory contains a file at "/tmp/example-lead-shop/bin/shop-shell" (not under any ".claude/" subdirectory)
-  And after the invocation the target directory contains a top-level file named "Dockerfile.shopsystem-shell" at the path "/tmp/example-lead-shop/Dockerfile.shopsystem-shell" (not under any ".claude/" subdirectory)
-  And after the invocation the directory at "/tmp/example-lead-shop/.claude/canonical/" does not contain a file named "compose.yaml", "shop-shell", or "Dockerfile.shopsystem-shell"
 
   @scenario_hash:43e085e8627c7756 @bc:shopsystem-templates
   Scenario: the postgres "pgdata" volume source string in the bootstrap-rendered "compose.yaml" for a "lead" shop is derived from the "SHOPSYSTEM_DATA" environment variable with a "$HOME/.local/share/shopsystem" default, and never resolves to a path underneath the target shop's own repository — so an operator who runs "docker compose up -d postgres" from a freshly bootstrapped shop does not pollute the repo with a "pgdata/" directory

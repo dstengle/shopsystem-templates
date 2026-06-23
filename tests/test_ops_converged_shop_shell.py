@@ -34,6 +34,10 @@ from pathlib import Path
 import pytest
 
 _SRC = str(Path(__file__).resolve().parent.parent / "src")
+# Import shop_templates from the worktree source tree (ahead of any installed
+# copy) so the in-process _LEAD_OPS_FILES enumeration reflects this branch.
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 
 # Reuse the hermetic bootstrap harness from the generification suite.
 from test_ops_generification import _bootstrap  # noqa: E402
@@ -145,13 +149,32 @@ def test_ops_set_is_exactly_five_files_no_dockerfile(tmp_path):
 
 def test_lead_ops_files_enumeration_is_five_without_dockerfile():
     """174/137: the cli file-set enumeration is exactly five and drops the
-    Dockerfile.shopsystem-shell entry."""
-    from shop_templates.cli import _LEAD_OPS_FILES
+    Dockerfile.shopsystem-shell entry.
 
-    rels = {rel for _tn, rel, _exe in _LEAD_OPS_FILES}
-    tmpls = {tn for tn, _rel, _exe in _LEAD_OPS_FILES}
-    assert len(_LEAD_OPS_FILES) == 5, (
-        f"converged ops-tool set must be exactly five; got {len(_LEAD_OPS_FILES)}"
+    Resolved out-of-process against the worktree `src/` (via PYTHONPATH) — the
+    same hermetic convention `_bootstrap` uses — so the assertion reflects this
+    branch's `_LEAD_OPS_FILES` rather than any installed/cached copy."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = _SRC + os.pathsep + env.get("PYTHONPATH", "")
+    probe = (
+        "import json;"
+        "from shop_templates.cli import _LEAD_OPS_FILES as f;"
+        "print(json.dumps([[tn, rel] for tn, rel, _ in f]))"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0, f"probe failed: {proc.stderr}"
+    import json as _json
+
+    entries = _json.loads(proc.stdout)
+    rels = {rel for _tn, rel in entries}
+    tmpls = {tn for tn, _rel in entries}
+    assert len(entries) == 5, (
+        f"converged ops-tool set must be exactly five; got {len(entries)}"
     )
     assert "Dockerfile.shopsystem-shell" not in tmpls
     assert "Dockerfile.shopsystem-shell" not in rels

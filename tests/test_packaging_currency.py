@@ -89,9 +89,12 @@ CLI_SLUG_MECHANISM = ["render_ops_template", "_ops_slug", "{{OPS_SLUG}}"]
 # run would mask the defect): every ops/ template the bootstrap path reads —
 # including the dotfile — must ride along in the package. We pin the full ops/
 # set so a future glob change cannot drop a sibling either.
+# PDR-020 slice 2: the dedicated shell Dockerfile (templates/ops/
+# Dockerfile.shopsystem-shell) is retired — bin/shop-shell launches an
+# ephemeral product-neutral bc-base instead — so it is no longer a packaged
+# ops template.
 OPS_PACKAGED_RELS = [
     "templates/ops/.env.example",
-    "templates/ops/Dockerfile.shopsystem-shell",
     "templates/ops/agent-vault-check",
     "templates/ops/agent-vault-provision",
     "templates/ops/compose.yaml",

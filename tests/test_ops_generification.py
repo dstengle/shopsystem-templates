@@ -180,7 +180,7 @@ def test_ops_slug_strips_product_suffix(shop_name, expected):
 def test_render_ops_template_leaves_no_unrendered_placeholder():
     # Only the {{OPS_*}} ops placeholders must be fully substituted; docker
     # Go-template format strings ({{.Names}} etc.) are legitimately retained.
-    for name in ("compose.yaml", "shop-shell", "Dockerfile.shopsystem-shell"):
+    for name in ("compose.yaml", "shop-shell"):
         body = render_ops_template(name, "dummyco")
         assert "{{OPS_" not in body, (
             f"{name} has an unrendered ops placeholder: {body!r}"
@@ -239,272 +239,76 @@ def test_dummyco_compose_host_ports_are_product_distinct(tmp_path):
     assert "POSTGRES_PORT" in (dummy / "compose.yaml").read_text()
 
 
-def test_dummyco_shop_shell_is_slug_scoped_and_broker_wired(tmp_path):
+def test_dummyco_shop_shell_is_slug_scoped_thin_wrapper(tmp_path):
+    """175 (399d16c31084dbfc) + 172/134: the dummyco thin wrapper is
+    slug-scoped (DUMMYCO_DATA, --network dummyco) and delegates the brokered
+    launch to bc-container in an ephemeral product-neutral bc-base — the ONLY
+    `shopsystem` literal permitted is the framework image ref
+    shopsystem-bc-base; all other tokens are slug-parametric, and the wrapper
+    constructs no proxy URL, fetches no CA, and mounts no host credentials."""
     target = _bootstrap(tmp_path, "dummyco-product")
     body = (target / "bin" / "shop-shell").read_text()
 
     # data env + network derive from slug
     assert "DUMMYCO_DATA" in body
     assert "--network dummyco" in body
-    # no residual shopsystem literal
-    assert "shopsystem" not in body, (
-        f"dummyco shop-shell leaked a shopsystem literal:\n{body}"
+
+    # The ONLY permitted shopsystem literal is the product-neutral image ref.
+    assert "shopsystem-bc-base" in body, (
+        "thin wrapper must preserve the product-neutral framework image ref "
+        "shopsystem-bc-base (not slug-rewritten to dummyco-bc-base)"
     )
-    # broker-wiring present
+    residual = body.lower().replace("shopsystem-bc-base", "")
+    assert "shopsystem" not in residual, (
+        f"dummyco shop-shell leaked a shopsystem literal outside "
+        f"shopsystem-bc-base:\n{body}"
+    )
+    assert "fleet" not in residual, f"dummyco shop-shell leaked a fleet literal:\n{body}"
+
+    # Thin-wrapper delegation present: env-file, ephemeral bc-base run, the
+    # bc-container launch flags, and attach.
     for needle in (
-        "AGENT_VAULT_ADDR",
-        "AGENT_VAULT_TOKEN",
-        "AGENT_VAULT_CA_PEM",
-        "HTTPS_PROXY",
-        "agent-vault:14322",
-        "GIT_AUTHOR_NAME",
-        "GIT_COMMITTER_NAME",
-        "agent-vault-check",
+        "--env-file",
+        "docker run --rm",
+        "-it",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "bc-container launch",
+        "--workspace-mount",
+        "--mount-docker-socket",
+        "--startup-prompt",
+        "bc-container attach",
     ):
-        assert needle in body, f"shop-shell missing broker-wiring needle {needle!r}"
-    # errors out with NO host-cred fallback: no host ~/.claude or ~/.gitconfig
-    # MOUNTS (`-v ...:...`). Doc-comment mentions of the policy are fine; an
-    # actual bind mount of either host path is forbidden (ADR-028).
-    import re as _re
+        assert needle in body, f"thin wrapper missing delegation needle {needle!r}"
 
-    mount_lines = _re.findall(r"-v\s+\S+", body)
-    for ml in mount_lines:
-        assert ".claude" not in ml, f"shop-shell must not mount host ~/.claude: {ml}"
-        assert ".gitconfig" not in ml, (
-            f"shop-shell must not mount host ~/.gitconfig: {ml}"
-        )
-    # error-out path present (no host-cred fallback)
-    assert "Aborting" in body or "exit 1" in body
-
-
-def test_dummyco_dockerfile_base_is_build_arg_overridable_and_public(tmp_path):
-    # lead-2ra5, supersedes scenario 135 (retired @scenario_hash:9bc85eced7685a40)
-    # with @scenario_hash:6f53ce53c10e3c09: the rendered Dockerfile.<slug>-shell
-    # must declare ARG SHELL_BASE_IMAGE with a publicly-pullable (non-dstengle)
-    # default and FROM ${SHELL_BASE_IMAGE} so an adopter without access to the
-    # private dstengle namespace can build the shell image locally.
-    target = _bootstrap(tmp_path, "dummyco-product")
-    # Dockerfile filename may be product-scoped or stay shopsystem-shell;
-    # accept either, assert the pinned recipe invariants.
-    candidates = list(target.glob("Dockerfile.*-shell"))
-    assert candidates, "expected a Dockerfile.<slug>-shell recipe"
-    body = candidates[0].read_text()
-
-    # ARG SHELL_BASE_IMAGE declared with a default value.
-    arg_lines = [
-        ln.strip()
-        for ln in body.splitlines()
-        if ln.lstrip().startswith("ARG") and "SHELL_BASE_IMAGE" in ln
-    ]
-    assert arg_lines, "Dockerfile must declare ARG SHELL_BASE_IMAGE"
-    # The ARG default value (token after SHELL_BASE_IMAGE=).
-    arg = arg_lines[0]
-    assert "SHELL_BASE_IMAGE=" in arg, (
-        "ARG SHELL_BASE_IMAGE must carry a declared default value"
-    )
-    default = arg.split("SHELL_BASE_IMAGE=", 1)[1].split()[0].strip()
-    assert default, "ARG SHELL_BASE_IMAGE default must be a non-empty image reference"
-    # The default must be publicly pullable: NOT a private dstengle-namespaced image.
-    assert "dstengle" not in default, (
-        f"ARG SHELL_BASE_IMAGE default must not be a private dstengle image: {default!r}"
-    )
-
-    # FROM references the build arg by ${SHELL_BASE_IMAGE} so it is overridable.
-    assert "${SHELL_BASE_IMAGE}" in body, (
-        "FROM must reference the SHELL_BASE_IMAGE build arg via ${SHELL_BASE_IMAGE}"
-    )
-    assert any(
-        ln.lstrip().startswith("FROM") and "${SHELL_BASE_IMAGE}" in ln
-        for ln in body.splitlines()
-    ), "a FROM instruction must reference ${SHELL_BASE_IMAGE}"
-
-    # docker CLI comes from the base image, not an apt docker-ce-cli layer.
-    assert "docker-ce-cli" not in body
-
-    assert any(
-        ln.lstrip().startswith("USER") and ln.split()[1] not in ("root", "0")
-        for ln in body.splitlines()
-    ), "Dockerfile must keep a non-root USER"
-    assert any(
-        cli in body for cli in ("shop-msg", "scenarios", "shop-templates")
-    ), "Dockerfile must install a framework CLI"
-    assert any(
-        ("CMD" in ln or "ENTRYPOINT" in ln) and ("/bin/bash" in ln or "bash" in ln)
-        for ln in body.splitlines()
-    ), "Dockerfile must have a CMD/ENTRYPOINT referencing bash"
-
-
-def test_dockerfile_shell_is_brokered_runnable_claude_and_ca(tmp_path):
-    # lead-hguw (empty-scenario request_bugfix): the default shop-shell image
-    # must be brokered-runnable OUT OF THE BOX, additive to scenario 135
-    # (@scenario_hash:6f53ce53c10e3c09). The shop-shell SCRIPT already delivers
-    # AGENT_VAULT_CA_PEM into the container env (-e AGENT_VAULT_CA_PEM,
-    # HTTPS_PROXY=http://agent-vault:14322); the IMAGE must (1) carry `claude`
-    # on PATH and (2) CONSUME AGENT_VAULT_CA_PEM into the system trust store
-    # at container START (before claude's first outbound TLS to the :14322
-    # MITM proxy), so claude's TLS validates against the broker CA.
-    #
-    # Read the canonical template from THIS worktree's src/ (the file under
-    # change), then apply the same slug substitution render_ops_template does,
-    # so the assertion pins the worktree source rather than an ambiently
-    # installed shop_templates copy.
-    raw = (
-        Path(_SRC)
-        / "shop_templates"
-        / "templates"
-        / "ops"
-        / "Dockerfile.shopsystem-shell"
-    ).read_text()
-    body = raw.replace("{{OPS_SLUG}}", "dummyco")
-    low = body.lower()
-
-    # (1) Claude Code install step is present -> `claude` lands on PATH.
-    assert "claude" in low, (
-        "Dockerfile must install Claude Code so `claude` is on PATH for the "
-        "brokered lead agent"
-    )
-
-    # (2) CA-materialization: writes AGENT_VAULT_CA_PEM to a trust-anchor path
-    # AND runs update-ca-certificates so the broker CA is trusted.
-    assert "AGENT_VAULT_CA_PEM" in body, (
-        "Dockerfile must consume AGENT_VAULT_CA_PEM (delivered into container "
-        "env by the shop-shell script) into the trust store"
-    )
-    assert "update-ca-certificates" in low, (
-        "Dockerfile must run update-ca-certificates to materialize the broker "
-        "CA into the system trust store"
-    )
-    # The PEM must be written under a trust-anchor directory consumed by
-    # update-ca-certificates.
-    assert "/usr/local/share/ca-certificates" in body or "/etc/ssl/certs" in body, (
-        "Dockerfile must write AGENT_VAULT_CA_PEM to a CA trust-anchor path"
-    )
-
-    # The CA materialization must run at container START, before claude's
-    # first TLS — i.e. an ENTRYPOINT that materializes the CA then execs the
-    # CMD/args. An /etc/profile.d-only hook fires only for login shells; an
-    # ENTRYPOINT is the mechanism that runs unconditionally before CMD.
-    assert any(
-        ln.lstrip().startswith("ENTRYPOINT") for ln in body.splitlines()
-    ), (
-        "Dockerfile must declare an ENTRYPOINT that materializes the CA at "
-        "container start, before claude's first outbound TLS"
-    )
-
-    # ---- Guard EVERY scenario-135 (@6f53ce53c10e3c09) invariant survives ----
-    # ARG SHELL_BASE_IMAGE with a publicly-pullable, NON-dstengle default.
-    arg_lines = [
-        ln.strip()
-        for ln in body.splitlines()
-        if ln.lstrip().startswith("ARG") and "SHELL_BASE_IMAGE" in ln
-    ]
-    assert arg_lines, "135: Dockerfile must declare ARG SHELL_BASE_IMAGE"
-    default = arg_lines[0].split("SHELL_BASE_IMAGE=", 1)[1].split()[0].strip()
-    assert default and "dstengle" not in default, (
-        f"135: ARG SHELL_BASE_IMAGE default must be public non-dstengle: {default!r}"
-    )
-    # FROM references the build arg.
-    assert any(
-        ln.lstrip().startswith("FROM") and "${SHELL_BASE_IMAGE}" in ln
-        for ln in body.splitlines()
-    ), "135: FROM must reference ${SHELL_BASE_IMAGE}"
-    # No docker-ce-cli apt layer.
-    assert "docker-ce-cli" not in body, "135: must not add a docker-ce-cli layer"
-    # Final image runs as a non-root USER (the last USER instruction).
-    user_targets = [
-        ln.split()[1]
-        for ln in body.splitlines()
-        if ln.lstrip().startswith("USER") and len(ln.split()) > 1
-    ]
-    assert user_targets, "135: Dockerfile must set a USER"
-    assert user_targets[-1] not in ("root", "0"), (
-        f"135: final image must run as non-root USER, got {user_targets[-1]!r}"
-    )
-    # At least one framework CLI present.
-    assert any(
-        cli in body for cli in ("shop-msg", "scenarios", "shop-templates")
-    ), "135: Dockerfile must install a framework CLI"
-    # CMD/ENTRYPOINT references bash (bash remains the effective shell).
-    assert any(
-        ("CMD" in ln or "ENTRYPOINT" in ln) and "bash" in ln
-        for ln in body.splitlines()
-    ), "135: a CMD/ENTRYPOINT must reference bash"
-
-
-def test_dockerfile_shell_installs_framework_clis_from_vcs_pins(tmp_path):
-    # lead-30fs (empty-scenario request_bugfix): the framework-CLI install step
-    # must NOT use bare `pipx install <name>` against PyPI — shop-msg /
-    # scenarios / shop-templates are NOT published to public PyPI, so that form
-    # makes `docker build` fail at the CLI-install step with "No matching
-    # distribution found for shop-msg". Install each CLI from its PUBLIC
-    # git+https source pinned to a RELEASED TAG (the scenario-129
-    # @scenario_hash:7568d14e0a13eca4 VCS-pin shape), and KEEP all three
-    # literal substrings present so scenario 135's literal-substring assertion
-    # (@scenario_hash:6f53ce53c10e3c09) is not weakened.
-    raw = (
-        Path(_SRC)
-        / "shop_templates"
-        / "templates"
-        / "ops"
-        / "Dockerfile.shopsystem-shell"
-    ).read_text()
-    body = raw.replace("{{OPS_SLUG}}", "dummyco")
-
-    # The three PUBLIC source repos, each VCS-pinned to a released tag.
-    pinned_specs = [
-        "git+https://github.com/dstengle/shopsystem-messaging.git@v0.4.0",
-        "git+https://github.com/dstengle/shopsystem-scenarios.git@v0.2.0",
-        "git+https://github.com/dstengle/shopsystem-templates.git@v0.18.0",
-    ]
-    for spec in pinned_specs:
-        assert spec in body, (
-            f"CLI-install step must pin the VCS source {spec!r} (released tag, "
-            "not a moving branch)"
+    # Delegated concerns are NOT re-derived in the wrapper (172/134 forbidden).
+    for forbidden in (
+        "14322",
+        "HTTPS_PROXY",
+        "agent-vault ca fetch",
+        "agent-vault-check",
+        "SHOPSYSTEM_SHELL_IMAGE",
+        "DUMMYCO_SHELL_IMAGE",
+        "docker build",
+    ):
+        assert forbidden not in body, (
+            f"thin wrapper must NOT re-derive delegated concern {forbidden!r}"
         )
 
-    # No bare unpublished-PyPI install of the three CLIs (the broken 0.18.0
-    # form). A bare `pipx install shop-msg` / `pip install scenarios` etc. is
-    # the form that fails docker build; the git+https pin replaces it. Scan
-    # only INSTRUCTION text (strip `#` comment prose, which legitimately names
-    # the broken form when explaining why it was replaced).
-    import re as _re2
-
-    instruction_text = "\n".join(
-        ln for ln in body.splitlines() if not ln.lstrip().startswith("#")
-    )
-    for name in ("shop-msg", "scenarios", "shop-templates"):
-        bare = _re2.search(
-            rf"\bpip(?:x)?\s+install\s+(?:--?\S+\s+)*{_re2.escape(name)}\b(?![\w./@-])",
-            instruction_text,
-        )
-        # The git+https specs use the REPO names, never the bare CLI names, so
-        # any bare-CLI-name install token in instruction text is the broken
-        # unpublished-PyPI form.
-        assert bare is None, (
-            f"must not install {name!r} as a bare PyPI package (not on PyPI); "
-            f"offending text: {bare.group(0)!r}"
+    # NO host credential or config dotfiles are mounted (ADR-028).
+    for hostcred in ("$HOME/.claude", "$HOME/.gitconfig", "~/.claude", "~/.gitconfig"):
+        assert hostcred not in body, (
+            f"thin wrapper must not mount host credential {hostcred!r}"
         )
 
-    # The pin must be a RELEASED tag, never a moving branch (no @main / @master
-    # / @develop on the framework-CLI specs).
-    for moving in ("@main", "@master", "@develop", "@HEAD"):
-        for repo in (
-            "shopsystem-messaging",
-            "shopsystem-scenarios",
-            "shopsystem-templates",
-        ):
-            assert f"{repo}.git{moving}" not in body, (
-                f"CLI-install pin for {repo} must be a released tag, not {moving}"
-            )
 
-    # Scenario-135 literal-substring invariant: ALL THREE app names remain
-    # present as literal substrings (the dispatch's explicit requirement — do
-    # not let the repo-named git URLs erase shop-msg / shop-templates).
-    for cli in ("shop-msg", "scenarios", "shop-templates"):
-        assert cli in body, (
-            f"135 literal-substring set must keep {cli!r} present in the "
-            "rendered Dockerfile"
-        )
+# NOTE (PDR-020 slice 2): the dedicated shell-image Dockerfile tests
+# (lead-2ra5 ARG SHELL_BASE_IMAGE recipe / lead-hguw brokered-runnable
+# claude+CA image / lead-30fs git+https VCS-pinned CLI installs) were REMOVED
+# here. The shell image and its Dockerfile.<slug>-shell are retired —
+# bin/shop-shell now delegates the brokered launch to bc-container in an
+# ephemeral product-neutral bc-base, so there is no shell Dockerfile to pin.
+# The converged thin-wrapper shape is pinned by
+# tests/test_ops_converged_shop_shell.py (172/134/174/175/137).
 
 
 # -----------------------------------------------------------------------
@@ -570,13 +374,17 @@ def test_shopsystem_product_preserves_lead_held_invariants(tmp_path):
     assert src is not None and "SHOPSYSTEM_DATA" in src
     assert ".local/share/shopsystem" in src
     assert str(target) not in src  # never resolves into the repo
-    # 134: shop-shell executable bash wrapper + docker compose up + docker run + --user vscode
+    # 172/134: shop-shell is the executable thin bash wrapper that brings up
+    # compose services and delegates the brokered launch to bc-container in an
+    # ephemeral product-neutral bc-base (no dedicated shell image).
     assert shell.splitlines()[0] == "#!/usr/bin/env bash"
     assert os.access(target / "bin" / "shop-shell", os.X_OK)
     assert "docker compose" in shell and "up -d postgres" in shell
-    assert "docker run" in shell
-    assert "--user vscode" in shell
-    assert "--user $(id -u):$(id -g)" not in shell
+    assert "docker run --rm" in shell
+    assert "shopsystem-bc-base" in shell
+    assert "bc-container launch" in shell and "bc-container attach" in shell
+    # the retired dedicated-shell-image knob is gone
+    assert "SHOPSYSTEM_SHELL_IMAGE" not in shell
 
 
 # -----------------------------------------------------------------------

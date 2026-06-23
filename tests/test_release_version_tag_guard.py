@@ -13,6 +13,13 @@ push cannot ship a lagging pyproject. We assert two things:
   2. The guard is realized by a committed, executable check script that
      actually performs the comparison and exits non-zero on a mismatch —
      so the workflow step is not merely a comment but a real gate.
+
+Per ADR-022 the obsolete cross-repo repository_dispatch fan-in (the
+"Notify shopsystem-bc-launcher" step + its BC_LAUNCHER_DISPATCH_TOKEN) has
+been retired in favor of the centralized bc-launcher poll (lead-czwo). We
+therefore also assert the release workflow no longer carries any
+repository_dispatch step or BC_LAUNCHER_DISPATCH_TOKEN reference, so the
+failing curl step that broke every release cannot regress back in.
 """
 from __future__ import annotations
 
@@ -79,9 +86,9 @@ def test_release_workflow_gates_tag_against_pyproject_version():
         "metadata (the v0.21.0 -> 0.20.0 regression)."
     )
 
-    # The guard must run before the publish/dispatch effect so a mismatch
-    # blocks the release. The simplest faithful wiring: the guard is a step
-    # in the same job, ordered before the dispatch step.
+    # The guard must run after checkout so the working tree (pyproject.toml,
+    # the guard script) is present. Assert it is a step in the job, ordered
+    # after the checkout step.
     for job in parsed["jobs"].values():
         steps = job.get("steps") or []
         idx_guard = next(
@@ -89,17 +96,51 @@ def test_release_workflow_gates_tag_against_pyproject_version():
              if "check_tag_matches_pyproject_version" in _step_text(s)),
             None,
         )
-        idx_dispatch = next(
+        idx_checkout = next(
             (i for i, s in enumerate(steps)
-             if "repository/dispatches" in _step_text(s)
-             or "dispatches" in _step_text(s)),
+             if "actions/checkout" in _step_text(s)),
             None,
         )
-        if idx_guard is not None and idx_dispatch is not None:
-            assert idx_guard < idx_dispatch, (
-                "the version-equals-tag guard step must run BEFORE the "
-                "repository_dispatch step so a mismatch gates the release"
+        if idx_guard is not None and idx_checkout is not None:
+            assert idx_checkout < idx_guard, (
+                "the version-equals-tag guard step must run AFTER checkout so "
+                "the working tree (pyproject.toml + guard script) is present"
             )
+
+
+def test_release_workflow_has_no_repository_dispatch_fanout():
+    """Per ADR-022 the cross-repo repository_dispatch fan-in to
+    shopsystem-bc-launcher is retired (superseded by the centralized
+    bc-launcher poll, lead-czwo). The failing curl step (exit 22 on an
+    empty/unauthorized token, which broke every release) must be gone, and
+    neither the repository_dispatch wiring nor its BC_LAUNCHER_DISPATCH_TOKEN
+    secret reference may regress back into the release workflow."""
+    wf_path = _release_workflow_path()
+    text = wf_path.read_text()
+
+    assert "repository_dispatch" not in text, (
+        "release.yml still references repository_dispatch; ADR-022 retired "
+        "the cross-repo dispatch fan-in to shopsystem-bc-launcher."
+    )
+    assert "BC_LAUNCHER_DISPATCH_TOKEN" not in text, (
+        "release.yml still references BC_LAUNCHER_DISPATCH_TOKEN; ADR-022 "
+        "decommissioned the cross-repo dispatch token."
+    )
+    assert "shopsystem-bc-launcher" not in text, (
+        "release.yml still references shopsystem-bc-launcher; the cross-repo "
+        "dispatch step was retired by ADR-022."
+    )
+
+    # And structurally: no step in the workflow POSTs to a dispatches endpoint.
+    parsed = yaml.safe_load(text)
+    dispatch_steps = [
+        s for s in _iter_steps(parsed)
+        if "dispatches" in _step_text(s)
+    ]
+    assert not dispatch_steps, (
+        "release.yml still carries a step targeting a dispatches endpoint; "
+        "the repository_dispatch fan-in was retired by ADR-022."
+    )
 
 
 def test_guard_script_exists_and_is_executable():

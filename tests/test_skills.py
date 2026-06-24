@@ -142,6 +142,65 @@ def test_subagent_driven_development_describes_parallel_and_gate():
     assert "gate" in body or "between" in body and "layer" in body
 
 
+def test_bc_emit_wrapper_pointer_replaces_retired_precondition_prose():
+    """lead-62sy: scenarios 105-116 (prose pins of the clean-tree /
+    commit-on-origin-main / scenario-hash-match preconditions) are RETIRED in
+    favor of the landed bc-emit work-done wrapper (scenarios 176-181). Both
+    role templates must carry the one-line bc-emit pointer prose instead."""
+    pointer_tokens = [
+        "bc-emit work-done wrapper enforces these preconditions",
+        "clean working tree",
+        "committed on origin/main",
+        "scenario-hash match",
+        "176-181",
+        "do not check these manually",
+        "--force",
+    ]
+    for role in ("bc-reviewer", "bc-implementer"):
+        # Normalize whitespace: markdown line-wrapping of the pointer prose is
+        # cosmetic and must not defeat the content check.
+        low = " ".join(_read_template(role).lower().split())
+        for tok in pointer_tokens:
+            assert " ".join(tok.lower().split()) in low, (
+                f"{role} template missing bc-emit pointer token {tok!r}"
+            )
+
+
+def test_retired_prose_precondition_scenarios_absent_wrapper_scenarios_present():
+    """lead-62sy: the 12 retired prose-precondition scenarios (105-116) must be
+    gone from features/ (no scenario block recomputes to their canonical
+    block-only hash), while the 6 surviving bc-emit wrapper scenarios (176-181)
+    remain. Uses the same block-only recompute the wrapper itself applies, so a
+    stale on-disk tag cannot mask a still-present block."""
+    import pathlib
+    from shop_templates.bc_emit import _scenario_blocks
+    from scenarios.hash import compute_scenario_hash
+
+    feat_dir = pathlib.Path(__file__).resolve().parent.parent / "features"
+    recomputed = set()
+    for f in sorted(feat_dir.glob("*.feature")):
+        for block, _carried in _scenario_blocks(f.read_text()):
+            recomputed.add(compute_scenario_hash(block))
+
+    retired = {
+        # 105-108 lead-cw7 clean-tree (bc-reviewer)
+        "03df7848f78f3bed", "304dec007a39b56b", "29e754e4122b9333", "0c4b28c02212d454",
+        # 109-112 lead-8lm clean-tree + commit-on-origin-main (bc-implementer)
+        "3c4a039dc12f9e72", "d1a890b937181543", "e98d72015796afbe", "bb41b17b6ebd0c81",
+        # 113-116 lead-83l scenario-hash-match (bc-reviewer)
+        "418f41d9a7789ca1", "a176ea1af49b5fa0", "f312990bd1d5ca44", "83614a2765bd73ab",
+    }
+    surviving = {
+        # 176-181 bc-emit work-done wrapper (the durable coverage)
+        "242c4de927d64339", "461d6066ef7dca0a", "12c98d2f7e5259a9",
+        "ea9c1bbd9be87d72", "4a6133f7b5f061a2", "f81ee56bc163934b",
+    }
+    leaked = retired & recomputed
+    assert not leaked, f"retired prose-precondition scenarios still present: {sorted(leaked)}"
+    missing = surviving - recomputed
+    assert not missing, f"surviving bc-emit wrapper scenarios disappeared: {sorted(missing)}"
+
+
 def test_work_done_gate_check1_exempts_ambient_carveouts():
     """lead-20bt: Check 1 (clean working tree) must EXEMPT the same ambient
     carve-outs the executable bc-emit wrapper already discounts

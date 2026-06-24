@@ -16,19 +16,21 @@ This gate is the enforcement point for ADR-010 and the integration contract. It 
 ### Check 1: Clean Working Tree
 
 ```bash
-git status --porcelain
+git status --porcelain -uall
 ```
 
-**Pass:** output is empty (no modified, staged, untracked, or deleted files).
+**Pass:** output is empty, OR every entry names an **ambient carve-out** — `.beads/issues.jsonl`, `.specstory` (and anything under it), or `.claude/scheduled_tasks.lock`. A tree whose only `git status --porcelain` entries are these artifacts is treated as clean.
 
-**Fail:** any output from `git status --porcelain`.
+**Fail:** any entry naming a path that is NOT one of the ambient carve-outs (i.e. a real modified, staged, untracked, or deleted BC source/work path).
 
-Evidence on failure: show the full `git status --porcelain` output. Name the dirty paths. Block with message:
+> **Why the carve-out — and why it matters for this gate specifically:** these three paths are ambient process artifacts, not BC work product. In particular, **Check 4** below closes the work_id plan bead, and that closure writes `.beads/issues.jsonl` into the working tree. Without this exemption Check 1 would then refuse on the very write Check 4 requires — a deadlock in which you cannot satisfy Check 4 without dirtying the tree Check 1 forbids. Exempting these ambient artifacts is exactly what the executable `bc-emit work-done` wrapper already does (its `_CARVE_OUTS`), so the prose and the wrapper agree.
+
+Evidence on failure: show the `git status --porcelain -uall` output restricted to the non-carved-out paths. Name those dirty paths. Block with message:
 ```
-blocked: dirty working tree at emission time. Paths: <list from git status --porcelain>
+blocked: dirty working tree at emission time. Paths: <non-carve-out paths from git status --porcelain>
 ```
 
-A dirty tree at `work_done` time means uncommitted work may be present. The BC must commit or discard all changes before emitting.
+A non-carve-out dirty path at `work_done` time means uncommitted work may be present. The BC must commit or discard those changes before emitting. Changes confined to the ambient carve-outs do not block.
 
 ### Check 2: work_id Commit Reachable from `origin/main`
 
@@ -135,7 +137,7 @@ blocked: no test-first commit sequence for <behavior>
 
 | Check | Command | Pass condition | Fail → blocked evidence |
 |---|---|---|---|
-| Clean working tree | `git status --porcelain` | empty output | dirty paths list |
+| Clean working tree | `git status --porcelain -uall` | empty after discounting ambient carve-outs (`.beads/issues.jsonl`, `.specstory`, `.claude/scheduled_tasks.lock`) | non-carve-out dirty paths list |
 | work_id reachable | `git fetch origin && git log origin/main -E --grep="\b<work_id>\b" --oneline` | whole-token match | work_id + origin/main HEAD SHA |
 | Scenario hash subset | `scenarios hash` + `git grep` | all hashes in features/ | mismatched hash + path + SHA |
 | BD plan sub-issues | `bd show <work_id>` | sub-issue(s) exist, all closed, ≥1 RED | "no bd plan sub-issues for <work_id>" |

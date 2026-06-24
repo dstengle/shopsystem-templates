@@ -142,6 +142,25 @@ def test_subagent_driven_development_describes_parallel_and_gate():
     assert "gate" in body or "between" in body and "layer" in body
 
 
+def test_work_done_gate_check1_exempts_ambient_carveouts():
+    """lead-20bt: Check 1 (clean working tree) must EXEMPT the same ambient
+    carve-outs the executable bc-emit wrapper already discounts
+    (.beads/issues.jsonl, .specstory, .claude/scheduled_tasks.lock). Without
+    this, Check 4 closes the work_id plan bead — which writes
+    .beads/issues.jsonl into the tree — and Check 1 then refuses on that very
+    write, deadlocking the gate. The prose must agree with the wrapper."""
+    body = _skill("work-done-gate")
+    for carve in (".beads/issues.jsonl", ".specstory", ".claude/scheduled_tasks.lock"):
+        assert carve in body, (
+            f"work-done-gate Check 1 does not name the ambient carve-out {carve!r}; "
+            "the prose still blocks on any porcelain output and deadlocks Check 4"
+        )
+    low = body.lower()
+    assert "carve-out" in low or "carved-out" in low or "carve out" in low, (
+        "work-done-gate does not describe an ambient carve-out exemption for Check 1"
+    )
+
+
 def test_work_done_gate_has_plan_and_test_first_artifact_checks():
     body = _skill("work-done-gate").lower()
     assert "sub-issue" in body or "sub-issues" in body  # plan artifact

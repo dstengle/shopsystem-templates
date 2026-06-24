@@ -15291,6 +15291,198 @@ def then_carve_outs_treated_clean(context: dict, tmp_path: Path) -> None:
     )
 
 
+# ---- Scenarios c4d784eda58d01bc / e1b33c51cee48db5 — plan-bead-closure carve-out parity ----
+# lead-20bt: pin, at the executable wrapper level, the prose<->wrapper parity
+# that the work-done-gate Check 1 carve-out depends on. Check 4 of the gate
+# closes the work_id plan bead, which writes the carved-out ".beads/issues.jsonl";
+# a tree whose ONLY change is that closure must be treated clean (one clean
+# complete emit, no deadlock), while a real non-carved-out source change
+# alongside it must still block, naming only the source path. These reuse the
+# wrapper harness helpers above and the shared
+# `when_invoke_wrapper_for_work_id` (which drives --work-id lead-test
+# --status complete), so the positive Given lands a lead-test commit on
+# origin/main for reachability; the negative arm refuses at clean-tree (Check 1)
+# before reachability is ever consulted.
+
+@given(
+    parsers.parse(
+        'a BC that has closed its work_id plan bead, so the only non-empty '
+        '"git status --porcelain" entry is a modification to '
+        '".beads/issues.jsonl" recording that closure'
+    )
+)
+def given_plan_bead_closure_only_tree(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    # Land the work_id deliverable on origin/main carrying a baseline
+    # .beads/issues.jsonl, so (a) reachability for lead-test passes and (b) the
+    # subsequent working-tree change to that file registers as a MODIFICATION.
+    (clone / ".beads").mkdir(exist_ok=True)
+    (clone / ".beads" / "issues.jsonl").write_text(
+        '{"id": "lead-test", "status": "open"}\n'
+    )
+    (clone / "feature.txt").write_text("delivered\n")
+    _git_in(clone, "add", "feature.txt", ".beads/issues.jsonl")
+    _git_in(clone, "commit", "-q", "-m", "feat: deliver (work_id: lead-test)")
+    _git_in(clone, "push", "-q", "origin", "main")
+    # The plan-bead closure: the ONLY working-tree change is a modification to
+    # the carved-out .beads/issues.jsonl recording the close.
+    (clone / ".beads" / "issues.jsonl").write_text(
+        '{"id": "lead-test", "status": "closed"}\n'
+    )
+    recorder, log = _make_recorder(tmp_path)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+
+
+@given(
+    parsers.parse(
+        "every other working-tree path is unmodified and the work_id "
+        "deliverable is reachable from the BC's \"origin/main\" HEAD with "
+        "matching scenario hashes"
+    )
+)
+def given_only_closure_dirty_and_reachable(context: dict) -> None:
+    clone = context["bc_repo"]
+    porcelain = [
+        l for l in _git_in(clone, "status", "--porcelain", "-uall").stdout.splitlines()
+        if l.strip()
+    ]
+    assert len(porcelain) == 1 and porcelain[0].endswith(".beads/issues.jsonl"), (
+        "expected the sole working-tree change to be the .beads/issues.jsonl "
+        f"plan-bead closure; got {porcelain!r}"
+    )
+    # The deliverable is reachable from origin/main HEAD. No scenario-hash
+    # payload is carried, so "with matching scenario hashes" holds vacuously.
+    reachable = _git_in(
+        clone, "log", "origin/main", "-E", "--grep=\\blead-test\\b", "--oneline"
+    ).stdout.strip()
+    assert reachable, "work_id lead-test not reachable from origin/main"
+
+
+@then(
+    parsers.parse(
+        "the wrapper does not refuse on the clean-working-tree precondition, "
+        'because ".beads/issues.jsonl" is an ambient carve-out and the '
+        "plan-bead closure is the sole change"
+    )
+)
+def then_no_clean_tree_refusal_on_closure(context: dict) -> None:
+    result = context["bc_emit_result"]
+    assert "clean-working-tree precondition" not in result.stderr, (
+        "the plan-bead-closure-only tree was wrongly refused by the clean-tree "
+        f"check: {result.stderr!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "the wrapper proceeds through its remaining preconditions and invokes "
+        '"shop-msg respond work_done --status complete" exactly once, with no '
+        'intervening "--status blocked" emission for the plan-bead closure'
+    )
+)
+def then_proceeds_to_single_clean_complete(context: dict) -> None:
+    result = context["bc_emit_result"]
+    log = context["respond_log"]
+    assert _respond_was_invoked(log), (
+        "expected the wrapper to proceed past every precondition and invoke "
+        f"respond; stderr={result.stderr!r} rc={result.returncode}"
+    )
+    invocations = [l for l in log.read_text().splitlines() if l.strip()]
+    assert len(invocations) == 1, (
+        f"expected exactly one respond invocation; got {len(invocations)}: "
+        f"{invocations!r}"
+    )
+    argv = invocations[0].split("\x00")
+    assert "complete" in argv, (
+        f"respond was not invoked with --status complete: {argv!r}"
+    )
+    assert "blocked" not in argv, (
+        f"a --status blocked emission intervened for the plan-bead closure: {argv!r}"
+    )
+    assert result.returncode == 0, (
+        f"expected a clean zero exit on the single complete emit; "
+        f"rc={result.returncode} stderr={result.stderr!r}"
+    )
+
+
+@given(
+    parsers.parse(
+        'a BC whose "git status --porcelain" output reports a modification to '
+        '".beads/issues.jsonl" recording the work_id plan-bead closure AND a '
+        "modification to at least one non-carved-out source path"
+    )
+)
+def given_closure_plus_source_change(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    source_rel = "src/shop_templates/_demo_change.py"
+    (clone / "src" / "shop_templates").mkdir(parents=True, exist_ok=True)
+    (clone / source_rel).write_text("x = 1\n")
+    (clone / ".beads").mkdir(exist_ok=True)
+    (clone / ".beads" / "issues.jsonl").write_text(
+        '{"id": "lead-test", "status": "open"}\n'
+    )
+    _git_in(clone, "add", source_rel, ".beads/issues.jsonl")
+    _git_in(clone, "commit", "-q", "-m", "chore: baseline source + beads")
+    # Now MODIFY both: the carved-out plan-bead closure AND a real source path.
+    (clone / ".beads" / "issues.jsonl").write_text(
+        '{"id": "lead-test", "status": "closed"}\n'
+    )
+    (clone / source_rel).write_text("x = 2  # genuine non-carved-out source change\n")
+    context["bc_source_path"] = source_rel
+    recorder, log = _make_recorder(tmp_path)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+
+
+@then(
+    parsers.parse(
+        "the wrapper's error names the clean-working-tree precondition as the "
+        "cause and lists the non-carved-out source path verbatim as "
+        '"git status --porcelain" reported it'
+    )
+)
+def then_names_clean_tree_cause_and_source_path(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    assert "clean-working-tree precondition" in err, err
+    assert context["bc_source_path"] in err, (
+        f"non-carved-out source path {context['bc_source_path']!r} not listed "
+        f"verbatim in the error: {err!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the ".beads/issues.jsonl" entry is not listed as an offending path, '
+        "so the refusal is attributable solely to the uncommitted source "
+        "change and not to the plan-bead closure"
+    )
+)
+def then_beads_closure_not_an_offending_path(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    # The carve-out names appear in the explanatory preamble ("not the ambient
+    # carve-outs (... .beads/issues.jsonl)"); what must NOT happen is the
+    # closure being listed among the OFFENDING paths. Isolate the offending
+    # block — the verbatim porcelain lines after the header, before the
+    # self-resolve directive — and assert the closure is absent there while the
+    # genuine source path is present.
+    marker = "verbatim from `git status --porcelain`:"
+    assert marker in err, f"unexpected refusal-error shape: {err!r}"
+    offending_block = err.split(marker, 1)[1].split("To resolve:", 1)[0]
+    assert ".beads/issues.jsonl" not in offending_block, (
+        "the carved-out plan-bead closure was wrongly listed among the "
+        f"offending paths: {offending_block!r}"
+    )
+    assert context["bc_source_path"] in offending_block, (
+        "expected the non-carved-out source path among the offending paths: "
+        f"{offending_block!r}"
+    )
+
+
 # ---- Scenario 461d6066ef7dca0a — commit reachability from origin/main -----
 
 @given(

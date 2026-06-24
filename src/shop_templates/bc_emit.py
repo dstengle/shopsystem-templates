@@ -447,6 +447,46 @@ def check_scenario_hashes(
             )
 
 
+def check_retirement_removal(
+    repo: Path, work_id: str, retire_hashes: list[str]
+) -> None:
+    """Retirement-removal precondition (lead-acoo).
+
+    When the consumed dispatch named one or more `@scenario_hash` values for
+    retirement (passed via `--retire-hash`), refuse the emit if any of them is
+    still carried by a scenario block under the as-committed `features/` tree —
+    whether the old retired block was left in place OR the hash was duplicated
+    onto a newly added block. Removing the named-for-retirement hash from
+    `features/` is the only thing that satisfies this precondition; adding a new
+    scenario block with a fresh body and hash does NOT, and the stale-hash /
+    orphan checks passing on the surviving blocks does not exempt this refusal.
+    """
+    if not retire_hashes:
+        return
+    features_dir = repo / "features"
+    carried: set[str] = set()
+    if features_dir.is_dir():
+        for fpath in sorted(features_dir.glob("*.feature")):
+            for _block_text, carried_hash in _scenario_blocks(fpath.read_text()):
+                if carried_hash is not None:
+                    carried.add(carried_hash)
+    still_reachable = [h for h in retire_hashes if h in carried]
+    if still_reachable:
+        names = ", ".join(sorted(set(still_reachable)))
+        raise PreconditionRefusal(
+            "refused: the retirement-removal precondition failed for work_id "
+            f"{work_id}. The consumed dispatch named scenario hash(es) for "
+            "retirement that are STILL reachable under the as-committed "
+            f"features/ tree: {names}. Removing the named-for-retirement "
+            "hash(es) from features/ is the only thing that satisfies this "
+            "precondition — leaving the old retired block in place, or "
+            "duplicating the hash onto a newly added block, does not; and the "
+            "stale-hash / orphan checks passing on the surviving blocks does "
+            "not exempt this refusal. "
+            f"{_SELF_RESOLVE}"
+        )
+
+
 def _scenario_title(block_text: str) -> str:
     for line in block_text.splitlines():
         s = line.strip()
@@ -485,6 +525,9 @@ def _cmd_work_done(args: argparse.Namespace) -> int:
     try:
         # Check 1 — clean working tree (carve-outs discounted).
         check_clean_working_tree(repo)
+        # Retirement-removal — any hash the consumed dispatch named for
+        # retirement must be absent from the as-committed features/ tree.
+        check_retirement_removal(repo, args.work_id, list(args.retire_hash or []))
         # Check 2 — reachability, by deliverable mode.
         if args.deliverable == "tag":
             if not args.tag:
@@ -536,6 +579,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="scenario hash echoed in the payload (repeatable)",
+    )
+    wd.add_argument(
+        "--retire-hash",
+        action="append",
+        default=[],
+        help=(
+            "a scenario hash the consumed dispatch named for retirement "
+            "(repeatable); the emit is refused while any of these is still "
+            "carried by a scenario block under the as-committed features/ tree"
+        ),
     )
     wd.add_argument(
         "--status",

@@ -28,6 +28,7 @@ consumer reads templates via this surface rather than by path.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -549,10 +550,15 @@ def _render_lead_ops_scaffolding(target: Path, slug: str) -> None:
     """Render the lead-shop ops files into the target directory, scoped to
     the product `slug`.
 
-    Writes compose.yaml and Dockerfile.<slug>-shell at the top level and
-    bin/shop-shell (with its owner-execute bit set) — all shop-owned, none
-    under .claude/, every `<product>-*` literal derived from `slug`. Caller
-    gates this on shop_type == "lead".
+    Writes the top-level compose.yaml and the bin/ ops tools (shop-shell,
+    shop-scenario-completion, agent-vault-provision, agent-vault-check, each
+    with its owner-execute bit set), plus the .env.example scaffold and the
+    footing script — all shop-owned, none under .claude/, every `<product>-*`
+    literal derived from `slug`. Caller gates this on shop_type == "lead".
+
+    No shell Dockerfile is emitted: the shop-shell convergence retired the
+    `Dockerfile.<slug>-shell` render (PDR-020 / ADR-028), and `_LEAD_OPS_FILES`
+    carries no shell-Dockerfile entry.
     """
     for template_name, rel_path, executable in _LEAD_OPS_FILES:
         body = render_ops_template(template_name, slug)
@@ -814,6 +820,21 @@ class _BdConfigError(Exception):
     def __init__(self, returncode: int) -> None:
         super().__init__(f"bd config subprocess exited {returncode}")
         self.returncode = returncode
+
+
+def _push_credentials_available() -> bool:
+    """Best-effort detection of GitHub push credentials in the environment.
+
+    A cold INSTALL (§1) adopter typically has none. Running a live
+    authenticated `bd dolt push` then BLOCKS waiting for git authentication,
+    stalling the whole cold-bootstrap. We detect the common token signals so
+    bootstrap can DEFER the push (offline, non-fatal) instead of hanging.
+    Returns True when a GitHub token is present in the environment.
+    """
+    return bool(
+        os.environ.get("GH_TOKEN", "").strip()
+        or os.environ.get("GITHUB_TOKEN", "").strip()
+    )
 
 
 def _bd_dolt_push_smoke_test(target: Path, remote: str) -> int:
@@ -1146,9 +1167,24 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
         # the missing remote; on a non-zero push it likewise exits non-zero —
         # so a misconfigured / unreachable remote is caught here, not at the
         # first mid-work work_done emission.
-        rc = _bd_dolt_push_smoke_test(target, remote)
-        if rc != 0:
-            return rc
+        # A cold INSTALL (§1) adopter has no GitHub push credentials, so a live
+        # authenticated `bd dolt push` would block waiting for git auth and
+        # stall the cold-bootstrap. Detect the missing credential and DEFER the
+        # push (offline, non-fatal) with a clear diagnostic, rather than running
+        # a credential-requiring live push during scaffolding (lead-3t1o).
+        if not _push_credentials_available():
+            print(
+                "shop-templates bootstrap: no GitHub push credentials detected "
+                "(GH_TOKEN / GITHUB_TOKEN unset) — the `bd dolt push` "
+                f"smoke-test against {remote!r} was SKIPPED (offline); the "
+                "tracker push is DEFERRED, not run, so scaffolding does not "
+                "block on git authentication. Run `bd dolt push` later once "
+                "push credentials are configured."
+            )
+        else:
+            rc = _bd_dolt_push_smoke_test(target, remote)
+            if rc != 0:
+                return rc
 
     # Lead-shop bootstrap installs each sibling BC clone under repos/
     # editable into the product venv, per brief 003 scope item E

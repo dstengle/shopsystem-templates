@@ -1,4 +1,4 @@
-Feature: converged ops scaffolding (lead shop, PDR-020) — bin/shop-shell is a thin bc-container-delegating wrapper, the ops set is exactly five shop-owned files with no dedicated shell Dockerfile, and a non-default render carries zero cross-product literals
+Feature: converged ops scaffolding (lead shop, PDR-020) — bin/shop-shell is a thin bc-container-delegating wrapper, the ops set is exactly six shop-owned files with no dedicated shell Dockerfile, and a non-default render carries zero cross-product literals
 
   @scenario_hash:725562869d9df919 @bc:shopsystem-templates
   Scenario Outline: bootstrap of a "lead" shop named "<slug>" writes "bin/shop-shell" as a thin wrapper that DELEGATES the brokered Claude launch to "bc-container" running in an ephemeral LAUNCHER image carrying the docker CLI ("shopsystem-bc-lead") — it brings up the compose supporting services, assembles the operator agent-vault "--env-file", then runs "bc-container launch" standing up the leaf-BC session ALSO on the "shopsystem-bc-lead" runtime image (the leaf needs the docker CLI too so its own router can run "bc-container launch"), attaching the leaf to the slug-scoped compose network via "--network" so it reaches postgres + agent-vault by compose hostname, mounting the lead repo as the workspace with the lead-only docker socket and a LEAD startup-prompt override, and "bc-container attach" — while constructing NO proxy URL, fetching NO CA, building NO shell image, and mounting NO host credentials
@@ -38,8 +38,8 @@ Feature: converged ops scaffolding (lead shop, PDR-020) — bin/shop-shell is a 
     And the body of "bin/shop-shell" references the environment variable "SHOPSYSTEM_DATA" with a default of "$HOME/.local/share/shopsystem"
     And the body of "bin/shop-shell" does not contain the literal substring "SHOPSYSTEM_SHELL_IMAGE", because the dedicated shell image is retired and the wrapper launches an ephemeral bc-lead launcher (which stands up the leaf-BC on bc-base) instead of a separately-built shell image
 
-  @scenario_hash:f7af63457d95962f @bc:shopsystem-templates
-  Scenario Outline: the ops scaffolding file-set written by bootstrap for a "lead" shop named "<slug>" enumerates exactly five shop-owned files additively — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", and "bin/agent-vault-check" — each at a shop-owned path outside any ".claude/" subdirectory, and writes NO dedicated shell Dockerfile, because per PDR-020 the shell image is retired and "bin/shop-shell" launches an ephemeral bc-lead launcher (which stands up the leaf-BC on bc-base) instead
+@scenario_hash:b764caa1dea99fcb @bc:shopsystem-templates
+  Scenario Outline: the ops scaffolding file-set written by bootstrap for a "lead" shop named "<slug>" enumerates exactly six shop-owned files additively — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", and "bin/agent-vault-approve-claude" — each at a shop-owned path outside any ".claude/" subdirectory, and writes NO dedicated shell Dockerfile, because per PDR-020 the shell image is retired and "bin/shop-shell" launches an ephemeral bc-lead launcher (which stands up the leaf-BC on bc-base) instead, and per lead-9s46 the lead-only "bin/agent-vault-approve-claude" Claude-OAuth proposal approval tool joined the converged ops-tool set as its sixth member
     Given an existing git repository at a target directory "/tmp/example-lead-shop"
     When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"
     Then the exit code is 0
@@ -48,9 +48,11 @@ Feature: converged ops scaffolding (lead shop, PDR-020) — bin/shop-shell is a 
     And after the invocation the target directory contains a file at "bin/shop-scenario-completion" not under any ".claude/" subdirectory
     And after the invocation the target directory contains a file at "bin/agent-vault-provision" not under any ".claude/" subdirectory
     And after the invocation the target directory contains a file at "bin/agent-vault-check" not under any ".claude/" subdirectory
+    And after the invocation the target directory contains a file at "bin/agent-vault-approve-claude" not under any ".claude/" subdirectory
     And after the invocation the target directory contains no top-level file named "Dockerfile.<slug>-shell"
     And after the invocation the target directory contains no top-level file named "Dockerfile.shopsystem-shell"
-    And the directory at "/tmp/example-lead-shop/.claude/canonical/" does not contain a file named "compose.yaml", "shop-shell", "shop-scenario-completion", "agent-vault-provision", or "agent-vault-check"
+    And the directory at "/tmp/example-lead-shop/.claude/canonical/" does not contain a file named "compose.yaml", "shop-shell", "shop-scenario-completion", "agent-vault-provision", "agent-vault-check", or "agent-vault-approve-claude"
+    And the bootstrap-enumerated converged ops-tool set for a "lead" shop contains exactly six shop-owned entries — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", and "bin/agent-vault-approve-claude" — and no seventh shop-owned ops file beyond those six
 
     Examples:
       | slug       |

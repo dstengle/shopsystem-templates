@@ -20624,3 +20624,29 @@ def then_reports_success_and_exits_zero(context: dict) -> None:
         "no success report naming the approved CLAUDE_OAUTH credential"
     )
     assert "exit 0" in body, "the script does not exit 0 on success"
+
+
+# -- Scenario b764caa1dea99fcb — exclusivity (lead-a115) ---------------------
+# Supersedes the retired five-file ops Scenario Outline. The bootstrap-ENUMERATED
+# converged ops-tool set (the _LEAD_OPS_FILES enumeration, NOT a bin/ listing —
+# bin/footing renders OUTSIDE it) must be exactly the six shop-owned entries and
+# no seventh.
+
+@then(
+    'the bootstrap-enumerated converged ops-tool set for a "lead" shop contains exactly six shop-owned entries — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", and "bin/agent-vault-approve-claude" — and no seventh shop-owned ops file beyond those six'
+)
+def then_enumerated_ops_set_is_exactly_six(context: dict) -> None:
+    from shop_templates.cli import _LEAD_OPS_FILES
+    rels = [rel for _tn, rel, _exe in _LEAD_OPS_FILES]
+    expected = [
+        "compose.yaml",
+        "bin/shop-shell",
+        "bin/shop-scenario-completion",
+        "bin/agent-vault-provision",
+        "bin/agent-vault-check",
+        "bin/agent-vault-approve-claude",
+    ]
+    assert rels == expected, (
+        "the bootstrap-enumerated converged ops-tool set must be exactly these "
+        f"six shop-owned entries with no seventh; got {rels!r}"
+    )

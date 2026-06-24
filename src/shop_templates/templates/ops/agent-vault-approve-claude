@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# bin/agent-vault-approve-claude — approve the pending CLAUDE_OAUTH proposal
+# (shop-owned, lead-9s46 / WS-2). The ONE human step left by
+# bin/agent-vault-provision is approving the OAuth-typed CLAUDE_OAUTH
+# credential-slot proposal with the real Claude token. provision printed a
+# docker-exec string the adopter had to hand-edit; this script removes that
+# friction: it auto-resolves the broker container, the vault slug, and the
+# pending proposal number from the SAME slug-derived coordinates provision
+# uses, mints a vault-scoped session internally, and runs the scoped
+# `proposal approve` carrying the supplied token. The adopter only runs:
+#
+#     bin/agent-vault-approve-claude <claude-token>
+#
+# The token stays on the in-container argv and is NEVER echoed to stdout/stderr
+# nor written to a file.
+#
+# PRODUCT-NEUTRAL (consistent with 166b86d779ecd0e7): every <product>-*
+# coordinate derives from {{OPS_SLUG}}; no shopsystem-*/fleet literal is baked
+# in.
+set -euo pipefail
+
+# -----------------------------------------------------------------------
+# Slug-derived broker coordinates — the SAME derivation bin/agent-vault-provision
+# uses, so this script targets the same broker/vault without the adopter
+# supplying them. Every <product>-* literal is rendered from {{OPS_SLUG}}.
+# -----------------------------------------------------------------------
+SLUG="{{OPS_SLUG}}"
+# The broker container compose.yaml brings up (container_name: <slug>-agent-vault).
+CONTAINER="${AGENT_VAULT_CONTAINER:-{{OPS_SLUG}}-agent-vault}"
+# The logical vault/namespace this product's secrets live under (slug-derived).
+VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
+
+# -----------------------------------------------------------------------
+# The Claude token is the SOLE positional argument. If absent, print usage and
+# exit non-zero (the token is never defaulted, never read from a file).
+# -----------------------------------------------------------------------
+CLAUDE_TOKEN="${1:-}"
+if [[ -z "$CLAUDE_TOKEN" ]]; then
+  echo "usage: bin/agent-vault-approve-claude <claude-token>" >&2
+  echo "  Approves the pending CLAUDE_OAUTH credential-slot proposal on vault" >&2
+  echo "  '$VAULT' (broker '$CONTAINER'), attaching <claude-token> as the" >&2
+  echo "  CLAUDE_OAUTH credential value. Create the proposal first with" >&2
+  echo "  bin/agent-vault-provision." >&2
+  exit 2
+fi
+
+# Fail fast if the compose-defined broker is not up.
+if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+  echo "agent-vault-approve-claude: broker container '$CONTAINER' is not running." >&2
+  echo "  Bring it up first:  docker compose -f compose.yaml up -d agent-vault" >&2
+  exit 1
+fi
+
+# Every CLI verb runs inside the broker container via this exec prefix.
+DEXEC=(docker exec -i "$CONTAINER")
+
+# -----------------------------------------------------------------------
+# Vault-scoped session (agent-vault 0.32.0): proposal approve runs in AGENT
+# mode and requires a vault-SCOPED session. Mint one internally — `vault token
+# --vault <vault>` prints an `av_sess_...` to stdout — and run the approve
+# under it via the AGENT_VAULT_TOKEN/_ADDR/_VAULT env (the same form provision
+# uses for proposal create). The adopter edits nothing.
+# -----------------------------------------------------------------------
+_SCOPED_SESSION="$("${DEXEC[@]}" agent-vault vault token --vault "$VAULT" | tr -d '\r\n')"
+if [[ -z "$_SCOPED_SESSION" ]]; then
+  echo "agent-vault-approve-claude: failed to mint a vault-scoped session for vault '$VAULT'." >&2
+  echo "  proposal approve requires a vault-scoped session on agent-vault 0.32.0." >&2
+  exit 1
+fi
+
+DEXEC_SCOPED=(docker exec -i \
+  -e AGENT_VAULT_TOKEN="$_SCOPED_SESSION" \
+  -e AGENT_VAULT_ADDR=http://localhost:14321 \
+  -e AGENT_VAULT_VAULT="$VAULT" \
+  "$CONTAINER")
+
+# -----------------------------------------------------------------------
+# Resolve the pending proposal number from the vault-scoped session — the same
+# `proposal list --status pending` fallback provision uses to surface it.
+# -----------------------------------------------------------------------
+PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null \
+  | grep -oE '[0-9]+' | tail -n1)"
+if [[ -z "$PROPOSAL_NUM" ]]; then
+  echo "agent-vault-approve-claude: no pending proposal found on vault '$VAULT' (broker '$CONTAINER')." >&2
+  echo "  Create the CLAUDE_OAUTH proposal first:  bin/agent-vault-provision" >&2
+  exit 1
+fi
+
+# -----------------------------------------------------------------------
+# Approve: attach the supplied token as the CLAUDE_OAUTH credential value under
+# the vault-scoped session. The token rides the in-container argv ONLY; it is
+# never echoed to stdout/stderr nor written to any file.
+# -----------------------------------------------------------------------
+"${DEXEC_SCOPED[@]}" agent-vault vault proposal approve "$PROPOSAL_NUM" \
+  CLAUDE_OAUTH="$CLAUDE_TOKEN" --yes --vault "$VAULT"
+
+echo "agent-vault-approve-claude: CLAUDE_OAUTH credential approved for vault '$VAULT' (broker '$CONTAINER', proposal #$PROPOSAL_NUM)."
+exit 0

@@ -3020,6 +3020,9 @@ def _run_shop_templates_with_bd_shim(
         capture_output=True,
         text=True,
         env=env,
+        # lead-9s46 scenario 584e2f7352dc2a24: model "no terminal attached to
+        # stdin" so a bd init that blocked on stdin would hang rather than read.
+        stdin=subprocess.DEVNULL if context.get("no_stdin_tty") else None,
     )
 
 
@@ -20402,3 +20405,222 @@ def then_clear_skipped_push_output(context: dict) -> None:
         "bootstrap produced no clear skipped/offline push diagnostic; "
         f"stdout={context['cli_stdout']!r} stderr={context['cli_stderr']!r}"
     )
+
+
+# ---- Scenarios 584e2f7352dc2a24 / f726726dba85ac88 / 51969d82e2d951c3 -------
+# lead-9s46: (1) bd init must carry --non-interactive (env var alone hangs on a
+# TTY); (2) a lead bootstrap renders an executable bin/agent-vault-approve-claude
+# that auto-resolves coordinates and approves the pending CLAUDE_OAUTH proposal.
+# Scenario 1 reuses the existing bd-init argv assertions (the "{token}" step) and
+# the shared bootstrap-invoke When; scenarios 2/3 reuse the lead-3t1o file/exec
+# Then steps where the text matches.
+
+@given(
+    parsers.parse(
+        "no terminal is attached to the bootstrap invocation's standard input"
+    )
+)
+def given_no_stdin_tty(context: dict) -> None:
+    # Drive the shared bootstrap-invoke runner to attach /dev/null to stdin, so
+    # the invocation models the no-controlling-terminal case bd init must not
+    # block on.
+    context["no_stdin_tty"] = True
+
+
+@then(
+    parsers.parse(
+        'that "bd" subprocess completed without blocking on standard input or '
+        "a controlling terminal"
+    )
+)
+def then_bd_completed_without_blocking(context: dict) -> None:
+    log = context["bd_shim_log"].read_text()
+    assert "init" in log, f"bd init was not invoked; bd-shim log:\n{log}"
+    assert context["cli_returncode"] == 0, (
+        f"bootstrap did not complete cleanly (a bd-init block would hang): "
+        f"rc={context['cli_returncode']} stderr={context['cli_stderr']!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the invocation the target directory contains a ".beads/" '
+        "directory"
+    )
+)
+def then_after_invocation_beads_dir_present(context: dict) -> None:
+    real = context["last_invocation_target"]
+    assert (real / ".beads").is_dir(), (
+        f"expected a .beads/ directory after bootstrap at {real!s}"
+    )
+
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" with no '
+        '"bin/" subdirectory'
+    )
+)
+def given_target_no_bin_subdir(alias: str, context: dict, tmp_path: Path) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    assert not (real / "bin").exists(), (
+        f"premise of Given violated: {(real / 'bin')!s} unexpectedly exists"
+    )
+
+
+@then(
+    parsers.re(
+        r'after the invocation the target directory contains a file at '
+        r'"(?P<rel>[^"]+)"$'
+    )
+)
+def then_after_invocation_file_at_rel(rel: str, context: dict) -> None:
+    real = context["last_invocation_target"]
+    assert (real / rel).is_file(), (
+        f"expected a file at {rel!r} after bootstrap, but it is absent"
+    )
+
+
+@then(
+    parsers.parse('the first line of the file at "{rel}" is exactly "{line}"')
+)
+def then_first_line_of_file_is(rel: str, line: str, context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / rel).read_text()
+    first = body.splitlines()[0] if body else ""
+    assert first == line, f"first line of {rel!r} is {first!r}, expected {line!r}"
+
+
+@then(
+    parsers.parse(
+        'the body of "{rel}" reads the Claude token from its first positional '
+        "argument and exits non-zero with a usage diagnostic naming the script "
+        "when that argument is absent"
+    )
+)
+def then_script_reads_token_and_usage_exits(rel: str, context: dict) -> None:
+    real = context["last_invocation_target"]
+    path = real / rel
+    body = path.read_text()
+    assert "${1" in body or '"$1"' in body, (
+        f"{rel!r} does not read its first positional argument"
+    )
+    # The arg check precedes any docker call, so a no-arg run needs no broker.
+    proc = subprocess.run(["bash", str(path)], capture_output=True, text=True)
+    assert proc.returncode != 0, (
+        f"{rel!r} did not exit non-zero when the token argument is absent"
+    )
+    err = proc.stderr.lower()
+    assert "usage" in err and "agent-vault-approve-claude" in err, (
+        f"{rel!r} no-arg run lacks a usage diagnostic naming the script: "
+        f"{proc.stderr!r}"
+    )
+
+
+def _approve_claude_body(slug: str = "shopsystem") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("agent-vault-approve-claude", slug)
+
+
+@given(
+    parsers.parse(
+        "a running agent-vault broker brought up by the bootstrap-rendered "
+        "compose.yaml with a pending CLAUDE_OAUTH credential-slot proposal "
+        "created by bin/agent-vault-provision"
+    )
+)
+def given_running_broker_with_pending_proposal(context: dict) -> None:
+    context["approve_claude_body"] = _approve_claude_body("shopsystem")
+    context["approve_claude_slug"] = "shopsystem"
+
+
+@when(
+    parsers.parse(
+        'the adopter runs "bin/agent-vault-approve-claude" passing a Claude '
+        "token as the sole positional argument"
+    )
+)
+def when_adopter_runs_approve_claude(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        "the script resolves the broker container, the vault slug, and the "
+        "pending proposal number from the same slug-derived coordinates "
+        "bin/agent-vault-provision uses, without the adopter supplying them"
+    )
+)
+def then_resolves_coordinates(context: dict) -> None:
+    body = context["approve_claude_body"]
+    slug = context["approve_claude_slug"]
+    assert f"{slug}-agent-vault" in body, "container is not slug-derived"
+    assert "AGENT_VAULT_VAULT" in body and slug in body, "vault slug not derived"
+    assert "proposal list --status pending" in body, (
+        "pending proposal number is not auto-resolved"
+    )
+
+
+@then(
+    parsers.parse(
+        'the script mints a vault-scoped "av_sess_" session against the '
+        "resolved broker and vault without the adopter editing a command"
+    )
+)
+def then_mints_scoped_session(context: dict) -> None:
+    body = context["approve_claude_body"]
+    assert "vault token --vault" in body, "no vault-scoped session mint"
+    assert "AGENT_VAULT_TOKEN" in body, "scoped session not used via env"
+
+
+@then(
+    parsers.parse(
+        'the script runs "vault proposal approve" against the resolved '
+        "proposal number under that vault-scoped session, attaching the "
+        'supplied token as the "CLAUDE_OAUTH" credential value with "--yes" '
+        "and the resolved vault selector"
+    )
+)
+def then_runs_scoped_approve(context: dict) -> None:
+    body = context["approve_claude_body"]
+    assert "proposal approve" in body, "no proposal approve invocation"
+    assert 'CLAUDE_OAUTH="$CLAUDE_TOKEN"' in body, (
+        "the supplied token is not attached as the CLAUDE_OAUTH value"
+    )
+    assert "--yes" in body and "--vault" in body, "missing --yes / --vault selector"
+
+
+@then(
+    parsers.parse(
+        "the supplied Claude token is the value approved into the CLAUDE_OAUTH "
+        "credential and is never written to standard output or to a repository "
+        "file"
+    )
+)
+def then_token_never_leaked(context: dict) -> None:
+    body = context["approve_claude_body"]
+    for raw in body.splitlines():
+        line = raw.strip()
+        if line.startswith("#") or "CLAUDE_TOKEN" not in line:
+            continue
+        if "proposal approve" in line or 'CLAUDE_OAUTH="$CLAUDE_TOKEN"' in line:
+            continue
+        assert not line.startswith(("echo", "printf")), (
+            f"the Claude token is echoed to output: {line!r}"
+        )
+        assert ">" not in line, f"the Claude token is written to a file: {line!r}"
+
+
+@then(
+    parsers.parse(
+        "on success the script reports that the CLAUDE_OAUTH credential is "
+        "approved for the resolved vault and exits 0"
+    )
+)
+def then_reports_success_and_exits_zero(context: dict) -> None:
+    body = context["approve_claude_body"]
+    assert "approved" in body.lower() and "CLAUDE_OAUTH" in body, (
+        "no success report naming the approved CLAUDE_OAUTH credential"
+    )
+    assert "exit 0" in body, "the script does not exit 0 on success"

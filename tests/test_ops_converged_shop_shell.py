@@ -127,6 +127,8 @@ def test_ops_set_is_exactly_five_files_no_dockerfile(tmp_path):
         "bin/shop-scenario-completion",
         "bin/agent-vault-provision",
         "bin/agent-vault-check",
+        # lead-9s46 (WS-2): the Claude-OAuth approval tool joined the set.
+        "bin/agent-vault-approve-claude",
     ):
         assert (target / rel).is_file(), f"missing converged ops file {rel}"
 
@@ -144,6 +146,7 @@ def test_ops_set_is_exactly_five_files_no_dockerfile(tmp_path):
         "shop-scenario-completion",
         "agent-vault-provision",
         "agent-vault-check",
+        "agent-vault-approve-claude",
     ):
         assert not (canon / name).exists()
 
@@ -174,8 +177,11 @@ def test_lead_ops_files_enumeration_is_five_without_dockerfile():
     entries = _json.loads(proc.stdout)
     rels = {rel for _tn, rel in entries}
     tmpls = {tn for tn, _rel in entries}
-    assert len(entries) == 5, (
-        f"converged ops-tool set must be exactly five; got {len(entries)}"
+    # lead-9s46 (WS-2): the ops-tool set grew by the lead-only
+    # bin/agent-vault-approve-claude Claude-OAuth approval tool — six files,
+    # still NO dedicated shell Dockerfile.
+    assert len(entries) == 6, (
+        f"converged ops-tool set must be exactly six; got {len(entries)}"
     )
     assert "Dockerfile.shopsystem-shell" not in tmpls
     assert "Dockerfile.shopsystem-shell" not in rels
@@ -185,6 +191,7 @@ def test_lead_ops_files_enumeration_is_five_without_dockerfile():
         "bin/shop-scenario-completion",
         "bin/agent-vault-provision",
         "bin/agent-vault-check",
+        "bin/agent-vault-approve-claude",
     }
 
 

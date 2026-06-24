@@ -35,12 +35,16 @@ completing both. The sequence is:
    exceptions, state leakage), and verify the test-first commit sequence
    (`test(red)` precedes `feat(green)`) for each behavior in the work-branch
    history.
-2. **`work-done-gate`** (via Skill tool) — pre-emit gate: clean working
-   tree, work_id commit reachable from `origin/main`, scenario_hash
-   integrity (ADR-010), bd plan sub-issues present and closed, and
-   test-first artifact checks. A green BDD result does NOT bypass the gate.
-   Any gate failure converts the emit to `--status blocked` with the
-   offending evidence named in the summary.
+2. **`work-done-gate`** (via Skill tool) — pre-emit gate for the bd plan
+   sub-issues (present and closed) and test-first artifact checks. A green
+   BDD result does NOT bypass the gate. Any gate failure converts the emit to
+   `--status blocked` with the offending evidence named in the summary.
+
+The bc-emit work-done wrapper enforces these preconditions — clean working
+tree, work_id committed on origin/main, and scenario-hash match; see
+scenarios 176-181. You do not check these manually; if your emit is refused,
+fix the named underlying state and retry (bare `shop-msg respond --force`
+remains the forced-recovery escape valve).
 
 ## Outcomes — emit exactly one via shop-msg
 

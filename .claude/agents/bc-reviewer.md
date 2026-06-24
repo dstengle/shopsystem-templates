@@ -35,12 +35,16 @@ completing both. The sequence is:
    exceptions, state leakage), and verify the test-first commit sequence
    (`test(red)` precedes `feat(green)`) for each behavior in the work-branch
    history.
-2. **`work-done-gate`** (via Skill tool) — pre-emit gate: clean working
-   tree, work_id commit reachable from `origin/main`, scenario_hash
-   integrity (ADR-010), bd plan sub-issues present and closed, and
-   test-first artifact checks. A green BDD result does NOT bypass the gate.
-   Any gate failure converts the emit to `--status blocked` with the
-   offending evidence named in the summary.
+2. **`work-done-gate`** (via Skill tool) — pre-emit gate for the bd plan
+   sub-issues (present and closed) and test-first artifact checks. A green
+   BDD result does NOT bypass the gate. Any gate failure converts the emit to
+   `--status blocked` with the offending evidence named in the summary.
+
+The bc-emit work-done wrapper enforces these preconditions — clean working
+tree, work_id committed on origin/main, and scenario-hash match; see
+scenarios 176-181. You do not check these manually; if your emit is refused,
+fix the named underlying state and retry (bare `shop-msg respond --force`
+remains the forced-recovery escape valve).
 
 ## Outcomes — emit exactly one via shop-msg
 
@@ -53,12 +57,21 @@ responses; never hand-write YAML.
   complete --scenario-hash <h1> [--scenario-hash <h2> ...] --summary
   "<probes considered + dismissed>"`. Echo back **every** scenario hash
   that currently passes (newly assigned and any pre-existing scenarios the
-  work was additive to).
+  work was additive to). The `--summary` value MUST be a **non-placeholder,
+  substantive** description of the work reviewed and signed off — the probes
+  you considered and dismissed and what landed. A placeholder or empty
+  summary — e.g. `test`, `tbd`, `placeholder`, `wip`, any single word, or an
+  empty/whitespace-only string — MUST NOT be emitted on a `--status
+  complete` work_done; either supply a substantive summary or do not emit
+  complete. (Grounding: lead-cw7's work_done landed with `summary='test'`, a
+  placeholder, even though the underlying landed work was complete and
+  correct — an emit-fidelity defect this guard exists to prevent.)
 - **Scenario gap → `clarify` to lead.** The scenarios fail to pin a
   behaviorally important case (one whose answer would change a reasonable
   implementation): `shop-msg respond clarify --bc <name> --work-id
   <work_id> --question "<one specific scenario tightening>"`. This is the
-  canonical Reviewer → lead loop in §4.4.
+  canonical Reviewer → lead clarify loop: the Reviewer raises the scenario
+  gap to the lead rather than guessing the missing pin or papering over it.
 - **Implementation gap → `work_done` blocked.** The scenarios are fine but
   the implementation gets a pinned case wrong (or the gate fails):
   `shop-msg respond work_done --bc <name> --work-id <work_id> --status
@@ -69,7 +82,8 @@ responses; never hand-write YAML.
 A `mechanism_observation` may accompany your primary response when its
 trigger fires:
 
-- A scenario gap → **clarify** (the §4.4 path), not a mechanism observation.
+- A scenario gap → **clarify** (the Reviewer → lead path), not a mechanism
+  observation.
 - An implementation gap → **work_done(blocked)**, not a mechanism
   observation.
 - A load-bearing weakness in the *mechanism* (your own template's

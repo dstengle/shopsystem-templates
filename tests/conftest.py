@@ -19806,3 +19806,239 @@ def then_release_guard_intact(job: str, context: dict) -> None:
         f"{job!r} no longer invokes the scenario-192 tag-equals-pyproject "
         f"version guard"
     )
+
+
+# ---- Scenarios cb6c9d2c0102bee4 / eff263fdba0681ac / 488175f45c00bdc9 -------
+# lead-hrcn: three prose refinements to the work-done-gate skill. The gate is
+# reviewer prose (not executable code), so these are prose-assertion scenarios:
+# each Then verifies the work-done-gate SKILL.md prose specifies the refined
+# behavior. _gate_check_section slices a single "### Check N:" section so a
+# token belonging to one check cannot satisfy another check's assertion.
+
+def _work_done_gate_text() -> str:
+    from shop_templates.cli import iter_skill_files
+    return dict(iter_skill_files())["work-done-gate/SKILL.md"].decode()
+
+
+def _gate_check_section(check_label: str) -> str:
+    text = _work_done_gate_text()
+    m = re.search(rf"### {re.escape(check_label)}:", text)
+    assert m, f"work-done-gate has no '### {check_label}:' section"
+    nxt = re.search(r"\n#{2,3} ", text[m.end():])
+    end = m.end() + nxt.start() if nxt else len(text)
+    return text[m.start():end]
+
+
+# -- Scenario cb6c9d2c0102bee4 — Check 1 deliverable-scope -------------------
+
+@given(
+    parsers.parse(
+        'a BC at work_done time whose "git status --porcelain -uall" reports '
+        "no modified, staged, untracked, or deleted path under any deliverable "
+        'directory "features/", "src/", or "tests/"'
+    )
+)
+def given_no_deliverable_path_dirty(context: dict) -> None:
+    context["gate_check1"] = _gate_check_section("Check 1")
+
+
+@given(
+    parsers.parse(
+        "the only non-empty entries are non-deliverable harness or "
+        'configuration paths such as ".claude/settings.json" or '
+        '".claude/canonical/bc-primer.md", alongside the ambient carve-outs '
+        '".beads/issues.jsonl", ".specstory", and ".claude/scheduled_tasks.lock"'
+    )
+)
+def given_only_nondeliverable_churn(context: dict) -> None:
+    pass
+
+
+@when(
+    parsers.parse(
+        'the BC runs Check 1 of the work-done-gate before emitting '
+        '"work_done --status complete"'
+    )
+)
+def when_run_gate_check1(context: dict) -> None:
+    context.setdefault("gate_check1", _gate_check_section("Check 1"))
+
+
+@then(
+    parsers.parse(
+        'Check 1 passes and does not convert the emission to "work_done '
+        '--status blocked", because no deliverable path under "features/", '
+        '"src/", or "tests/" is dirty'
+    )
+)
+def then_check1_passes_on_nondeliverable(context: dict) -> None:
+    sec = context["gate_check1"]
+    low = sec.lower()
+    assert "deliverable" in low, "Check 1 prose is not deliverable-scoped"
+    for d in ("features/", "src/", "tests/"):
+        assert d in sec, f"Check 1 prose must name deliverable dir {d!r}"
+    # Non-deliverable churn (harness/config + the ambient carve-outs) must be
+    # stated NOT to block, folded into the one deliverable-scope model.
+    assert ".claude/settings.json" in sec, (
+        "Check 1 must name a harness/config path as non-deliverable"
+    )
+    for carve in (".beads/issues.jsonl", ".specstory", ".claude/scheduled_tasks.lock"):
+        assert carve in sec, f"Check 1 must fold ambient carve-out {carve!r} into non-deliverable"
+    assert "non-deliverable" in low and "do not block" in low, (
+        "Check 1 must state non-deliverable churn does not block"
+    )
+
+
+@then(
+    parsers.parse(
+        'when instead at least one path under a deliverable directory '
+        '"features/", "src/", or "tests/" is dirty, Check 1 fails and converts '
+        'the emission to "work_done --status blocked" naming each dirty '
+        'deliverable path verbatim as "git status --porcelain -uall" reported it'
+    )
+)
+def then_check1_blocks_on_dirty_deliverable(context: dict) -> None:
+    sec = context["gate_check1"]
+    low = sec.lower()
+    assert "fail" in low and "deliverable" in low, (
+        "Check 1 must fail on a dirty deliverable path"
+    )
+    assert "git status --porcelain -uall" in sec
+    assert "name" in low, "Check 1 must name the dirty deliverable path"
+
+
+# -- Scenario eff263fdba0681ac — Check 2 idempotent-no-op --------------------
+
+@given(
+    parsers.parse(
+        "a dispatched work_id whose vehicle is flat maintenance and whose "
+        "intended end-state already holds in the BC repository, so a "
+        "verifiably-correct convergence requires no change and produces no new "
+        "commit naming the work_id"
+    )
+)
+def given_flat_maintenance_endstate_holds(context: dict) -> None:
+    context["gate_check2"] = _gate_check_section("Check 2")
+
+
+@given(
+    parsers.parse(
+        'a "git fetch origin" followed by "git log origin/main -E --grep" for '
+        "the work_id whole token finds no commit, because none was needed"
+    )
+)
+def given_no_workid_commit_because_none_needed(context: dict) -> None:
+    pass
+
+
+@when(
+    parsers.parse(
+        'the BC runs Check 2 of the work-done-gate before emitting '
+        '"work_done --status complete"'
+    )
+)
+def when_run_gate_check2(context: dict) -> None:
+    context.setdefault("gate_check2", _gate_check_section("Check 2"))
+
+
+@then(
+    parsers.parse(
+        'Check 2 passes via its idempotent-no-op branch and does not convert '
+        'the emission to "work_done --status blocked", because the maintenance '
+        "end-state already holds and no work_id commit is required"
+    )
+)
+def then_check2_idempotent_noop_passes(context: dict) -> None:
+    sec = context["gate_check2"]
+    low = sec.lower()
+    assert "idempotent" in low and "no-op" in low, (
+        "Check 2 prose lacks the idempotent-no-op branch"
+    )
+    assert "flat maintenance" in low, "idempotent-no-op branch must be scoped to flat maintenance"
+    assert "already hold" in low, "branch must require the end-state already holds"
+
+
+@then(
+    parsers.parse(
+        "when instead the flat-maintenance end-state does NOT already hold so "
+        "a delta is needed, the idempotent-no-op branch does not apply and "
+        'Check 2 still requires a work_id commit reachable from "origin/main", '
+        "failing to blocked when none exists"
+    )
+)
+def then_check2_requires_commit_when_delta_needed(context: dict) -> None:
+    sec = context["gate_check2"]
+    low = sec.lower()
+    assert "delta" in low, "Check 2 must address the delta-needed case"
+    assert "does not apply" in low or "not apply" in low
+    assert "still requires" in low and "origin/main" in sec, (
+        "Check 2 must still require a work_id commit when a delta is needed"
+    )
+
+
+# -- Scenario 488175f45c00bdc9 — Check 5 genuine-red -------------------------
+
+@given(
+    parsers.parse(
+        'a behavior whose work-branch history has a "test(red)" commit '
+        'preceding its "feat(green)" commit so the commit order alone would '
+        "satisfy an order-only check"
+    )
+)
+def given_red_precedes_green_order_only(context: dict) -> None:
+    context["gate_check5"] = _gate_check_section("Check 5")
+
+
+@given(
+    parsers.parse(
+        'the newly-added tests introduced by that "test(red)" commit are run '
+        'against the tree at the "test(red)" commit'
+    )
+)
+def given_red_tests_run_at_red_commit(context: dict) -> None:
+    pass
+
+
+@when(
+    parsers.parse(
+        'the BC runs Check 5 of the work-done-gate before emitting '
+        '"work_done --status complete"'
+    )
+)
+def when_run_gate_check5(context: dict) -> None:
+    context.setdefault("gate_check5", _gate_check_section("Check 5"))
+
+
+@then(
+    parsers.parse(
+        'Check 5 passes only when those newly-added tests demonstrably FAIL at '
+        'the "test(red)" commit, establishing a genuine red rather than a '
+        "tautological one"
+    )
+)
+def then_check5_requires_genuine_red(context: dict) -> None:
+    sec = context["gate_check5"]
+    low = sec.lower()
+    assert "demonstrably" in low and "fail" in low, (
+        "Check 5 must require the red tests to demonstrably fail"
+    )
+    assert "tautological" in low, "Check 5 must name the tautological-red failure mode"
+    assert "test(red)" in sec
+    assert "red commit" in low, "Check 5 must tie the failure to the red commit"
+
+
+@then(
+    parsers.parse(
+        'when the newly-added tests instead PASS at the "test(red)" commit, '
+        'Check 5 fails and converts the emission to "work_done --status '
+        'blocked" naming the behavior and the tautological-red "test(red)" '
+        "commit even though the red-before-green commit order holds"
+    )
+)
+def then_check5_blocks_tautological_red(context: dict) -> None:
+    sec = context["gate_check5"]
+    low = sec.lower()
+    assert "tautological" in low and "pass" in low, (
+        "Check 5 must block when the red tests pass at the red commit"
+    )
+    assert "blocked" in low or "block" in low

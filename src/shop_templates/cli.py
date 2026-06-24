@@ -371,6 +371,13 @@ _LEAD_OPS_FILES: tuple[tuple[str, str, bool], ...] = (
     # (`bin/agent-vault-check || true`). Shop-owned, never under .claude/.
     ("agent-vault-provision", "bin/agent-vault-provision", True),
     ("agent-vault-check", "bin/agent-vault-check", True),
+    # lead-9s46 (WS-2): the Claude-OAuth proposal approval tool. provision
+    # leaves ONE human step — approving the CLAUDE_OAUTH proposal with the real
+    # token — and previously printed a docker-exec string the adopter had to
+    # hand-edit. This lead-only executable removes that friction: it
+    # auto-resolves the broker/vault/proposal from the same {{OPS_SLUG}}-derived
+    # coordinates provision uses and runs the scoped approve. Product-neutral.
+    ("agent-vault-approve-claude", "bin/agent-vault-approve-claude", True),
 )
 
 
@@ -728,7 +735,13 @@ def _bd_init_in(target: Path, prefix: str | None = None) -> int:
     NOT a cosmetic `issue_prefix` YAML key bd never reads (the retired
     9e15d8cfd55b9541 approach). The `--skip-agents` flag is preserved.
     """
-    cmd = ["bd", "init", "--skip-agents"]
+    # Per scenario 584e2f7352dc2a24 (lead-9s46 / WS-2): `bd init` MUST be
+    # invoked with the explicit `--non-interactive` flag. The BD_NON_INTERACTIVE
+    # env var ALONE is insufficient — empirically `BD_NON_INTERACTIVE=1 bd init`
+    # on a TTY/stdin HANGS (reproduced: a fresh bc-lead container hung 6
+    # minutes). The `--non-interactive` flag is what makes bd init non-blocking
+    # on a controlling terminal; the env var is kept too (belt-and-suspenders).
+    cmd = ["bd", "init", "--non-interactive", "--skip-agents"]
     if prefix is not None:
         cmd += ["--prefix", prefix]
     result = subprocess.run(
@@ -736,6 +749,7 @@ def _bd_init_in(target: Path, prefix: str | None = None) -> int:
         cwd=str(target),
         capture_output=True,
         text=True,
+        env={**os.environ, "BD_NON_INTERACTIVE": "1"},
     )
     if result.returncode != 0:
         print(

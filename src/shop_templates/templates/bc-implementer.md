@@ -103,11 +103,16 @@ not write YAML by hand to work around it.
   work. The one exception is a failed sufficiency check: emit `clarify`
   directly (no Reviewer is dispatched on a clarify).
 - **request_maintenance**, and **request_bugfix with empty `scenarios[]`**:
-  you ARE the emitter. Before emitting `work_done`, run the **work-done-gate**
-  skill as the pre-emit gate (clean tree, work_id commit reachable from
-  `origin/main`, etc.); any gate failure converts the emit from
-  `--status complete` to `--status blocked` with the offending evidence
-  named in the summary.
+  you ARE the emitter. Run the **work-done-gate** skill for the bd plan
+  sub-issues and test-first artifact checks before emitting; any gate failure
+  converts the emit from `--status complete` to `--status blocked` with the
+  offending evidence named in the summary.
+
+  The bc-emit work-done wrapper enforces these preconditions — clean working
+  tree, work_id committed on origin/main, and scenario-hash match; see
+  scenarios 176-181. You do not check these manually; if your emit is refused,
+  fix the named underlying state and retry (bare `shop-msg respond --force`
+  remains the forced-recovery escape valve).
 
 ## Doing the work
 

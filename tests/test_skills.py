@@ -142,6 +142,22 @@ def test_subagent_driven_development_describes_parallel_and_gate():
     assert "gate" in body or "between" in body and "layer" in body
 
 
+def test_render_lead_ops_scaffolding_docstring_no_shell_dockerfile():
+    """lead-3t1o: _render_lead_ops_scaffolding must not assert it writes a
+    Dockerfile.<slug>-shell — that render was retired (PDR-020 / ADR-028) and
+    _LEAD_OPS_FILES carries no shell-Dockerfile entry; the stale docstring was
+    the only survivor."""
+    import re as _re
+    from shop_templates.cli import _render_lead_ops_scaffolding
+    doc = _render_lead_ops_scaffolding.__doc__ or ""
+    assert "Dockerfile.<slug>-shell at the top level" not in doc, (
+        "docstring still asserts it writes Dockerfile.<slug>-shell at the top level"
+    )
+    assert not _re.search(r"[Ww]rites[^.]*Dockerfile\.<slug>-shell", doc), (
+        "docstring still claims a shell Dockerfile is written"
+    )
+
+
 def test_bc_emit_wrapper_pointer_replaces_retired_precondition_prose():
     """lead-62sy: scenarios 105-116 (prose pins of the clean-tree /
     commit-on-origin-main / scenario-hash-match preconditions) are RETIRED in

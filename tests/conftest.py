@@ -3005,6 +3005,12 @@ def _run_shop_templates_with_bd_shim(
 
     env = os.environ.copy()
     env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
+    # lead-3t1o scenario b47ca2b0841bedbf: model a credential-free target by
+    # scrubbing the GitHub push-credential env signals, so bootstrap's
+    # credential detection sees no creds and DEFERS the authenticated push.
+    if context.get("scrub_push_creds"):
+        for var in ("GH_TOKEN", "GITHUB_TOKEN"):
+            env.pop(var, None)
 
     # Use the same python interpreter that's running the test, so
     # `shop_templates` is importable from the installed package.
@@ -20222,3 +20228,177 @@ def then_satisfied_by_absence_independent_of_fresh(context: dict) -> None:
             h in p.read_text() for p in (clone / "features").glob("*.feature")
         ), f"positive setup invalid: retired hash {h!r} present in features/"
     assert "retirement-removal precondition" not in context["bc_emit_result"].stderr
+
+
+# ---- Scenarios 4d3df50770bcc4ef / b47ca2b0841bedbf — adopter-blocking fixes -
+# lead-3t1o: (1) a lead bootstrap for an arbitrary adopter slug emits no shell
+# Dockerfile while still emitting compose.yaml + bin/shop-shell (regression
+# guard); (2) a credential-free bootstrap defers the authenticated bd dolt push
+# with a clear offline diagnostic instead of hanging. Both reuse the shared
+# bootstrap-invoke When (when_invoke_bootstrap / _run_shop_templates_with_bd_shim).
+
+@given(
+    parsers.parse(
+        'an existing git repository at a target directory "{alias}" with no '
+        'top-level file matching "Dockerfile.testxyz-shell", no top-level '
+        '"Dockerfile.shopsystem-shell", no top-level "compose.yaml", and no '
+        'file at "bin/shop-shell"'
+    )
+)
+def given_target_no_shell_dockerfile_or_ops(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    for rel in (
+        "Dockerfile.testxyz-shell",
+        "Dockerfile.shopsystem-shell",
+        "compose.yaml",
+        "bin/shop-shell",
+    ):
+        assert not (real / rel).exists(), (
+            f"premise of Given violated: {(real / rel)!s} unexpectedly exists"
+        )
+
+
+@then(
+    parsers.parse(
+        "after the invocation the target directory contains no top-level file "
+        'named "{name}"'
+    )
+)
+def then_no_top_level_file_named(name: str, context: dict) -> None:
+    real = context["last_invocation_target"]
+    assert not (real / name).exists(), (
+        f"expected no top-level {name!r} after bootstrap, but it exists"
+    )
+
+
+@then(
+    parsers.parse(
+        "after the invocation the target directory contains no top-level file "
+        'matching the glob "{pattern}"'
+    )
+)
+def then_no_top_level_file_matching_glob(pattern: str, context: dict) -> None:
+    real = context["last_invocation_target"]
+    matches = sorted(str(p.name) for p in real.glob(pattern))
+    assert not matches, (
+        f"expected no top-level file matching {pattern!r} after bootstrap; "
+        f"found {matches!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "after the invocation the target directory contains a top-level file "
+        'named "{name}"'
+    )
+)
+def then_top_level_file_named_present(name: str, context: dict) -> None:
+    real = context["last_invocation_target"]
+    assert (real / name).is_file(), (
+        f"expected top-level {name!r} after bootstrap, but it is absent"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the invocation the target directory contains a file at '
+        '"{rel}" whose owner-execute permission bit is set'
+    )
+)
+def then_file_owner_executable(rel: str, context: dict) -> None:
+    import stat as _stat
+    real = context["last_invocation_target"]
+    path = real / rel
+    assert path.is_file(), f"expected {rel!r} after bootstrap, but it is absent"
+    assert path.stat().st_mode & _stat.S_IXUSR, (
+        f"{rel!r} owner-execute bit is not set"
+    )
+
+
+@given(
+    parsers.parse(
+        'a target directory "{alias}" that is an existing git repository with '
+        'no ".beads/" directory'
+    )
+)
+def given_target_existing_git_no_beads(
+    alias: str, context: dict, tmp_path: Path
+) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    real = _real_target_for_alias(alias, context)
+    assert not (real / ".beads").exists(), (
+        f"premise of Given violated: {(real / '.beads')!s} unexpectedly exists"
+    )
+
+
+@given(
+    parsers.parse(
+        "the environment carries no GitHub push credentials that would "
+        'authenticate a push to "{remote}"'
+    )
+)
+def given_no_github_push_credentials(remote: str, context: dict) -> None:
+    # Drive the shared bootstrap-invoke When to scrub the GitHub push-credential
+    # env signals, so bootstrap's credential detection sees no creds.
+    context["scrub_push_creds"] = True
+
+
+@then(
+    parsers.parse(
+        "the invocation returns within the bootstrap time budget rather than "
+        "blocking on a network push that waits for git authentication"
+    )
+)
+def then_invocation_returns_within_budget(context: dict) -> None:
+    # The subprocess completed (a hang would have failed/timed out) and exited
+    # cleanly — scaffolding was not aborted by the deferred push.
+    assert context["cli_returncode"] == 0, (
+        f"bootstrap did not complete cleanly: rc={context['cli_returncode']} "
+        f"stderr={context['cli_stderr']!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "the bootstrap does not perform a credential-requiring live push to an "
+        "authenticated remote during scaffolding"
+    )
+)
+def then_no_live_push_performed(context: dict) -> None:
+    log = context["bd_shim_log"].read_text()
+    assert "dolt push" not in log, (
+        "bootstrap performed a `bd dolt push` on a credential-free target; "
+        f"bd-shim invocation log:\n{log}"
+    )
+
+
+@then(
+    parsers.parse(
+        "the bootstrap emits the scaffolded shop into the target directory, "
+        'including a top-level "compose.yaml" and a file at "bin/shop-shell"'
+    )
+)
+def then_scaffold_present_compose_and_shop_shell(context: dict) -> None:
+    real = context["last_invocation_target"]
+    assert (real / "compose.yaml").is_file(), "compose.yaml not scaffolded"
+    assert (real / "bin" / "shop-shell").is_file(), "bin/shop-shell not scaffolded"
+
+
+@then(
+    parsers.parse(
+        "the bootstrap surfaces clear output reporting that the credentialed "
+        "remote push was skipped or run offline rather than producing no "
+        "feedback"
+    )
+)
+def then_clear_skipped_push_output(context: dict) -> None:
+    out = (context["cli_stdout"] + context["cli_stderr"]).lower()
+    assert "push" in out and (
+        "skipped" in out or "offline" in out or "deferred" in out
+    ), (
+        "bootstrap produced no clear skipped/offline push diagnostic; "
+        f"stdout={context['cli_stdout']!r} stderr={context['cli_stderr']!r}"
+    )

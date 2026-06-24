@@ -15526,11 +15526,20 @@ def given_work_id_commit_only_on_local_branch(context: dict) -> None:
     )
 )
 def when_invoke_wrapper_for_that_work_id(context: dict) -> None:
+    # Thread the lead-acoo retirement-removal hashes and any explicit
+    # scenario-hash payload from context. Both default to empty, so scenarios
+    # that do not set them invoke the wrapper exactly as before.
+    extra: list[str] = []
+    for h in context.get("retire_hashes", []):
+        extra += ["--retire-hash", h]
+    for h in context.get("payload_scenario_hashes", []):
+        extra += ["--scenario-hash", h]
     result = _run_bc_emit(
         context["bc_repo"], context["respond_recorder"],
         "--work-id", context["bc_work_id"],
         "--deliverable", context.get("bc_deliverable", "commit"),
         *(["--tag", context["bc_tag"]] if context.get("bc_tag") else []),
+        *extra,
         "--status", "complete",
     )
     context["bc_emit_result"] = result
@@ -20042,3 +20051,174 @@ def then_check5_blocks_tautological_red(context: dict) -> None:
         "Check 5 must block when the red tests pass at the red commit"
     )
     assert "blocked" in low or "block" in low
+
+
+# ---- Scenarios 777dcc6bfe4bdd03 / 800e7f9317a1b884 — retirement-removal -----
+# lead-acoo: a NEW executable precondition on the bc-emit work-done wrapper —
+# refuse while any hash the consumed dispatch named for retirement (passed via
+# --retire-hash) is still carried by a scenario block under the as-committed
+# features/ tree; satisfied once every such hash is absent, independently of
+# any newly added blocks. Reuses the wrapper harness and the shared
+# `when_invoke_wrapper_for_that_work_id` (extended to thread retire_hashes).
+
+_ACOO_RETIRE_HASH = "deadbeefcafe0001"
+
+
+@given(
+    parsers.parse(
+        'a dispatched work_id whose consumed dispatch named one or more '
+        '"@scenario_hash:<hex>" values for retirement'
+    )
+)
+def given_dispatch_named_hashes_for_retirement(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    recorder, log = _make_recorder(tmp_path)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+    context["bc_work_id"] = "lead-acoo-wd"
+    context["retire_hashes"] = [_ACOO_RETIRE_HASH]
+
+
+@given(
+    parsers.parse(
+        "at least one named-for-retirement hash is still carried by a scenario "
+        "block reachable under the BC's as-committed \"features/\" tree, whether "
+        "on the old retired block left in place or duplicated onto a newly added "
+        "block"
+    )
+)
+def given_retire_hash_still_reachable(context: dict) -> None:
+    clone = context["bc_repo"]
+    retire = context["retire_hashes"][0]
+    feats = clone / "features"
+    feats.mkdir(exist_ok=True)
+    # The OLD retired block left in place (carries the named-for-retirement
+    # hash) AND a freshly added sibling block with its own fresh hash — the
+    # fresh block must not exempt the still-reachable retired hash.
+    (feats / "retired.feature").write_text(
+        "Feature: still carries a retired hash\n\n"
+        f"@scenario_hash:{retire} @bc:shopsystem-templates\n"
+        "  Scenario: the old retired block left in place\n"
+        "    Given a body the consumed dispatch named for retirement\n"
+        "    Then its @scenario_hash is still reachable under features/\n\n"
+        "@scenario_hash:00fresh00fresh00 @bc:shopsystem-templates\n"
+        "  Scenario: a freshly added sibling block\n"
+        "    Given a fresh body unrelated to the retired one\n"
+        "    Then it carries a fresh hash that does not exempt the retired one\n"
+    )
+    _git_in(clone, "add", "features/retired.feature")
+    _git_in(clone, "commit", "-q", "-m", "chore: features carries a still-reachable retired hash")
+
+
+@given(
+    parsers.parse(
+        "no named-for-retirement hash is carried by any scenario block "
+        "reachable under the BC's as-committed \"features/\" tree"
+    )
+)
+def given_no_retire_hash_in_features(context: dict) -> None:
+    from scenarios.hash import compute_scenario_hash
+    clone = context["bc_repo"]
+    wid = context["bc_work_id"]
+    # ONLY a freshly added block, correctly (non-staleley) tagged so the
+    # scenario-hash check passes — proving a fresh block does not trip the
+    # precondition and the emit proceeds once the retired hash is absent.
+    body = (
+        "  Scenario: a freshly added retirement-removal sibling scenario\n"
+        "    Given a fresh body unrelated to any retired block\n"
+        "    Then it carries its own fresh canonical hash\n"
+    )
+    fresh = compute_scenario_hash(body)
+    feats = clone / "features"
+    feats.mkdir(exist_ok=True)
+    (feats / "fresh.feature").write_text(
+        "Feature: only fresh blocks\n\n"
+        f"@scenario_hash:{fresh} @bc:shopsystem-templates\n" + body
+    )
+    # Commit it (clean tree) and land a work_id commit on origin/main so
+    # reachability passes and the full emit can proceed.
+    _git_in(clone, "add", "features/fresh.feature")
+    _git_in(clone, "commit", "-q", "-m", f"feat: fresh scenario only (work_id: {wid})")
+    _git_in(clone, "push", "-q", "origin", "main")
+    context["payload_scenario_hashes"] = [fresh]
+
+
+@then(
+    parsers.parse(
+        "the wrapper's error names the retirement-removal precondition as the "
+        "cause and names both the dispatched work_id and each un-removed "
+        "named-for-retirement hash value still reachable under \"features/\""
+    )
+)
+def then_error_names_retirement_removal(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    assert "retirement-removal precondition" in err, err
+    assert context["bc_work_id"] in err, f"work_id not named: {err!r}"
+    for h in context["retire_hashes"]:
+        assert h in err, f"un-removed retired hash {h!r} not named: {err!r}"
+
+
+@then(
+    parsers.parse(
+        "adding a new scenario block carrying a fresh body and hash does NOT "
+        "satisfy the precondition while the named-for-retirement hash remains "
+        "reachable, so the stale-hash and orphan checks passing on the "
+        "surviving blocks does not exempt this refusal"
+    )
+)
+def then_fresh_block_does_not_exempt(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    # The refusal's primary cause is retirement-removal (not a stale/orphan
+    # hash cause), and the still-reachable retired hash is named even though a
+    # fresh block was added alongside it.
+    assert err.lstrip().startswith(
+        "refused: the retirement-removal precondition"
+    ), f"refusal is not primarily retirement-removal: {err!r}"
+    for h in context["retire_hashes"]:
+        assert h in err
+
+
+@then(
+    parsers.parse(
+        "the wrapper treats the retirement-removal precondition as satisfied "
+        "and does NOT refuse the emit on the ground that a named-for-retirement "
+        "hash is still reachable"
+    )
+)
+def then_retirement_removal_satisfied(context: dict) -> None:
+    result = context["bc_emit_result"]
+    assert "retirement-removal precondition" not in result.stderr, (
+        "retirement-removal wrongly refused though no retired hash is "
+        f"reachable: {result.stderr!r}"
+    )
+    # It proceeded past retirement-removal; with a clean tree, a reachable
+    # work_id commit, and a matching scenario-hash payload the emit fully passes
+    # and invokes respond exactly once.
+    assert _respond_was_invoked(context["respond_log"]), (
+        "expected the wrapper to proceed past retirement-removal and emit; "
+        f"stderr={result.stderr!r} rc={result.returncode}"
+    )
+
+
+@then(
+    parsers.parse(
+        "the satisfaction is established by the absence of every "
+        "named-for-retirement hash from \"features/\", independently of whether "
+        "the dispatch also added new scenario blocks carrying their own fresh "
+        "hashes"
+    )
+)
+def then_satisfied_by_absence_independent_of_fresh(context: dict) -> None:
+    clone = context["bc_repo"]
+    fresh = context["payload_scenario_hashes"][0]
+    fresh_present = any(
+        fresh in p.read_text() for p in (clone / "features").glob("*.feature")
+    )
+    assert fresh_present, "positive setup invalid: fresh block absent from features/"
+    for h in context["retire_hashes"]:
+        assert not any(
+            h in p.read_text() for p in (clone / "features").glob("*.feature")
+        ), f"positive setup invalid: retired hash {h!r} present in features/"
+    assert "retirement-removal precondition" not in context["bc_emit_result"].stderr

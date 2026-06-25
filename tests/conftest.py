@@ -22193,3 +22193,73 @@ def then_owner_email_identity(context: dict) -> None:
 def then_registers_under_identity(context: dict) -> None:
     f = context["footing_body"]
     assert '--email "$AGENT_VAULT_OWNER_EMAIL"' in f
+
+
+# ---- Scenario 04426cc4 — footing creates the vault before the scoped session
+# lead-h2rq: footing mints a vault-scoped session (`vault token --vault <slug>`)
+# and creates the OAuth proposal against the product-slug vault, but never
+# created that vault -> "Vault not found". footing now creates it idempotently
+# before the first vault token / proposal call. Body-assertion over footing;
+# the runtime "Vault not found"-gone is the lead's live-verify.
+
+def _h2_footing(slug: str = "dummyco") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("footing", slug)
+
+
+def _h2_invocation_idx(f: str, needle: str) -> int:
+    # Index of the first ACTUAL invocation line (not a comment) containing needle.
+    off = 0
+    for ln in f.splitlines(keepends=True):
+        if needle in ln and not ln.lstrip().startswith("#"):
+            return off
+        off += len(ln)
+    return -1
+
+
+@given(parsers.parse("the footing bootstrap script is run for a product whose broker holds no vault for the product slug yet"))
+def given_footing_no_vault_yet(context: dict) -> None:
+    context["footing"] = _h2_footing()
+
+
+@given(parsers.parse('the owner account has just been created via "agent-vault auth register"'))
+def given_owner_account_created(context: dict) -> None:
+    assert "agent-vault auth register" in context["footing"]
+
+
+@when(parsers.parse("the script reaches the Claude OAuth provisioning sequence in its auth gate"))
+def when_reaches_oauth_provisioning(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'it runs "agent-vault vault create" for the product-slug vault before '
+        'the first "agent-vault vault token" or "agent-vault vault proposal" '
+        "call against that vault"
+    )
+)
+def then_vault_created_before_token(context: dict) -> None:
+    f = context["footing"]
+    create = _h2_invocation_idx(f, 'agent-vault vault create "$AGENT_VAULT_VAULT"')
+    token = _h2_invocation_idx(f, "agent-vault vault token --vault")
+    proposal = _h2_invocation_idx(f, "agent-vault vault proposal create")
+    assert create != -1, "footing does not run `agent-vault vault create` for the product vault"
+    assert token != -1 and create < token, "vault create must precede the scoped-session mint"
+    assert proposal != -1 and create < proposal, "vault create must precede the proposal create"
+
+
+@then(parsers.parse('the vault-scoped session mint succeeds without a "Vault not found" error'))
+def then_scoped_mint_succeeds(context: dict) -> None:
+    # STRUCTURAL: the vault exists (created above) before the mint, so the mint
+    # no longer hits "Vault not found". Runtime success is the lead's live-verify.
+    f = context["footing"]
+    assert _h2_invocation_idx(f, 'agent-vault vault create "$AGENT_VAULT_VAULT"') < \
+        _h2_invocation_idx(f, "agent-vault vault token --vault")
+
+
+@then(parsers.parse("the vault creation is idempotent, completing without failure when the vault already exists"))
+def then_vault_create_idempotent(context: dict) -> None:
+    f = context["footing"]
+    line = next(l for l in f.splitlines() if l.strip().startswith("agent-vault vault create"))
+    assert "|| true" in line, f"vault create must be idempotent (|| true): {line!r}"

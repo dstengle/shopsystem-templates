@@ -132,9 +132,43 @@ if [[ -z "$GITHUB_TOKEN" ]]; then
 fi
 export GITHUB_TOKEN
 
+# -----------------------------------------------------------------------
+# Scripted .env initialization (lead-mrn2, scenario 9018e13b749bec95).
+#
+# The agent-vault broker auto-unseals from AGENT_VAULT_MASTER_PASSWORD in .env,
+# so .env MUST exist carrying a real (generated, non-placeholder) master
+# password BEFORE `docker compose up agent-vault`. Create .env from
+# .env.example on a fresh shop and fill the two PRE-START values:
+#   - AGENT_VAULT_MASTER_PASSWORD: a generated high-entropy secret (so the
+#     broker can unseal), replacing the "<changeme-...>" placeholder.
+#   - AGENT_VAULT_ADDR: the real in-network broker address the local-first ops
+#     tools target, replacing the "<changeme-broker-address>" placeholder.
+# The broker-dependent values (AGENT_VAULT_TOKEN/_VAULT/_CA_PEM) stay
+# placeholders here; bin/agent-vault-provision fills them AFTER the broker is up.
+# Operator-set real values are preserved (only placeholders/empties are filled).
+# -----------------------------------------------------------------------
+ENV_FILE="$REPO_ROOT/.env"
+[[ -f "$ENV_FILE" ]] || cp "$REPO_ROOT/.env.example" "$ENV_FILE"
+AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://{{OPS_SLUG}}-agent-vault:14321}"
+_GEN_MASTER_PW="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40)"
+_env_tmp="$(mktemp)"
+while IFS= read -r line || [[ -n "$line" ]]; do
+  case "$line" in
+    AGENT_VAULT_MASTER_PASSWORD=\<changeme*|AGENT_VAULT_MASTER_PASSWORD=)
+      printf 'AGENT_VAULT_MASTER_PASSWORD=%s\n' "$_GEN_MASTER_PW" ;;
+    AGENT_VAULT_ADDR=\<changeme*|AGENT_VAULT_ADDR=)
+      printf 'AGENT_VAULT_ADDR=%s\n' "$AGENT_VAULT_ADDR" ;;
+    *)
+      printf '%s\n' "$line" ;;
+  esac
+done < "$ENV_FILE" > "$_env_tmp"
+mv "$_env_tmp" "$ENV_FILE"
+export AGENT_VAULT_ADDR
+
 # The agent-vault broker must be live before the oauth proposal can be created,
 # so bring the footing services up as part of reaching the gate's OAuth step.
 # (Broker bring-up is a prerequisite OF the gate, not a later footing step.)
+# .env carries AGENT_VAULT_MASTER_PASSWORD now, so the broker auto-unseals.
 docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres agent-vault
 
 if ! docker ps --format '{{.Names}}' | grep -Eq '^{{OPS_SLUG}}-postgres$|^{{OPS_SLUG}}-agent-vault$'; then
@@ -146,18 +180,27 @@ fi
 # (c) Claude OAuth credential — captured IN-SCRIPT via an oauth-typed proposal
 #     the human APPROVES (reusing the bin/agent-vault-provision contract). The
 #     proposal create/approve run in AGENT mode on agent-vault 0.32.0 and need
-#     a vault-SCOPED session, so mint one off the in-container owner session.
-DEXEC=(docker exec -i "$AGENT_VAULT_CONTAINER")
-_SCOPED_SESSION="$("${DEXEC[@]}" agent-vault vault token --vault "$AGENT_VAULT_VAULT" | tr -d '\r\n')"
+#     a vault-SCOPED session.
+#
+# LOCAL-FIRST (lead-mrn2): run agent-vault on the LEAD HOST against
+# AGENT_VAULT_ADDR — NOT `docker exec` into the broker. Establish the owner
+# session locally (auth login/register --address), mint the vault-scoped
+# session locally, then run the proposal subcommands locally under the scoped
+# session env.
+AGENT_VAULT_OWNER_EMAIL="${AGENT_VAULT_OWNER_EMAIL:-owner@{{OPS_SLUG}}.local}"
+if ! printf '%s' "$OWNER_PASSWORD" | agent-vault auth login --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin 2>/dev/null; then
+  printf '%s' "$OWNER_PASSWORD" | agent-vault auth register --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin
+fi
+_SCOPED_SESSION="$(agent-vault vault token --vault "$AGENT_VAULT_VAULT" --address "$AGENT_VAULT_ADDR" | tr -d '\r\n')"
 if [[ -z "$_SCOPED_SESSION" ]]; then
   echo "footing: failed to mint a vault-scoped session for the Claude OAuth proposal on vault '$AGENT_VAULT_VAULT'." >&2
   exit 1
 fi
-DEXEC_SCOPED=(docker exec -i \
-  -e AGENT_VAULT_TOKEN="$_SCOPED_SESSION" \
-  -e AGENT_VAULT_ADDR=http://localhost:14321 \
-  -e AGENT_VAULT_VAULT="$AGENT_VAULT_VAULT" \
-  "$AGENT_VAULT_CONTAINER")
+# Run the proposal subcommands LOCALLY under the vault-scoped session env.
+DEXEC_SCOPED=(env \
+  AGENT_VAULT_TOKEN="$_SCOPED_SESSION" \
+  AGENT_VAULT_ADDR="$AGENT_VAULT_ADDR" \
+  AGENT_VAULT_VAULT="$AGENT_VAULT_VAULT")
 
 # The oauth-typed CLAUDE_OAUTH credential-slot proposal. action:set + type:oauth
 # + the oauth block (token_url REQUIRED); the slot stores NO token value — the
@@ -188,11 +231,9 @@ cat <<EOF >&2
   command — supply the real Claude OAuth secret in place of <value> AT APPROVE
   TIME (no automated step carries the real secret; it is pasted only here):
 
-    docker exec -i \\
-      -e AGENT_VAULT_TOKEN=$_SCOPED_SESSION \\
-      -e AGENT_VAULT_ADDR=http://localhost:14321 \\
-      -e AGENT_VAULT_VAULT='$AGENT_VAULT_VAULT' \\
-      '$AGENT_VAULT_CONTAINER' \\
+    env AGENT_VAULT_TOKEN=$_SCOPED_SESSION \\
+        AGENT_VAULT_ADDR='$AGENT_VAULT_ADDR' \\
+        AGENT_VAULT_VAULT='$AGENT_VAULT_VAULT' \\
       agent-vault vault proposal approve ${PROPOSAL_NUM:-<num>} CLAUDE_OAUTH=<value> --yes --vault '$AGENT_VAULT_VAULT'
 
   This is the LAST human action in the footing run. The steps below are

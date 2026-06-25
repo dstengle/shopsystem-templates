@@ -31,20 +31,28 @@ VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
 NETWORK="${AGENT_VAULT_NETWORK:-{{OPS_SLUG}}}"
 # The broker proxy host (slug-derived service name on the product network).
 PROXY_HOST="${AGENT_VAULT_PROXY_HOST:-{{OPS_SLUG}}-agent-vault}"
+# LOCAL-FIRST (lead-mrn2): the probe runs agent-vault on the LEAD HOST in agent
+# mode and targets the broker at AGENT_VAULT_ADDR — NOT a docker exec into the
+# broker container. AGENT_VAULT_TOKEN/_ADDR/_VAULT are sourced from the
+# shop-shell .env that invokes this check.
+AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://{{OPS_SLUG}}-agent-vault:14321}"
 
-# If the broker is not up, there is nothing to advise on — stay silent and
-# succeed (this is a soft startup probe, not a gate).
-if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER" 2>/dev/null; then
-  exit 0
-fi
-
-# Best-effort: read the GitHub PAT's expiry timestamp from the broker. Any
-# failure (no credential, broker hiccup, unparseable output) downgrades to a
-# silent success — never a hard error.
+# Best-effort: confirm the provisioned GitHub credential and read its expiry
+# with a SINGLE local agent-vault command — NO docker exec into the broker, and
+# no separate standalone `docker exec ... credential list` verification step.
+# The credential key is GITHUB_TOKEN — the exact key bin/agent-vault-provision
+# stores (the prior probe queried a non-existent credential key, so the
+# advisory could never fire) — so the expiry advisory can actually
+# fire. Any failure (no credential, broker unreachable, unparseable
+# output) downgrades to a silent success — never a hard error.
 EXPIRY_EPOCH=""
-if EXPIRY_RAW="$(docker exec -i "$CONTAINER" \
-      agent-vault get --vault "$VAULT" --name github-pat --field expires_at \
-      2>/dev/null)"; then
+if GITHUB_PAT_VALUE="$(agent-vault vault credential get GITHUB_TOKEN --vault "$VAULT" 2>/dev/null)"; then
+  # A GitHub PAT exposes its own expiry via the GitHub API response header
+  # "GitHub-Authentication-Token-Expiration"; read it non-fatally.
+  EXPIRY_RAW="$(curl -fsSI -H "Authorization: Bearer $GITHUB_PAT_VALUE" \
+      https://api.github.com 2>/dev/null \
+      | tr -d '\r' \
+      | awk -F': ' 'tolower($1)=="github-authentication-token-expiration"{print $2}')"
   EXPIRY_EPOCH="$(date -d "$EXPIRY_RAW" +%s 2>/dev/null || true)"
 fi
 

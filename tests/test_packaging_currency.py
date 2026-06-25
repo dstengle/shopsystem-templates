@@ -206,11 +206,14 @@ PROVISION_FORBIDDEN_FLAT_OAUTH_SET = "credential set CLAUDE_OAUTH"
 # (AGENT_VAULT_TOKEN=<scoped> / AGENT_VAULT_ADDR=http://localhost:14321 /
 # AGENT_VAULT_VAULT). A tag-install that poured the pre-fix owner-session
 # proposal step would die on "Session requires vault scope" at provision time.
+# LOCAL-FIRST (lead-mrn2): the scoped session is run LOCALLY via `env ...`
+# against AGENT_VAULT_ADDR (the lead<->broker address), NOT a `docker exec -e`
+# into the broker with the in-container localhost.
 PROVISION_SCOPED_SESSION_TOKENS = [
     "vault token --vault",
-    "-e AGENT_VAULT_TOKEN=",
-    "-e AGENT_VAULT_ADDR=http://localhost:14321",
-    "-e AGENT_VAULT_VAULT=",
+    'AGENT_VAULT_TOKEN="$_SCOPED_SESSION"',
+    'AGENT_VAULT_ADDR="$AGENT_VAULT_ADDR"',
+    'AGENT_VAULT_VAULT="$VAULT"',
 ]
 
 # v0.11.0 corrected-behavior (lead-7if5 / af58736): the bootstrap-poured

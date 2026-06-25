@@ -66,19 +66,27 @@ def test_provision_scoped_session_minted_before_proposal_create():
 
 
 def test_provision_defines_scoped_dexec_with_three_env_vars():
-    """A scoped exec array passes the three verified env vars: the scoped
-    session as AGENT_VAULT_TOKEN, the broker's own API addr at
-    http://localhost:14321, and AGENT_VAULT_VAULT — NOT the bare owner session."""
+    """LOCAL-FIRST (lead-mrn2): the scoped exec passes the three env vars to a
+    LOCAL agent-vault (via `env`), NOT a `docker exec -e` into the broker — the
+    minted scoped session as AGENT_VAULT_TOKEN, the broker address as
+    AGENT_VAULT_ADDR (the local-first lead<->broker address, not the in-container
+    localhost), and AGENT_VAULT_VAULT."""
     body = _provision()
-    assert "-e AGENT_VAULT_TOKEN=" in body, (
-        "scoped exec must pass the minted scoped session as -e AGENT_VAULT_TOKEN="
+    assert "DEXEC_SCOPED=(env " in body, (
+        "the scoped exec must run agent-vault LOCALLY via `env`, not `docker exec`"
     )
-    assert "-e AGENT_VAULT_ADDR=http://localhost:14321" in body, (
-        "scoped exec must pass -e AGENT_VAULT_ADDR=http://localhost:14321 "
-        "(the broker's own API port, since proposal runs inside the container)"
+    assert 'AGENT_VAULT_TOKEN="$_SCOPED_SESSION"' in body, (
+        "scoped exec must pass the minted scoped session as AGENT_VAULT_TOKEN"
     )
-    assert "-e AGENT_VAULT_VAULT=" in body, (
-        "scoped exec must pass -e AGENT_VAULT_VAULT=$VAULT"
+    assert 'AGENT_VAULT_ADDR="$AGENT_VAULT_ADDR"' in body, (
+        "scoped exec must pass AGENT_VAULT_ADDR=$AGENT_VAULT_ADDR (the local-first "
+        "broker address), not the in-container localhost"
+    )
+    assert 'AGENT_VAULT_VAULT="$VAULT"' in body, (
+        "scoped exec must pass AGENT_VAULT_VAULT=$VAULT"
+    )
+    assert "-e AGENT_VAULT_ADDR=http://localhost:14321" not in body, (
+        "the in-container docker-exec scoped form was replaced by local-first"
     )
 
 
@@ -104,12 +112,13 @@ def test_provision_proposal_approve_carries_scoped_session_env():
     three env vars (or the scoped exec) appear on/near the approve path."""
     body = _provision()
     assert "vault proposal approve" in body, "approve command must still render"
-    # The scoped session env vars must be present so approve runs under scope.
-    # AGENT_VAULT_TOKEN with the scoped session is the load-bearing marker.
-    assert "AGENT_VAULT_TOKEN=" in body and "http://localhost:14321" in body, (
+    # LOCAL-FIRST (lead-mrn2): the approve path carries the scoped-session env
+    # (AGENT_VAULT_TOKEN=<scoped> + AGENT_VAULT_ADDR=$AGENT_VAULT_ADDR) so the
+    # operator approve runs LOCALLY under vault scope, not the bare owner session.
+    assert "AGENT_VAULT_TOKEN=" in body and "AGENT_VAULT_ADDR='$AGENT_VAULT_ADDR'" in body, (
         "the approve path must carry the scoped-session env "
-        "(AGENT_VAULT_TOKEN=<scoped> + http://localhost:14321) so the operator "
-        "approve runs under vault scope, not the bare owner session"
+        "(AGENT_VAULT_TOKEN=<scoped> + AGENT_VAULT_ADDR=$AGENT_VAULT_ADDR) so the "
+        "operator approve runs under vault scope, locally"
     )
 
 
@@ -146,10 +155,11 @@ def test_provision_preserves_proposal_number_capture():
 # -----------------------------------------------------------------------
 
 
-def test_provision_owner_steps_stay_on_owner_dexec():
-    """Owner register/login, vault create, credential set, the five service
-    adds, fleet-token mint, and ca fetch stay on the OWNER DEXEC (they worked);
-    only the proposal subcommands move to the scoped exec."""
+def test_provision_owner_steps_run_locally_not_docker_exec():
+    """LOCAL-FIRST (lead-mrn2): owner register/login, vault create, credential
+    set, the service adds, fleet-token mint, and ca fetch run agent-vault
+    LOCALLY on the lead host (bound to the broker by the `auth --address`
+    session), NOT via `docker exec` into the broker container."""
     body = _provision()
     owner_markers = (
         "agent-vault auth register",
@@ -160,16 +170,18 @@ def test_provision_owner_steps_stay_on_owner_dexec():
     )
     for marker in owner_markers:
         assert marker in body, f"owner step {marker!r} must still render"
-        # Only the actual invocation lines (which carry a ${DEXEC...} exec
-        # expansion) are checked — comment/prose lines that merely name the
-        # verb are skipped.
+        # The actual invocation lines must NOT be wrapped in a docker exec.
         invocation_lines = [
             ln for ln in body.splitlines()
-            if marker in ln and "${DEXEC" in ln
+            if marker in ln and not ln.strip().startswith("#")
         ]
-        assert invocation_lines, (
-            f"owner step {marker!r} must run under an exec expansion"
-        )
+        assert invocation_lines, f"owner step {marker!r} must render an invocation"
+        for ln in invocation_lines:
+            assert "docker exec" not in ln, (
+                f"owner step {marker!r} must run locally, not via docker exec: {ln!r}"
+            )
+    # The owner session binds to the local-first broker address.
+    assert 'auth login --address "$AGENT_VAULT_ADDR"' in body
         for ln in invocation_lines:
             assert '"${DEXEC[@]}"' in ln, (
                 f"owner step must stay on the owner DEXEC (not scoped): {ln!r}"

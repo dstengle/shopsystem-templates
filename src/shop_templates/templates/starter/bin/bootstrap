@@ -150,10 +150,21 @@ if [[ ! -f "$REPO_ROOT/bin/footing" ]]; then
 fi
 
 echo "bootstrap: launching the published bc-base/bc-launcher image in its INTERACTIVE bootstrap MODE to run the rendered bin/footing." >&2
+# Resolve the GID that owns the mounted docker socket so the container's inner
+# non-root user (vscode) can USE it. Without --group-add, vscode is not in the
+# host docker-socket gid and EVERY docker command footing issues (docker ps,
+# `docker compose up`, the lead-rs0i `docker network connect` self-attach) is
+# permission-DENIED, blocking the footing path at its first docker call. Resolve
+# the gid AT RUN TIME (never hardcoded); `stat -L` follows the devcontainer
+# symlink. Mirrors bin/shop-shell's SOCKET_GID + `--group-add "$SOCKET_GID"`.
+# (Scope: ONLY this footing-launch run — the earlier render-only run does no
+# docker work.)
+SOCKET_GID="$(stat -L -c '%g' /var/run/docker.sock)"
 docker run --rm -it \
   --env-file "$RUN_ENV" \
   -e BOOTSTRAP_MODE=interactive \
   -e FOOTING_REPO_NAME="$REPO_NAME" \
+  --group-add "$SOCKET_GID" \
   -v "$REPO_ROOT:/workspace/$REPO_NAME" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -w "/workspace/$REPO_NAME" \

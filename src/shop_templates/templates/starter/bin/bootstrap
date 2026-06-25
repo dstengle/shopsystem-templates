@@ -184,11 +184,21 @@ echo "bootstrap: launching the published bc-base/bc-launcher image in its INTERA
 # (Scope: ONLY this footing-launch run — the earlier render-only run does no
 # docker work.)
 SOCKET_GID="$(stat -L -c '%g' /var/run/docker.sock)"
+# ENV-FILE PLACEHOLDER HANDOFF (lead-n7dq S6): do NOT inject a placeholder
+# AGENT_VAULT_MASTER_PASSWORD into the footing container's PROCESS environment.
+# The run .env may still hold the "<changeme-...>" placeholder master password
+# at this point; passing it via --env-file would make the broker auto-unseal
+# from a placeholder. footing MATERIALIZES the real master password into the
+# repo .env (mounted below) that `docker compose up` reads — so the master
+# password must come from that file, never from the footing process env. Pass a
+# FILTERED env-file that drops any AGENT_VAULT_MASTER_PASSWORD line.
+FOOTING_ENV_FILE="$(mktemp)"
+grep -v '^AGENT_VAULT_MASTER_PASSWORD=' "$RUN_ENV" > "$FOOTING_ENV_FILE" || true
 # Run footing on the bc-LEAD image (carries the docker CLI), NOT bc-base
 # (lead-ae4h): footing issues `docker compose up` + `docker network connect`,
 # which are "docker: command not found" on bc-base.
 docker run --rm -it \
-  --env-file "$RUN_ENV" \
+  --env-file "$FOOTING_ENV_FILE" \
   -e BOOTSTRAP_MODE=interactive \
   -e FOOTING_REPO_NAME="$REPO_NAME" \
   --group-add "$SOCKET_GID" \

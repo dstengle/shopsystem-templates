@@ -21300,3 +21300,156 @@ def then_bootstrap_no_pre_env(context: dict) -> None:
 )
 def then_bootstrap_runs_render(context: dict) -> None:
     assert "shop-templates bootstrap" in context["bootstrap_body"]
+
+
+# ---- Scenarios 4512bf01… / a9a30b13… — footing-launch socket group (lead-27ka)
+# bin/bootstrap's footing-launch `docker run … bash ./bin/footing` must pass
+# --group-add for the host docker-socket gid resolved AT RUN TIME (stat -L -c
+# '%g'), so footing's vscode user can USE the mounted socket (compose-up + the
+# lead-rs0i self-attach run instead of permission-denied). Body-assertion over
+# bin/bootstrap; the runtime permission-allowed/denied behavior is live-verified
+# by the lead in a docker-capable env (the BC sandbox has no docker — per the
+# dispatch's PROOF NOTE).
+
+def _bootstrap_launch_blocks():
+    from shop_templates.cli import read_starter_file
+    body = read_starter_file("bin/bootstrap")
+    footing = next((blk for blk in body.split("docker run") if "bash ./bin/footing" in blk), None)
+    render = next((blk for blk in body.split("docker run") if "shop-templates bootstrap" in blk), None)
+    assert footing is not None, "no footing-launch `docker run` block in bin/bootstrap"
+    assert render is not None, "no render-only `docker run` block in bin/bootstrap"
+    return body, footing, render
+
+
+@given(parsers.parse("bin/bootstrap has rendered bin/footing and is about to launch it"))
+def given_bootstrap_about_to_launch_footing(context: dict) -> None:
+    body, footing, render = _bootstrap_launch_blocks()
+    context["bootstrap_body"] = body
+    context["footing_launch_block"] = footing
+    context["render_only_block"] = render
+
+
+@given(
+    parsers.parse(
+        'the launch is a "docker run" that bind-mounts "/var/run/docker.sock" '
+        'into a container whose default user is "vscode"'
+    )
+)
+def given_launch_mounts_socket_user_vscode(context: dict) -> None:
+    assert "/var/run/docker.sock:/var/run/docker.sock" in context["footing_launch_block"], (
+        "the footing-launch run must bind-mount the docker socket"
+    )
+
+
+@when(parsers.parse('bootstrap composes the "bash ./bin/footing" launch command'))
+def when_compose_footing_launch(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        "the launch command resolves the host docker-socket group id at run "
+        "time from \"stat -L -c '%g' /var/run/docker.sock\""
+    )
+)
+def then_resolves_socket_gid_at_runtime(context: dict) -> None:
+    assert "stat -L -c '%g' /var/run/docker.sock" in context["bootstrap_body"], (
+        "bin/bootstrap must resolve the socket gid via stat -L -c '%g' at run time"
+    )
+    assert 'SOCKET_GID="$(stat -L -c \'%g\' /var/run/docker.sock)"' in context["bootstrap_body"]
+
+
+@then(
+    parsers.parse(
+        'the launch command includes a "--group-add" argument set to that '
+        "resolved socket group id"
+    )
+)
+def then_launch_includes_group_add(context: dict) -> None:
+    assert '--group-add "$SOCKET_GID"' in context["footing_launch_block"], (
+        "the footing-launch run must pass --group-add \"$SOCKET_GID\""
+    )
+
+
+@then(parsers.parse("the resolved socket group id is read at run time rather than hardcoded"))
+def then_socket_gid_not_hardcoded(context: dict) -> None:
+    blk = context["footing_launch_block"]
+    # The --group-add value is the runtime variable, not a literal numeric gid.
+    import re as _re
+    m = _re.search(r"--group-add\s+\"?([^\"\s\\]+)", blk)
+    assert m and m.group(1) == "$SOCKET_GID", (
+        f"--group-add must use the runtime-resolved $SOCKET_GID, not a hardcoded "
+        f"gid: {m.group(1) if m else None!r}"
+    )
+
+
+@given(
+    parsers.parse(
+        'bin/bootstrap launches "bash ./bin/footing" in a container that '
+        "bind-mounts the host docker socket"
+    )
+)
+def given_bootstrap_launches_footing_socket(context: dict) -> None:
+    body, footing, render = _bootstrap_launch_blocks()
+    context["bootstrap_body"] = body
+    context["footing_launch_block"] = footing
+    assert "/var/run/docker.sock:/var/run/docker.sock" in footing
+
+
+@given(
+    parsers.parse(
+        'that container is launched with "--group-add" set to the '
+        "run-time-resolved host docker-socket group id"
+    )
+)
+def given_container_launched_with_group_add(context: dict) -> None:
+    assert '--group-add "$SOCKET_GID"' in context["footing_launch_block"]
+    assert "stat -L -c '%g' /var/run/docker.sock" in context["bootstrap_body"]
+
+
+@given(
+    parsers.parse(
+        'the container\'s default user "vscode" is not otherwise a member of '
+        "the host docker group"
+    )
+)
+def given_vscode_not_in_docker_group(context: dict) -> None:
+    pass
+
+
+@when(
+    parsers.parse(
+        "footing runs its first docker command against the mounted socket "
+        "inside that container"
+    )
+)
+def when_footing_first_docker_command(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        "the docker command is permitted rather than returning a "
+        "permission-denied error"
+    )
+)
+def then_docker_permitted(context: dict) -> None:
+    # STRUCTURAL precondition for permission: the launch grants the socket gid
+    # via --group-add (runtime-resolved). Runtime permission is lead-verified.
+    assert '--group-add "$SOCKET_GID"' in context["footing_launch_block"]
+    assert "stat -L -c '%g' /var/run/docker.sock" in context["bootstrap_body"]
+
+
+@then(
+    parsers.parse(
+        'footing can run "docker compose up -d postgres agent-vault" and '
+        '"docker network connect" against the mounted socket'
+    )
+)
+def then_footing_can_run_docker(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    footing = render_ops_template("footing", "shopsystem")
+    assert "docker compose -f" in footing and "up -d postgres agent-vault" in footing
+    assert "docker network connect" in footing
+    # …and the launch grants the socket group so those calls are not denied.
+    assert '--group-add "$SOCKET_GID"' in context["footing_launch_block"]

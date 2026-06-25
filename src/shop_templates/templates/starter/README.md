@@ -1,10 +1,12 @@
 # shopsystem-starter
 
 A standalone, forkable **"Use this template"** repository that stands a new
-product up on solid footing. This repo carries **no framework code** — the
-framework lives only in the published image. What ships here is the minimal,
-deterministic runway: a `compose.yaml`, a single `bin/bootstrap` entry point,
-and this README.
+product up on solid footing. This repo carries **no framework code** and no
+infra files — the framework lives only in the published image, and the
+`compose.yaml` / `.env.example` are **rendered** into your fork by
+`bin/bootstrap` (versioned WITH the image), not copied from here. What ships in
+the starter is the minimal, deterministic runway: a single `bin/bootstrap`
+entry point and this README.
 
 ## Prerequisites (zero-install)
 
@@ -14,9 +16,10 @@ You need exactly two things:
 - **a GitHub account** (to host your product's repos).
 
 There is nothing else to install — no language toolchain, no `pip install`,
-no framework checkout. Every tool the run needs (`shop-templates`, `bd`,
-`gh`, `claude`) is carried by the published **bc-base / bc-launcher** image,
-which `bin/bootstrap` pulls and runs in its interactive bootstrap mode.
+no framework checkout, and no infra files to copy by hand. Every tool the run
+needs (`shop-templates`, `bd`, `gh`, `claude`) is carried by the published
+**bc-base / bc-launcher** image, which `bin/bootstrap` pulls and runs in its
+interactive bootstrap mode.
 
 ## Stand up your product
 
@@ -27,19 +30,22 @@ which `bin/bootstrap` pulls and runs in its interactive bootstrap mode.
 2. Clone your new repo and run:
 
    ```sh
-   cp .env.example .env
    ./bin/bootstrap
    ```
 
    `bin/bootstrap` derives `<product>` from your repo name, resolves the
    floating image tag at run time (recording the resolved digest in `.env`),
-   brings the broker up, and runs the **one** up-front auth gate (Claude
-   OAuth + GitHub PAT + owner password). After the gate the run is
-   non-interactive: it pours the lead structure, creates
+   and runs `shop-templates bootstrap` in-container to **render** the lead
+   structure into your fork — including `compose.yaml` and `.env.example`,
+   versioned WITH the published image. You do **not** copy them from this
+   starter; the starter no longer carries them. It then brings the broker up
+   and runs **footing**: the **one** up-front auth gate (Claude OAuth + GitHub
+   PAT + owner password), pours the lead structure, creates
    `<product>-lead-beads`, wires the git and beads remotes, and proves solid
    footing with a green `git push` and `bd dolt push`.
 
-That is the whole runway. `bin/bootstrap` **stops** at solid footing.
+That is the whole runway: **fork → `./bin/bootstrap` → render + footing → stop
+at footing**. `bin/bootstrap` **stops** there.
 
 ## Next step — Discovery (NOT part of this script)
 

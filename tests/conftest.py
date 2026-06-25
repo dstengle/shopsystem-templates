@@ -20995,3 +20995,308 @@ def then_emits_expiry_advisory(context: dict) -> None:
 )
 def then_check_exits_zero(context: dict) -> None:
     assert "exit 0" in context["check_body"]
+
+
+# ---- Scenarios 8b975a4b… / 4caa8193… (footing net self-attach) + ----------
+# ---- 0f8ed9f1… / e12e1cf4… / 05f5633e… (starter slim) — lead-rs0i ----------
+# GROUP A asserts the STRUCTURAL guarantee that makes the in-network broker name
+# resolve: footing self-attaches its own container to the <slug> network AFTER
+# compose-up and BEFORE the first local-first agent-vault --address call, and
+# idempotently. (Runtime DNS-resolution/reachability is proven in a docker-
+# capable env — the BC sandbox has no docker; surfaced in work_done.)
+# GROUP B is fully verifiable here (starter file-set + render).
+
+def _footing_body(slug: str = "shopsystem") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("footing", slug)
+
+
+def _starter_file_set() -> dict:
+    from shop_templates.cli import iter_starter_files
+    return dict(iter_starter_files())
+
+
+@given(
+    parsers.parse(
+        'the footing script runs inside a container started without "--network" '
+        "so it begins on Docker's default bridge"
+    )
+)
+def given_footing_no_network(context: dict) -> None:
+    context["footing"] = _footing_body("shopsystem")
+    context["footing_slug"] = "shopsystem"
+
+
+@given(
+    parsers.parse(
+        'the footing container has the host docker socket mounted at "{path}"'
+    )
+)
+def given_footing_docker_socket(path: str, context: dict) -> None:
+    pass
+
+
+@when(
+    parsers.parse(
+        'footing brings the compose services up with "docker compose up -d '
+        'postgres agent-vault", which creates the user-defined "<product>" '
+        'network carrying the "<product>-agent-vault" broker'
+    )
+)
+def when_footing_compose_up(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'before footing issues its first local-first "agent-vault" call '
+        'carrying "--address http://<product>-agent-vault:14321", footing '
+        'connects its own running container to the "<product>" network via '
+        '"docker network connect <product>" against its own container'
+    )
+)
+def then_footing_connects_before_first_address(context: dict) -> None:
+    b = context["footing"]
+    slug = context["footing_slug"]
+    connect = b.find(f'docker network connect "{slug}"')
+    compose = b.find("docker compose -f")
+    addr = b.find("agent-vault auth login --address")
+    assert connect != -1, "footing does not self-attach via `docker network connect`"
+    assert compose != -1 and addr != -1
+    assert compose < connect < addr, (
+        "the self-attach must be AFTER compose-up and BEFORE the first --address call"
+    )
+    assert '"$(hostname)"' in b, "footing must connect its OWN container ($(hostname))"
+
+
+@then(
+    parsers.parse(
+        'from inside the footing container the broker name "<product>-agent-vault" '
+        "then resolves and the broker API port 14321 is reachable"
+    )
+)
+def then_footing_broker_resolves(context: dict) -> None:
+    # STRUCTURAL precondition for resolution: footing attaches to the SAME
+    # <slug> network that carries <slug>-agent-vault, and targets it at :14321.
+    b = context["footing"]
+    slug = context["footing_slug"]
+    assert f'docker network connect "{slug}"' in b
+    assert f"http://{slug}-agent-vault:14321" in b
+
+
+@then(
+    parsers.parse(
+        'footing\'s local-first "agent-vault auth", "vault token", and "vault '
+        'proposal" calls reach the broker at "http://<product>-agent-vault:14321" '
+        "rather than failing to resolve the in-network broker name"
+    )
+)
+def then_footing_calls_reach_broker(context: dict) -> None:
+    b = context["footing"]
+    slug = context["footing_slug"]
+    connect = b.find(f'docker network connect "{slug}"')
+    for marker in ("agent-vault auth login --address", "vault token", "vault proposal create"):
+        idx = b.find(marker)
+        assert idx != -1 and idx > connect, f"{marker!r} must come AFTER the self-attach"
+    assert f"http://{slug}-agent-vault:14321" in b
+
+
+@given(
+    parsers.parse(
+        'footing has already connected its own container to the "<product>" '
+        "network earlier in the same run or a prior re-run"
+    )
+)
+def given_footing_already_connected(context: dict) -> None:
+    context["footing"] = _footing_body("shopsystem")
+    context["footing_slug"] = "shopsystem"
+
+
+@when(parsers.parse("footing reaches the network self-attach step again"))
+def when_footing_self_attach_again(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        "the self-attach step completes without aborting the footing run on an "
+        '"already exists in network" error from "docker network connect"'
+    )
+)
+def then_footing_self_attach_idempotent(context: dict) -> None:
+    b = context["footing"]
+    slug = context["footing_slug"]
+    assert f'docker network connect "{slug}" "$(hostname)" 2>/dev/null || true' in b, (
+        "the self-attach must be idempotent/non-fatal (`|| true`) on already-member"
+    )
+
+
+@then(
+    parsers.parse(
+        "after the step footing's own container is a member of the "
+        '"<product>" network exactly once'
+    )
+)
+def then_footing_member_exactly_once(context: dict) -> None:
+    b = context["footing"]
+    slug = context["footing_slug"]
+    assert b.count(f'docker network connect "{slug}" "$(hostname)"') == 1, (
+        "the self-attach renders exactly once (docker network connect does not "
+        "duplicate membership)"
+    )
+
+
+@then(
+    parsers.parse(
+        'footing proceeds to its local-first "agent-vault" calls against '
+        '"http://<product>-agent-vault:14321" with the broker name still '
+        "resolving from inside the footing container"
+    )
+)
+def then_footing_proceeds_after_attach(context: dict) -> None:
+    b = context["footing"]
+    slug = context["footing_slug"]
+    assert b.find(f'docker network connect "{slug}"') < b.find("agent-vault auth login --address")
+
+
+# -- GROUP B — starter slim -------------------------------------------------
+
+@given(parsers.parse('the starter template directory "{path}"'))
+def given_starter_template_dir(path: str, context: dict) -> None:
+    context["starter_files"] = _starter_file_set()
+
+
+@when(parsers.parse("the starter template tree is enumerated"))
+def when_starter_tree_enumerated(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('the starter template contains a top-level file named "{name}"'))
+def then_starter_contains_top_level(name: str, context: dict) -> None:
+    assert name in context["starter_files"], f"starter must carry top-level {name!r}"
+
+
+@then(parsers.parse('the starter template contains a file at "{rel}"'))
+def then_starter_contains_file_at(rel: str, context: dict) -> None:
+    assert rel in context["starter_files"], f"starter must carry {rel!r}"
+
+
+@then(parsers.parse('the starter template contains no top-level file named "{name}"'))
+def then_starter_lacks_top_level(name: str, context: dict) -> None:
+    assert name not in context["starter_files"], f"starter must NOT carry {name!r}"
+
+
+@given(
+    parsers.parse(
+        'an adopter fork created from the slimmed starter that carries '
+        '"README.md" and "bin/bootstrap" but no "compose.yaml" and no '
+        '".env.example"'
+    )
+)
+def given_adopter_fork_from_slimmed_starter(context: dict) -> None:
+    sf = _starter_file_set()
+    assert "README.md" in sf and "bin/bootstrap" in sf
+    assert "compose.yaml" not in sf and ".env.example" not in sf
+    context["starter_files"] = sf
+    from shop_templates.cli import read_starter_file
+    context["bootstrap_body"] = read_starter_file("bin/bootstrap")
+
+
+@when(
+    parsers.parse(
+        'the adopter runs "bin/bootstrap" and its render step runs '
+        '"shop-templates bootstrap" in-container for shop type "lead"'
+    )
+)
+def when_adopter_runs_bootstrap_render(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    context["rendered_compose"] = render_ops_template("compose.yaml", "shopsystem")
+    context["rendered_env"] = render_ops_template(".env.example", "shopsystem")
+
+
+@then(
+    parsers.parse(
+        'after the render step the adopter fork contains a top-level file named '
+        '"compose.yaml" produced by the bootstrap render'
+    )
+)
+def then_render_produces_compose(context: dict) -> None:
+    assert context["rendered_compose"].strip(), "the render must produce compose.yaml"
+
+
+@then(
+    parsers.parse(
+        'after the render step the adopter fork contains a file named '
+        '".env.example" produced by the bootstrap render'
+    )
+)
+def then_render_produces_env(context: dict) -> None:
+    assert context["rendered_env"].strip(), "the render must produce .env.example"
+
+
+@then(
+    parsers.parse(
+        'the rendered "compose.yaml" and ".env.example" are versioned with the '
+        "published image rather than copied from any file pre-existing in the "
+        "starter"
+    )
+)
+def then_rendered_not_from_starter(context: dict) -> None:
+    sf = context["starter_files"]
+    assert "compose.yaml" not in sf and ".env.example" not in sf, (
+        "the adopter receives compose/.env from the render, not a starter copy"
+    )
+
+
+@when(parsers.parse('the adopter runs "bin/bootstrap"'))
+def when_adopter_runs_bootstrap(context: dict) -> None:
+    from shop_templates.cli import read_starter_file
+    context["bootstrap_body"] = read_starter_file("bin/bootstrap")
+
+
+def _bootstrap_pre_render_code(body: str) -> str:
+    render = body.find("shop-templates bootstrap")
+    pre = body[:render] if render != -1 else body
+    return "\n".join(
+        s for s in (ln.strip() for ln in pre.splitlines())
+        if s and not s.startswith("#")
+    )
+
+
+@then(
+    parsers.parse(
+        'bootstrap does not read or require a pre-existing "compose.yaml" '
+        "before its render step"
+    )
+)
+def then_bootstrap_no_pre_compose(context: dict) -> None:
+    b = context["bootstrap_body"]
+    assert "shop-templates bootstrap" in b, "bootstrap must run the render"
+    pre = _bootstrap_pre_render_code(b)
+    assert "compose.yaml" not in pre, (
+        f"bootstrap reads/requires a pre-existing compose.yaml before render: {pre!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'bootstrap does not read or require a pre-existing ".env.example" '
+        "before its render step"
+    )
+)
+def then_bootstrap_no_pre_env(context: dict) -> None:
+    pre = _bootstrap_pre_render_code(context["bootstrap_body"])
+    assert ".env.example" not in pre, (
+        f"bootstrap reads/requires a pre-existing .env.example before render: {pre!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'bootstrap proceeds to run "shop-templates bootstrap" in-container, '
+        "which renders the lead structure including \"compose.yaml\" and "
+        '".env.example" into the fork'
+    )
+)
+def then_bootstrap_runs_render(context: dict) -> None:
+    assert "shop-templates bootstrap" in context["bootstrap_body"]

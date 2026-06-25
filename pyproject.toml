@@ -60,11 +60,10 @@ shop_templates = [
     # it. Must ship in the sdist+wheel or lead shops pour an empty group
     # (lead-5mr5).
     "templates/lead_skills/**/*",
-    # The shopsystem-starter forkable-repo body (compose.yaml, bin/bootstrap,
-    # README.md). A distinct package-data subtree; the BC serves it as package
-    # data via iter_starter_files / read_starter_file (tmpl-3ch / lead-v0m7).
+    # The shopsystem-starter forkable-repo body — slimmed to README.md +
+    # bin/bootstrap (lead-rs0i): compose.yaml / .env.example are no longer
+    # carried by the starter; bin/bootstrap renders them in-container via
+    # `shop-templates bootstrap`. The BC serves the starter body as package data
+    # via iter_starter_files / read_starter_file (tmpl-3ch / lead-v0m7).
     "templates/starter/**/*",
-    # `templates/starter/**/*` does NOT match leading-dot files; the starter
-    # body's .env.example must ship explicitly (mirrors templates/ops/.env.example).
-    "templates/starter/.env.example",
 ]

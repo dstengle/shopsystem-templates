@@ -21453,3 +21453,149 @@ def then_footing_can_run_docker(context: dict) -> None:
     assert "docker network connect" in footing
     # …and the launch grants the socket group so those calls are not denied.
     assert '--group-add "$SOCKET_GID"' in context["footing_launch_block"]
+
+
+# ---- Scenarios 967121fc… / 12cedbdd… — footing-launch on bc-lead (lead-ae4h) -
+# The footing-launch `docker run … bash ./bin/footing` must run on the bc-LEAD
+# image (= bc-base + the docker CLI), so footing's `docker compose up` + the
+# lead-rs0i `docker network connect` resolve rather than failing "docker:
+# command not found" (bc-base has no docker CLI). Env-overridable, :latest-
+# floating, run-time digest recorded. Body-assertion over bin/bootstrap; the
+# runtime command-found/not-found behavior is live-verified by the lead.
+
+def _bootstrap_and_footing_launch():
+    from shop_templates.cli import read_starter_file
+    b = read_starter_file("bin/bootstrap")
+    # The LAST `bash ./bin/footing` is the actual invocation (earlier ones are
+    # comment/echo mentions); the footing-launch `docker run` is the one right
+    # before it.
+    foot = b.rfind("bash ./bin/footing")
+    run = b.rfind("docker run", 0, foot)
+    return b, b[run:foot]
+
+
+@given(parsers.parse('an adopter fork created from the starter that carries "bin/bootstrap"'))
+def given_adopter_fork_carries_bootstrap(context: dict) -> None:
+    body, foot = _bootstrap_and_footing_launch()
+    context["bootstrap_body"] = body
+    context["footing_launch_args"] = foot
+
+
+@given(
+    parsers.parse(
+        'the bc-base image "ghcr.io/dstengle/shopsystem-bc-base:latest" carries '
+        'NO docker CLI while the lead image '
+        '"ghcr.io/dstengle/shopsystem-bc-lead:latest" carries the docker CLI'
+    )
+)
+def given_bc_base_no_docker_lead_has(context: dict) -> None:
+    pass
+
+
+@given(
+    parsers.parse(
+        'the rendered "bin/footing" issues docker commands "docker compose up" '
+        'and "docker network connect" during its sequence'
+    )
+)
+def given_footing_issues_docker(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    f = render_ops_template("footing", "shopsystem")
+    assert "docker compose -f" in f and "up -d postgres agent-vault" in f
+    assert "docker network connect" in f
+
+
+@when(
+    parsers.parse(
+        'the adopter runs "bin/bootstrap" through to the footing-launch step '
+        'that invokes "bash ./bin/footing"'
+    )
+)
+def when_adopter_runs_to_footing_launch(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'the image that "bin/bootstrap" pulls and runs "bin/footing" on '
+        'resolves from the lead image reference '
+        '"ghcr.io/dstengle/shopsystem-bc-lead", not from '
+        '"ghcr.io/dstengle/shopsystem-bc-base"'
+    )
+)
+def then_footing_image_is_lead(context: dict) -> None:
+    b = context["bootstrap_body"]
+    foot = context["footing_launch_args"]
+    assert '"$LEAD_RESOLVED_DIGEST"' in foot, "footing-launch must run on the lead image"
+    assert '"$RESOLVED_DIGEST"' not in foot, "footing-launch must NOT run on the bc-base image"
+    assert 'BC_LEAD_IMAGE="${BC_LEAD_IMAGE:-ghcr.io/dstengle/shopsystem-bc-lead:latest}"' in b
+    assert 'docker pull "$BC_LEAD_IMAGE"' in b
+    assert "ghcr.io/dstengle/shopsystem-bc-base" not in foot
+
+
+@then(
+    parsers.parse(
+        'because that launch image carries the docker CLI, the "docker compose '
+        'up" and "docker network connect" calls "bin/footing" issues resolve to '
+        'the docker binary and do not fail with "docker: command not found"'
+    )
+)
+def then_footing_docker_resolves(context: dict) -> None:
+    assert '"$LEAD_RESOLVED_DIGEST"' in context["footing_launch_args"]
+
+
+@given(parsers.parse('an adopter fork that carries "bin/bootstrap"'))
+def given_adopter_fork_bootstrap_simple(context: dict) -> None:
+    body, foot = _bootstrap_and_footing_launch()
+    context["bootstrap_body"] = body
+    context["footing_launch_args"] = foot
+
+
+@when(
+    parsers.parse(
+        'the adopter runs "bin/bootstrap" with no image-override environment '
+        "variable set"
+    )
+)
+def when_adopter_runs_no_override(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        '"bin/bootstrap" defaults the footing-launch image reference to '
+        '"ghcr.io/dstengle/shopsystem-bc-lead:latest", floating on the '
+        '":latest" tag per ADR-040 D3 rather than pinning a fixed tag in the '
+        "committed file"
+    )
+)
+def then_footing_image_default_lead_latest(context: dict) -> None:
+    assert 'BC_LEAD_IMAGE="${BC_LEAD_IMAGE:-ghcr.io/dstengle/shopsystem-bc-lead:latest}"' in context["bootstrap_body"]
+
+
+@then(
+    parsers.parse(
+        'when the adopter runs "bin/bootstrap" with the image-override '
+        'environment variable set to a different reference, "bin/bootstrap" '
+        'pulls and runs "bin/footing" on that overridden reference instead of '
+        "the default"
+    )
+)
+def then_footing_image_env_overridable(context: dict) -> None:
+    b = context["bootstrap_body"]
+    assert 'BC_LEAD_IMAGE="${BC_LEAD_IMAGE:-' in b
+    assert 'docker pull "$BC_LEAD_IMAGE"' in b
+    assert '"$LEAD_RESOLVED_DIGEST"' in context["footing_launch_args"]
+
+
+@then(
+    parsers.parse(
+        '"bin/bootstrap" resolves the floating reference at run time and '
+        'records the resolved digest in the run ".env" so the footing-launch '
+        "run is reproducible"
+    )
+)
+def then_footing_image_digest_recorded(context: dict) -> None:
+    b = context["bootstrap_body"]
+    assert 'LEAD_RESOLVED_DIGEST="$(docker inspect --format' in b, "lead digest not resolved at run time"
+    assert "BC_LEAD_IMAGE_RESOLVED=" in b, "lead resolved digest not recorded in .env"

@@ -28,9 +28,19 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# The published bc-base/bc-launcher image. It floats on :latest (ADR-040 D3);
+# The published bc-base image — used for the RENDER-ONLY run (`shop-templates
+# bootstrap`), which does no docker work. It floats on :latest (ADR-040 D3);
 # bin/bootstrap resolves the floating tag at run time below and records it.
 BC_BASE_IMAGE="${BC_BASE_IMAGE:-ghcr.io/dstengle/shopsystem-bc-base:latest}"
+# The published bc-LEAD image — used for the FOOTING-LAUNCH run (`bash
+# ./bin/footing`). bc-base carries NO docker CLI, but footing issues
+# `docker compose up` + the lead-rs0i `docker network connect` self-attach, so
+# the footing launch MUST run on bc-lead (= bc-base + the docker CLI), or its
+# first docker call dies with "docker: command not found" (lead-ae4h). Mirrors
+# bin/shop-shell, which likewise launches its docker-using run on bc-lead.
+# Env-overridable and :latest-floating, resolved + digest-recorded at run time
+# exactly like BC_BASE_IMAGE (ADR-040 D3).
+BC_LEAD_IMAGE="${BC_LEAD_IMAGE:-ghcr.io/dstengle/shopsystem-bc-lead:latest}"
 RUN_ENV="${RUN_ENV:-$REPO_ROOT/.env}"
 
 # =======================================================================
@@ -84,6 +94,20 @@ else
   printf 'BC_BASE_IMAGE_RESOLVED=%s\n' "$RESOLVED_DIGEST" >> "$RUN_ENV"
 fi
 echo "bootstrap: recorded resolved image '$RESOLVED_DIGEST' in $RUN_ENV." >&2
+
+# Resolve the floating bc-LEAD image (the footing-launch image) the same way
+# (ADR-040 D3): pull, capture the digest, and record it so the footing-launch
+# run is reproducible even though the committed default floats on :latest.
+echo "bootstrap: resolving the floating footing-launch (lead) image '$BC_LEAD_IMAGE' at run time (ADR-040 D3)." >&2
+docker pull "$BC_LEAD_IMAGE" >/dev/null
+LEAD_RESOLVED_DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$BC_LEAD_IMAGE" 2>/dev/null || true)"
+LEAD_RESOLVED_DIGEST="${LEAD_RESOLVED_DIGEST:-$BC_LEAD_IMAGE}"
+if grep -q '^BC_LEAD_IMAGE_RESOLVED=' "$RUN_ENV" 2>/dev/null; then
+  sed -i "s|^BC_LEAD_IMAGE_RESOLVED=.*|BC_LEAD_IMAGE_RESOLVED=$LEAD_RESOLVED_DIGEST|" "$RUN_ENV"
+else
+  printf 'BC_LEAD_IMAGE_RESOLVED=%s\n' "$LEAD_RESOLVED_DIGEST" >> "$RUN_ENV"
+fi
+echo "bootstrap: recorded resolved footing-launch (lead) image '$LEAD_RESOLVED_DIGEST' in $RUN_ENV." >&2
 
 # =======================================================================
 # (U1/U3) OBTAIN bin/footing by RENDERING it, then DELEGATE to it.
@@ -160,6 +184,9 @@ echo "bootstrap: launching the published bc-base/bc-launcher image in its INTERA
 # (Scope: ONLY this footing-launch run — the earlier render-only run does no
 # docker work.)
 SOCKET_GID="$(stat -L -c '%g' /var/run/docker.sock)"
+# Run footing on the bc-LEAD image (carries the docker CLI), NOT bc-base
+# (lead-ae4h): footing issues `docker compose up` + `docker network connect`,
+# which are "docker: command not found" on bc-base.
 docker run --rm -it \
   --env-file "$RUN_ENV" \
   -e BOOTSTRAP_MODE=interactive \
@@ -168,7 +195,7 @@ docker run --rm -it \
   -v "$REPO_ROOT:/workspace/$REPO_NAME" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -w "/workspace/$REPO_NAME" \
-  "$RESOLVED_DIGEST" \
+  "$LEAD_RESOLVED_DIGEST" \
   bash ./bin/footing
 
 # =======================================================================

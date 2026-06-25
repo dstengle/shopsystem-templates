@@ -177,6 +177,22 @@ if ! docker ps --format '{{.Names}}' | grep -Eq '^{{OPS_SLUG}}-postgres$|^{{OPS_
   exit 1
 fi
 
+# -----------------------------------------------------------------------
+# NETWORK SELF-ATTACH (lead-rs0i, scenarios 8b975a4b / 4caa8193).
+#
+# bin/bootstrap launches this footing container WITHOUT `--network`, so it
+# begins on Docker's default bridge. `docker compose up` (above) created the
+# user-defined "{{OPS_SLUG}}" network carrying the "{{OPS_SLUG}}-agent-vault"
+# broker. A bridge container CANNOT DNS-resolve a user-network container name,
+# so the local-first `agent-vault --address http://{{OPS_SLUG}}-agent-vault:14321`
+# calls below would fail to resolve the broker. footing has the host docker
+# socket, so it self-attaches its OWN container to the "{{OPS_SLUG}}" network
+# now — AFTER infra-up and BEFORE the first --address call — so the in-network
+# broker name resolves. Idempotent: a second attach (already a member) is a
+# no-op (the "already exists in network" error is non-fatal here).
+echo "footing: attaching this footing container to the '{{OPS_SLUG}}' network so the in-network broker name resolves." >&2
+docker network connect "{{OPS_SLUG}}" "$(hostname)" 2>/dev/null || true
+
 # (c) Claude OAuth credential — captured IN-SCRIPT via an oauth-typed proposal
 #     the human APPROVES (reusing the bin/agent-vault-provision contract). The
 #     proposal create/approve run in AGENT mode on agent-vault 0.32.0 and need

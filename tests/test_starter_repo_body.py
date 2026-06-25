@@ -72,10 +72,11 @@ def _yaml_load(text: str):
 
 def test_iter_starter_files_yields_relative_paths_and_bytes():
     files = dict(iter_starter_files())
-    # The forkable repo body ships all four required artifacts.
-    assert "compose.yaml" in files
-    assert ".env.example" in files
+    # lead-rs0i: the slimmed starter body ships only README.md + bin/bootstrap;
+    # compose.yaml / .env.example are rendered in-container by bin/bootstrap.
     assert "README.md" in files
+    assert "compose.yaml" not in files, "starter must no longer carry compose.yaml"
+    assert ".env.example" not in files, "starter must no longer carry .env.example"
     # Exactly one bootstrap script entry point.
     bootstrap_names = [r for r in files if r in ("bootstrap", "bin/bootstrap")]
     assert len(bootstrap_names) == 1, f"expected one bootstrap script, got {bootstrap_names}"
@@ -109,50 +110,12 @@ def test_read_starter_file_missing_raises():
 
 
 # -----------------------------------------------------------------------
-# (1) compose.yaml — postgres + agent-vault, references the bc-base image,
-#     does NOT pin the image tag.
+# (1) compose.yaml is NO LONGER carried by the slimmed starter (lead-rs0i) —
+#     bin/bootstrap renders it in-container via `shop-templates bootstrap`.
+#     The rendered compose's content (postgres + agent-vault, bc-base image,
+#     no fixed tag pin) is pinned on the OPS template by the test_ops_* suite
+#     and the bootstrap-render scenarios, not on a starter copy.
 # -----------------------------------------------------------------------
-
-
-def test_starter_compose_has_postgres_and_agent_vault():
-    data = _yaml_load(_starter("compose.yaml"))
-    services = data["services"]
-    assert "postgres" in services, "compose must define a postgres service"
-    assert "agent-vault" in services, "compose must define an agent-vault service"
-
-
-def test_starter_compose_agent_vault_references_bc_base_image():
-    data = _yaml_load(_starter("compose.yaml"))
-    av = data["services"]["agent-vault"]
-    assert "image" in av, "agent-vault service must declare an image"
-    assert "agent-vault" in av["image"], (
-        f"agent-vault must reference the agent-vault broker image, got {av['image']!r}"
-    )
-
-
-def test_starter_compose_does_not_pin_the_image_tag():
-    """ADR-040 D3: the bootstrap script resolves the floating :latest at run
-    time and records the resolved digest/tag in the run's .env. The committed
-    starter compose MUST NOT pin a fixed image tag — it floats on :latest (or
-    leaves the tag unspecified) so the bootstrap is what records the resolve.
-    A pinned semver/digest is a regression."""
-    text = _starter("compose.yaml")
-    data = _yaml_load(text)
-    for name, svc in data["services"].items():
-        image = svc.get("image", "")
-        if "agent-vault" not in image and "postgres" not in image:
-            continue
-        # No digest pin.
-        assert "@sha256:" not in image, (
-            f"service {name} pins a digest ({image!r}); the starter must float"
-        )
-        # If a tag is present at all on the bc-base/agent-vault lineage, it
-        # must be the floating :latest, never a fixed version.
-        if "agent-vault" in image and ":" in image.rsplit("/", 1)[-1]:
-            tag = image.rsplit(":", 1)[-1]
-            assert tag == "latest", (
-                f"agent-vault image must float on :latest, not pin {tag!r}"
-            )
 
 
 # -----------------------------------------------------------------------
@@ -238,34 +201,9 @@ def test_starter_bootstrap_does_not_duplicate_footing_logic():
 # -----------------------------------------------------------------------
 
 
-def test_starter_env_example_is_placeholder_only():
-    body = _starter(".env.example")
-    assert body.strip(), ".env.example must be non-empty"
-    # Carries the broker master password slot the compose consumes.
-    assert "AGENT_VAULT_MASTER_PASSWORD" in body
-    # Placeholder-only: no obviously-real secret material.
-    assert "changeme" in body.lower() or "<" in body, (
-        ".env.example must carry placeholder values only"
-    )
-
-
-def test_starter_env_example_has_base_image_override():
-    """lead-hjrh (cold-walkthrough DEFECT 1): the rendered .env.example must
-    carry a BC_BASE_IMAGE override line (commented or set) so an adopter can
-    point at a different registry/tag WITHOUT editing bin/bootstrap. This is
-    distinct from the run-recorded BC_BASE_IMAGE_RESOLVED slot."""
-    body = _starter(".env.example")
-    lines = body.splitlines()
-    override_lines = [
-        ln
-        for ln in lines
-        if "BC_BASE_IMAGE=" in ln.lstrip("# ").rstrip()
-        or ln.lstrip("# ").startswith("BC_BASE_IMAGE=")
-    ]
-    assert override_lines, (
-        ".env.example must contain a BC_BASE_IMAGE=... override line so an "
-        "adopter can override the base image without editing bin/bootstrap"
-    )
+# lead-rs0i: .env.example is NO LONGER carried by the slimmed starter — it is
+# rendered in-container by bin/bootstrap via `shop-templates bootstrap` (its
+# content is pinned on the OPS template by the test_ops_* suite, not here).
 
 
 def test_starter_readme_is_zero_install():

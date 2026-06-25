@@ -20650,3 +20650,348 @@ def then_enumerated_ops_set_is_exactly_six(context: dict) -> None:
         "the bootstrap-enumerated converged ops-tool set must be exactly these "
         f"six shop-owned entries with no seventh; got {rels!r}"
     )
+
+
+# ---- Scenarios 9018e13b… / de0a0e7… / 444d63e… / 65f3726… / 8b766a2… --------
+# lead-mrn2: the lead<->broker agent-vault interaction is LOCAL-FIRST (verbs run
+# on the lead host vs AGENT_VAULT_ADDR, not docker exec into the broker) and the
+# .env lifecycle is scripted. Body-assertion over the rendered ops scripts
+# (mirroring the provision-render test convention), plus a runtime check that
+# the master-password generation actually yields a high-entropy secret.
+
+def _ops_body(name: str, slug: str = "shopsystem") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template(name, slug)
+
+
+def _code_lines(body: str):
+    """Yield non-comment, non-blank shell lines (for docker-exec checks)."""
+    for raw in body.splitlines():
+        s = raw.strip()
+        if s and not s.startswith("#"):
+            yield s
+
+
+def _docker_exec_verb_lines(body: str):
+    """Lines that issue an agent-vault VERB via `docker exec` (forbidden)."""
+    return [s for s in _code_lines(body) if "docker exec" in s and "agent-vault" in s]
+
+
+# -- Scenario 9018e13b749bec95 — scripted .env pre-start init ----------------
+
+@given(
+    parsers.parse(
+        'a target lead shop with a rendered ".env.example" carrying placeholder '
+        'broker values and no ".env" yet'
+    )
+)
+def given_rendered_env_example_no_env(context: dict) -> None:
+    context["footing_body"] = _ops_body("footing")
+    context["env_example_body"] = _ops_body(".env.example")
+    assert "AGENT_VAULT_ADDR=<changeme-broker-address>" in context["env_example_body"]
+    assert "AGENT_VAULT_MASTER_PASSWORD=<changeme" in context["env_example_body"]
+
+
+@when(
+    parsers.parse(
+        'the operator runs the scripted ".env" initialization step before '
+        '"docker compose up agent-vault"'
+    )
+)
+def when_run_scripted_env_init(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('it creates ".env" from ".env.example"'))
+def then_creates_env_from_example(context: dict) -> None:
+    f = context["footing_body"]
+    assert '.env.example" "$ENV_FILE"' in f and "cp " in f, (
+        "footing does not create .env from .env.example"
+    )
+
+
+@then(
+    parsers.parse(
+        'the "AGENT_VAULT_MASTER_PASSWORD" value in ".env" is a generated '
+        "high-entropy secret and is not empty and is not a placeholder"
+    )
+)
+def then_master_password_generated(context: dict) -> None:
+    f = context["footing_body"]
+    assert "AGENT_VAULT_MASTER_PASSWORD=%s" in f and "_GEN_MASTER_PW" in f, (
+        "footing does not write a generated master password into .env"
+    )
+    # Runtime: the generation command actually yields a high-entropy secret.
+    gen = subprocess.run(
+        ["bash", "-c", "head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40"],
+        capture_output=True, text=True,
+    )
+    pw = gen.stdout
+    assert len(pw) == 40 and pw.isalnum(), f"generated master password not high-entropy: {pw!r}"
+    assert "<changeme" not in pw
+
+
+@then(
+    parsers.parse(
+        'the "AGENT_VAULT_ADDR" value in ".env" is a real reachable broker '
+        'address and is not the placeholder "<changeme-broker-address>"'
+    )
+)
+def then_addr_real_not_placeholder(context: dict) -> None:
+    f = context["footing_body"]
+    assert "http://shopsystem-agent-vault:14321" in f, "footing does not set a real AGENT_VAULT_ADDR"
+    # The .env-init writes AGENT_VAULT_ADDR to the real address, not the placeholder.
+    assert "AGENT_VAULT_ADDR=%s" in f or "AGENT_VAULT_ADDR=$AGENT_VAULT_ADDR" in f or \
+        "printf 'AGENT_VAULT_ADDR=%s\\n'" in f, "footing does not fill AGENT_VAULT_ADDR in .env"
+
+
+@then(
+    parsers.parse(
+        'the master password is present in ".env" before the agent-vault '
+        "broker is started, so the broker can unseal from it"
+    )
+)
+def then_master_password_before_broker_start(context: dict) -> None:
+    f = context["footing_body"]
+    pw_idx = f.find("AGENT_VAULT_MASTER_PASSWORD=%s")
+    up_idx = f.find("docker compose -f")
+    assert pw_idx != -1 and up_idx != -1 and pw_idx < up_idx, (
+        "the .env master-password write does not precede `docker compose up`"
+    )
+
+
+# -- Scenario de0a0e7ecf73c382 — provision local-first ----------------------
+
+@given(
+    parsers.parse(
+        'a rendered "bin/agent-vault-provision" and a ".env" whose '
+        '"AGENT_VAULT_ADDR" points at the running broker'
+    )
+)
+def given_rendered_provision_and_env_addr(context: dict) -> None:
+    context["provision_body"] = _ops_body("agent-vault-provision")
+
+
+@when(
+    parsers.parse(
+        "the provision script issues its auth, vault, credential, service, "
+        "agent, ca, and proposal commands"
+    )
+)
+def when_provision_issues_commands(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'each of those "agent-vault" invocations runs locally on the lead host '
+        'and targets the broker at "AGENT_VAULT_ADDR" read from ".env"'
+    )
+)
+def then_provision_runs_locally_vs_addr(context: dict) -> None:
+    b = context["provision_body"]
+    assert 'AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-' in b, "provision does not source AGENT_VAULT_ADDR"
+    assert 'auth register --address "$AGENT_VAULT_ADDR"' in b and \
+        'auth login --address "$AGENT_VAULT_ADDR"' in b, (
+        "provision does not bind the local session to AGENT_VAULT_ADDR"
+    )
+
+
+@then(
+    parsers.parse(
+        "none of the auth, vault, credential, service, agent, ca, or proposal "
+        'verbs is issued as a "docker exec" into the broker container'
+    )
+)
+def then_no_verb_docker_exec_provision(context: dict) -> None:
+    bad = _docker_exec_verb_lines(context["provision_body"])
+    assert not bad, f"provision still docker-execs agent-vault verbs: {bad}"
+
+
+@then(
+    parsers.parse(
+        'any remaining "docker exec" into the broker is limited to a step that '
+        "genuinely cannot run locally and carries an inline justification for "
+        "why it remains"
+    )
+)
+def then_residual_exec_justified_provision(context: dict) -> None:
+    # No residual docker-exec of a verb remains at all (the strongest form of
+    # the clause); any `docker exec` token survives only in explanatory prose.
+    assert not _docker_exec_verb_lines(context["provision_body"])
+
+
+# -- Scenario 444d63e95c64f4c4 — post-provision .env completion --------------
+
+@given(
+    parsers.parse(
+        'a running agent-vault broker reachable at the "AGENT_VAULT_ADDR" in '
+        '".env" and a ".env" still carrying placeholder broker-token, vault, '
+        "and CA values"
+    )
+)
+def given_broker_and_placeholder_env(context: dict) -> None:
+    context["provision_body"] = _ops_body("agent-vault-provision")
+
+
+@when(
+    parsers.parse(
+        'the operator runs "bin/agent-vault-provision" to completion '
+        "successfully"
+    )
+)
+def when_run_provision_to_completion(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'the "AGENT_VAULT_TOKEN" value in ".env" is the minted fleet token '
+        'beginning with "av_agt_" and is not the placeholder '
+        '"<changeme-broker-token>"'
+    )
+)
+def then_env_token_completed(context: dict) -> None:
+    b = context["provision_body"]
+    assert "AGENT_VAULT_TOKEN=%s" in b and "$FLEET_TOKEN" in b, "provision does not write the fleet token"
+    assert "av_agt_" in b, "provision does not reference the av_agt_ fleet token shape"
+
+
+@then(
+    parsers.parse(
+        'the "AGENT_VAULT_VAULT" value in ".env" is the provisioned vault name '
+        'and is not the placeholder "<changeme-broker-vault>"'
+    )
+)
+def then_env_vault_completed(context: dict) -> None:
+    assert "AGENT_VAULT_VAULT=%s" in context["provision_body"]
+
+
+@then(
+    parsers.parse(
+        'the "AGENT_VAULT_CA_PEM" value in ".env" is the fetched broker CA '
+        'material or its path and is not the placeholder '
+        '"<changeme-broker-ca-pem>"'
+    )
+)
+def then_env_ca_completed(context: dict) -> None:
+    b = context["provision_body"]
+    assert "AGENT_VAULT_CA_PEM=%s" in b and "ca fetch" in b, "provision does not fetch/write the CA"
+
+
+@then(
+    parsers.parse(
+        'none of "AGENT_VAULT_TOKEN", "AGENT_VAULT_VAULT", or '
+        '"AGENT_VAULT_CA_PEM" remains a placeholder after a successful provision'
+    )
+)
+def then_no_broker_placeholder_remains(context: dict) -> None:
+    b = context["provision_body"]
+    for k in ("AGENT_VAULT_TOKEN", "AGENT_VAULT_VAULT", "AGENT_VAULT_CA_PEM"):
+        assert f"{k}=%s" in b, f"provision does not complete {k} in .env"
+
+
+# -- Scenario 65f3726f31595766 — check local-first --------------------------
+
+@given(
+    parsers.parse(
+        'a provisioned broker reachable at the "AGENT_VAULT_ADDR" in ".env" '
+        'and a rendered "bin/agent-vault-check"'
+    )
+)
+def given_provisioned_broker_and_check(context: dict) -> None:
+    context["check_body"] = _ops_body("agent-vault-check")
+
+
+@when(parsers.parse('the operator runs "bin/agent-vault-check"'))
+def when_run_check(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'its "agent-vault" probe runs locally on the lead host and targets the '
+        'broker at "AGENT_VAULT_ADDR" read from ".env"'
+    )
+)
+def then_check_probe_local_vs_addr(context: dict) -> None:
+    b = context["check_body"]
+    assert 'AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-' in b, "check does not source AGENT_VAULT_ADDR"
+    assert "agent-vault vault credential get GITHUB_TOKEN" in b, "check probe is not the local agent-vault command"
+
+
+@then(
+    parsers.parse(
+        'it does not issue a "docker exec" into the broker container to verify '
+        "or advise on the credentials"
+    )
+)
+def then_check_no_docker_exec(context: dict) -> None:
+    assert not _docker_exec_verb_lines(context["check_body"])
+    assert "docker exec" not in "\n".join(_code_lines(context["check_body"]))
+
+
+@then(
+    parsers.parse(
+        'a single local "agent-vault" command suffices to confirm the '
+        'provisioned credentials, so no separate standalone "docker exec" '
+        "credential-list verification step is required"
+    )
+)
+def then_check_single_local_command(context: dict) -> None:
+    b = context["check_body"]
+    avline = [s for s in _code_lines(b) if "agent-vault " in s]
+    assert len(avline) == 1, f"check should run a single agent-vault command; got {avline}"
+    assert "credential get GITHUB_TOKEN" in avline[0]
+
+
+# -- Scenario 8b766a2b929af301 — expiry probe key fix -----------------------
+
+@given(
+    parsers.parse(
+        'a broker whose vault holds the GitHub credential under the key '
+        '"GITHUB_TOKEN" that "bin/agent-vault-provision" stores, and that '
+        "credential is within the expiry warning threshold"
+    )
+)
+def given_github_token_within_threshold(context: dict) -> None:
+    context["check_body"] = _ops_body("agent-vault-check")
+    context["provision_body"] = _ops_body("agent-vault-provision")
+    assert "GITHUB_TOKEN=${GITHUB_TOKEN}" in context["provision_body"], (
+        "provision does not store the credential under GITHUB_TOKEN"
+    )
+
+
+@then(
+    parsers.parse(
+        'its expiry probe targets the credential key "GITHUB_TOKEN" that '
+        "provision stores"
+    )
+)
+def then_probe_targets_github_token(context: dict) -> None:
+    assert "credential get GITHUB_TOKEN" in context["check_body"]
+
+
+@then(parsers.parse('it does not probe a non-existent credential named "github-pat"'))
+def then_probe_not_github_pat(context: dict) -> None:
+    assert "github-pat" not in context["check_body"], "check still references github-pat"
+
+
+@then(
+    parsers.parse(
+        "it emits the impending-expiry advisory for the credential that is "
+        "within the warning threshold"
+    )
+)
+def then_emits_expiry_advisory(context: dict) -> None:
+    b = context["check_body"]
+    assert "EXPIRY_WARN_DAYS" in b and "ADVISORY" in b, "check lacks the impending-expiry advisory"
+
+
+@then(
+    parsers.parse(
+        "it still exits with status 0 because the advisory is non-fatal"
+    )
+)
+def then_check_exits_zero(context: dict) -> None:
+    assert "exit 0" in context["check_body"]

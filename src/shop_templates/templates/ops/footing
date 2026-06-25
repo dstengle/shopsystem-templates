@@ -132,6 +132,20 @@ if [[ -z "$GITHUB_TOKEN" ]]; then
 fi
 export GITHUB_TOKEN
 
+# EMPTY-CREDENTIAL GUARD (lead-n7dq S4): after the gate, validate that BOTH the
+# owner password and the GitHub PAT are non-empty. A blank value (an empty
+# pre-export or an empty `read` fallback) would otherwise silently propagate
+# into later steps — a blank owner password into the broker session, a blank
+# PAT into the authenticated push. Abort with a diagnostic naming which is empty.
+if [[ -z "$OWNER_PASSWORD" ]]; then
+  echo "footing: the agent-vault owner password is EMPTY after the auth gate — aborting (set AGENT_VAULT_OWNER_PASSWORD or supply it at the gate)." >&2
+  exit 1
+fi
+if [[ -z "$GITHUB_TOKEN" ]]; then
+  echo "footing: the GitHub PAT is EMPTY after the auth gate — aborting (set GITHUB_TOKEN or supply it at the gate)." >&2
+  exit 1
+fi
+
 # -----------------------------------------------------------------------
 # Scripted .env initialization (lead-mrn2, scenario 9018e13b749bec95).
 #
@@ -193,6 +207,27 @@ fi
 echo "footing: attaching this footing container to the '{{OPS_SLUG}}' network so the in-network broker name resolves." >&2
 docker network connect "{{OPS_SLUG}}" "$(hostname)" 2>/dev/null || true
 
+# BROKER-READINESS WAIT (lead-n7dq S3): the broker container has started but may
+# not yet be LISTENING + unsealed on :14321. After the network self-attach (so
+# the in-network name resolves) and BEFORE the first local-first agent-vault
+# call, poll the broker on its in-network address with a bounded retry budget,
+# so the first call does not hit a connection-refused race. Abort with a
+# diagnostic naming the unready broker if the budget is exhausted.
+echo "footing: waiting for the agent-vault broker to be ready at '$AGENT_VAULT_ADDR' (in-network)." >&2
+_broker_ready=""
+for _try in $(seq 1 60); do
+  if curl -sS --max-time 3 -o /dev/null "$AGENT_VAULT_ADDR" 2>/dev/null; then
+    _broker_ready=1
+    break
+  fi
+  sleep 2
+done
+if [[ -z "$_broker_ready" ]]; then
+  echo "footing: the agent-vault broker at '$AGENT_VAULT_ADDR' (container '{{OPS_SLUG}}-agent-vault') did not become ready within the retry budget — aborting." >&2
+  exit 1
+fi
+echo "footing: agent-vault broker is ready at '$AGENT_VAULT_ADDR'." >&2
+
 # (c) Claude OAuth credential — captured IN-SCRIPT via an oauth-typed proposal
 #     the human APPROVES (reusing the bin/agent-vault-provision contract). The
 #     proposal create/approve run in AGENT mode on agent-vault 0.32.0 and need
@@ -243,19 +278,33 @@ cat <<EOF >&2
 
   An oauth-typed CLAUDE_OAUTH credential-slot proposal
   (#${PROPOSAL_NUM:-<see 'agent-vault vault proposal list'>}) was created on
-  vault '$AGENT_VAULT_VAULT'. Approve it via the CLI by running this EXACT
-  command — supply the real Claude OAuth secret in place of <value> AT APPROVE
-  TIME (no automated step carries the real secret; it is pasted only here):
+  vault '$AGENT_VAULT_VAULT'. Approve it by running this EXACT command FROM THE
+  HOST — supply the real Claude OAuth secret in place of <claude-oauth-token>
+  AT APPROVE TIME (no automated step carries the real secret; it is pasted only
+  here):
 
-    env AGENT_VAULT_TOKEN=$_SCOPED_SESSION \\
-        AGENT_VAULT_ADDR='$AGENT_VAULT_ADDR' \\
-        AGENT_VAULT_VAULT='$AGENT_VAULT_VAULT' \\
-      agent-vault vault proposal approve ${PROPOSAL_NUM:-<num>} CLAUDE_OAUTH=<value> --yes --vault '$AGENT_VAULT_VAULT'
+    ./bin/agent-vault-approve-claude <claude-oauth-token>
 
-  This is the LAST human action in the footing run. The steps below are
-  non-interactive and prompt for NO further credential.
+  bin/agent-vault-approve-claude resolves the broker container, vault, and
+  pending proposal from the host (via the docker socket) and runs the scoped
+  approve — so the command is RUNNABLE from where you (the operator) run it,
+  not only from the in-network '$AGENT_VAULT_ADDR' address that does not
+  resolve on the host.
+
+  This is the LAST human action in the footing run. footing WAITS below until
+  this approval lands; the remaining steps then run with NO further credential.
 
 EOF
+
+# BLOCK-UNTIL-APPROVED (lead-n7dq S7): footing must NOT reach solid footing with
+# an unapproved CLAUDE_OAUTH. Poll the vault locally until the approved
+# CLAUDE_OAUTH credential lands (the host approve command above materializes
+# it), so footing only proceeds once the approval is real.
+echo "footing: waiting for the CLAUDE_OAUTH proposal (#${PROPOSAL_NUM:-<pending>}) to be approved on vault '$AGENT_VAULT_VAULT' — run './bin/agent-vault-approve-claude <token>' from the host now." >&2
+until "${DEXEC_SCOPED[@]}" agent-vault vault credential list --vault "$AGENT_VAULT_VAULT" 2>/dev/null | grep -qw 'CLAUDE_OAUTH'; do
+  sleep 5
+done
+echo "footing: CLAUDE_OAUTH approved on vault '$AGENT_VAULT_VAULT' — proceeding toward solid footing." >&2
 
 # -----------------------------------------------------------------------
 # Step 2 — pour the lead structure.
@@ -332,7 +381,10 @@ assert_product_scoped_repo() {
 BEADS_REPO="$PRODUCT-lead-beads"
 assert_product_scoped_repo "$BEADS_REPO"
 if ! gh repo view "$GITHUB_ORG/$BEADS_REPO" >/dev/null 2>&1; then
-  gh repo create "$GITHUB_ORG/$BEADS_REPO" --private --confirm
+  # gh 2.95.0 REMOVED `--confirm`; passing it aborts under `set -e` on an
+  # unknown-flag error (lead-n7dq S2). `gh repo create <name>` with no prompt
+  # flags creates non-interactively given the name + --private.
+  gh repo create "$GITHUB_ORG/$BEADS_REPO" --private
 fi
 
 # -----------------------------------------------------------------------
@@ -364,10 +416,34 @@ fi
 # poured structure and a successful `bd dolt push` of the beads tracker.
 # These two pushes ARE the demonstration of solid footing.
 # -----------------------------------------------------------------------
+# GIT AUTHOR IDENTITY (lead-n7dq S5): configure user.email/user.name BEFORE the
+# commit, derived from the owner email or a deterministic default, so the commit
+# is a REAL commit on HEAD rather than failing for a missing identity and being
+# swallowed by `|| true` (which would leave HEAD unborn and push nothing).
+git config user.email "${GIT_AUTHOR_EMAIL:-${AGENT_VAULT_OWNER_EMAIL:-footing@{{OPS_SLUG}}.local}}"
+git config user.name "${GIT_AUTHOR_NAME:-{{OPS_SLUG}}-lead footing}"
+
 git add -A
-git commit -m "chore: footing — pour lead structure and wire remotes" || true
+# Commit only when there is something staged (a re-run with nothing new is a
+# no-op, not an error); a genuine commit failure is NOT masked by `|| true`.
+if ! git diff --cached --quiet; then
+  git commit -m "chore: footing — pour lead structure and wire remotes"
+fi
+
+# GIT PUSH AUTH (lead-n7dq S1): wire git HTTPS authentication from the exported
+# GITHUB_TOKEN BEFORE the push so it is non-interactive (no username/password
+# prompt). Tokenize the origin URL with the PAT (x-access-token) and disable
+# the terminal credential prompt belt-and-suspenders.
+export GIT_TERMINAL_PROMPT=0
+git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_ORG/$PRODUCT-lead.git"
 git push -u origin HEAD
 
+# DOLT-OVER-GIT (lead-n7dq): the bd dolt remote is a dolt-over-git remote to a
+# freshly created EMPTY GitHub repo. COMMIT the pending dolt changes first so
+# there is a dolt commit to push to the empty remote (a bare push with nothing
+# committed has nothing to send). `bd dolt commit` is a no-op when there is
+# nothing pending, so this is safe on a re-run.
+bd dolt commit -m "footing: initial beads tracker state" 2>/dev/null || true
 bd dolt push origin
 
 # -----------------------------------------------------------------------

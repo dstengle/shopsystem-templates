@@ -21599,3 +21599,403 @@ def then_footing_image_digest_recorded(context: dict) -> None:
     b = context["bootstrap_body"]
     assert 'LEAD_RESOLVED_DIGEST="$(docker inspect --format' in b, "lead digest not resolved at run time"
     assert "BC_LEAD_IMAGE_RESOLVED=" in b, "lead resolved digest not recorded in .env"
+
+
+# ---- Scenarios 41769b5c…/cb135762…/f42957a4…/422f9f82…/0761c8fe…/3bd11111…/891b8a50…
+# lead-n7dq: 7 footing/bootstrap script hardenings. Body-assertion over the
+# rendered footing + bin/bootstrap.
+
+def _n7_footing(slug: str = "dummyco") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("footing", slug)
+
+
+def _n7_bootstrap() -> str:
+    from shop_templates.cli import read_starter_file
+    return read_starter_file("bin/bootstrap")
+
+
+# -- S1 41769b5c — non-interactive authenticated git push -------------------
+
+@given(
+    parsers.parse(
+        'a footing run that has reached Step 5 with "origin" wired to '
+        '"https://github.com/<org>/<product>-lead.git" and "GITHUB_TOKEN" '
+        "exported but no terminal attached to standard input"
+    )
+)
+def given_footing_step5_origin_token(context: dict) -> None:
+    context["footing"] = _n7_footing()
+
+
+@when(parsers.parse('footing reaches its "git push -u origin HEAD" to the HTTPS origin remote'))
+def when_footing_git_push(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'footing has wired git HTTPS authentication from the exported '
+        '"GITHUB_TOKEN" before that push, either by running "gh auth setup-git" '
+        'or by tokenizing the remote URL as '
+        '"https://x-access-token:<token>@github.com/<org>/<product>-lead.git"'
+    )
+)
+def then_footing_git_auth_wired(context: dict) -> None:
+    f = context["footing"]
+    tokenized = "x-access-token:${GITHUB_TOKEN}@github.com" in f
+    setup_git = "gh auth setup-git" in f
+    assert tokenized or setup_git, "footing does not wire git HTTPS auth from GITHUB_TOKEN"
+    # …before the push.
+    auth_idx = f.find("x-access-token:${GITHUB_TOKEN}@github.com") if tokenized else f.find("gh auth setup-git")
+    assert auth_idx != -1 and auth_idx < f.find("git push -u origin HEAD")
+
+
+@then(
+    parsers.parse(
+        'the "git push -u origin HEAD" completes the authenticated push without '
+        "emitting an interactive credential prompt for a username or password"
+    )
+)
+def then_footing_push_no_prompt(context: dict) -> None:
+    f = context["footing"]
+    assert "GIT_TERMINAL_PROMPT=0" in f or "x-access-token:${GITHUB_TOKEN}@github.com" in f
+
+
+# -- S2 cb135762 — gh repo create without --confirm ------------------------
+
+@given(
+    parsers.parse(
+        'a footing run on the shipped gh 2.95.0 where the lead beads repository '
+        '"<org>/<product>-lead-beads" does not yet exist'
+    )
+)
+def given_footing_gh295_no_beads_repo(context: dict) -> None:
+    context["footing"] = _n7_footing()
+
+
+@when(
+    parsers.parse(
+        'footing reaches Step 3 and invokes "gh repo create" for '
+        '"<org>/<product>-lead-beads" as a private repository'
+    )
+)
+def when_footing_gh_repo_create(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'the "gh repo create" invocation does not pass the "--confirm" flag '
+        "that gh 2.95.0 removed"
+    )
+)
+def then_gh_repo_create_no_confirm(context: dict) -> None:
+    f = context["footing"]
+    line = next(l for l in f.splitlines() if l.strip().startswith("gh repo create"))
+    assert "--confirm" not in line, f"gh repo create still passes --confirm: {line!r}"
+
+
+@then(
+    parsers.parse(
+        'the beads-repo creation completes successfully under "set -e" rather '
+        'than aborting on an unknown "--confirm" flag'
+    )
+)
+def then_gh_repo_create_completes(context: dict) -> None:
+    f = context["footing"]
+    line = next(l for l in f.splitlines() if l.strip().startswith("gh repo create"))
+    assert "--private" in line and "--confirm" not in line
+
+
+# -- S3 f42957a4 — broker-readiness wait -----------------------------------
+
+@given(
+    parsers.parse(
+        'a footing run that has issued "docker compose up -d postgres '
+        'agent-vault" and self-attached its container to the "<product>" network'
+    )
+)
+def given_footing_compose_up_attached(context: dict) -> None:
+    context["footing"] = _n7_footing()
+
+
+@given(
+    parsers.parse(
+        "the agent-vault broker container has started but is not yet listening "
+        "and unsealed on port 14321"
+    )
+)
+def given_broker_not_yet_ready(context: dict) -> None:
+    pass
+
+
+@when(
+    parsers.parse(
+        'footing proceeds toward its first agent-vault call "agent-vault auth '
+        'login --address http://<product>-agent-vault:14321"'
+    )
+)
+def when_footing_toward_first_call(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        "footing polls the broker for readiness on the in-network address with "
+        "a bounded retry budget after the network self-attach and before that "
+        "first agent-vault call"
+    )
+)
+def then_footing_polls_readiness(context: dict) -> None:
+    f = context["footing"]
+    connect = f.find("docker network connect")
+    poll = f.find("for _try in $(seq 1 60)")
+    call = f.find("agent-vault auth login --address")
+    assert connect != -1 and poll != -1 and call != -1
+    assert connect < poll < call, "readiness poll must be after self-attach and before the first call"
+
+
+@then(
+    parsers.parse(
+        "footing does not issue the first agent-vault call until the broker "
+        "reports ready, so the call does not fail with a connection-refused race"
+    )
+)
+def then_footing_waits_until_ready(context: dict) -> None:
+    f = context["footing"]
+    assert f.find("for _try in $(seq 1 60)") < f.find("agent-vault auth login --address")
+    assert "_broker_ready=1" in f
+
+
+@then(
+    parsers.parse(
+        "when the readiness budget is exhausted without the broker becoming "
+        "ready, footing aborts with a diagnostic naming the unready broker"
+    )
+)
+def then_footing_aborts_on_budget(context: dict) -> None:
+    f = context["footing"]
+    assert "did not become ready within the retry budget" in f and "exit 1" in f
+
+
+# -- S4 422f9f82 — empty-credential guard ----------------------------------
+
+@given(
+    parsers.parse(
+        "a footing run reaching the up-front auth gate with no terminal "
+        'attached to standard input and neither "AGENT_VAULT_OWNER_PASSWORD" '
+        'nor "GITHUB_TOKEN" pre-exported'
+    )
+)
+def given_footing_gate_no_preexport(context: dict) -> None:
+    context["footing"] = _n7_footing()
+
+
+@when(
+    parsers.parse(
+        'the auth-gate "read" prompts for the owner password and the GitHub PAT '
+        'yield empty values through their "<var>:-" fallbacks'
+    )
+)
+def when_gate_reads_empty(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        "footing validates after the gate that both the owner password and the "
+        "GitHub PAT are non-empty"
+    )
+)
+def then_footing_validates_nonempty(context: dict) -> None:
+    f = context["footing"]
+    assert '[[ -z "$OWNER_PASSWORD" ]]' in f and '[[ -z "$GITHUB_TOKEN" ]]' in f
+
+
+@then(
+    parsers.parse(
+        "footing aborts with a non-zero exit and a clear diagnostic naming "
+        "which credential was empty, rather than proceeding into later steps "
+        "with a blank owner password or blank GitHub PAT"
+    )
+)
+def then_footing_aborts_empty_cred(context: dict) -> None:
+    f = context["footing"]
+    assert "owner password is EMPTY" in f and "GitHub PAT is EMPTY" in f
+
+
+# -- S5 0761c8fe — git author identity -------------------------------------
+
+@given(
+    parsers.parse(
+        'a footing run reaching Step 5 in an environment where git "user.email" '
+        'and "user.name" are not already configured'
+    )
+)
+def given_footing_step5_no_identity(context: dict) -> None:
+    context["footing"] = _n7_footing()
+
+
+@when(parsers.parse('footing reaches its "git commit" of the poured lead structure'))
+def when_footing_git_commit(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'footing has configured a git author identity by setting "user.email" '
+        'and "user.name" before that commit, derived from the owner email or a '
+        "deterministic default"
+    )
+)
+def then_footing_sets_identity(context: dict) -> None:
+    f = context["footing"]
+    ge = f.find("git config user.email")
+    gn = f.find("git config user.name")
+    commit = f.find("git commit -m")
+    assert ge != -1 and gn != -1 and commit != -1
+    assert ge < commit and gn < commit
+
+
+@then(
+    parsers.parse(
+        'the "git commit" produces a real commit on HEAD rather than failing '
+        'for a missing author identity and being swallowed by "|| true"'
+    )
+)
+def then_footing_real_commit(context: dict) -> None:
+    f = context["footing"]
+    commit_line = next(l for l in f.splitlines() if l.strip().startswith("git commit -m"))
+    assert "|| true" not in commit_line, "the footing commit must not be masked by || true"
+    assert "git diff --cached --quiet" in f
+
+
+@then(
+    parsers.parse(
+        'the subsequent "git push -u origin HEAD" pushes that commit rather '
+        "than running against an unborn or empty HEAD"
+    )
+)
+def then_footing_push_after_commit(context: dict) -> None:
+    f = context["footing"]
+    assert f.find("git commit -m") < f.find("git push -u origin HEAD")
+
+
+# -- S6 3bd11111 — no placeholder master pw in footing process env ---------
+
+@given(
+    parsers.parse(
+        'a bootstrap run where the run ".env" still holds the "<changeme-...>" '
+        'placeholder value for "AGENT_VAULT_MASTER_PASSWORD" before footing '
+        "materializes real values"
+    )
+)
+def given_bootstrap_env_placeholder(context: dict) -> None:
+    context["bootstrap"] = _n7_bootstrap()
+
+
+@when(parsers.parse('bin/bootstrap launches the footing container that runs "bash ./bin/footing"'))
+def when_bootstrap_launches_footing(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        "the footing container's process environment does not carry a "
+        '"<changeme>" placeholder value for "AGENT_VAULT_MASTER_PASSWORD"'
+    )
+)
+def then_no_placeholder_master_pw(context: dict) -> None:
+    b = context["bootstrap"]
+    # The footing-launch --env-file is a FILTERED file with the master-password
+    # line dropped, so the process env never carries the placeholder.
+    assert "FOOTING_ENV_FILE" in b
+    assert "grep -v '^AGENT_VAULT_MASTER_PASSWORD='" in b
+    foot = b[b.rfind("docker run", 0, b.rfind("bash ./bin/footing")):b.rfind("bash ./bin/footing")]
+    assert '--env-file "$FOOTING_ENV_FILE"' in foot, "footing-launch must use the filtered env-file"
+    assert '--env-file "$RUN_ENV"' not in foot, "footing-launch must not pass the unfiltered .env"
+
+
+@then(
+    parsers.parse(
+        "the broker and compose read the master password from the env file the "
+        "footing run materializes rather than from a placeholder injected into "
+        "the footing process environment"
+    )
+)
+def then_broker_reads_materialized_pw(context: dict) -> None:
+    # footing materializes the real master password into the repo .env that
+    # `docker compose up` reads; the filtered process env carries no placeholder.
+    f = _n7_footing()
+    assert "AGENT_VAULT_MASTER_PASSWORD=%s" in f and "_GEN_MASTER_PW" in f
+    assert "grep -v '^AGENT_VAULT_MASTER_PASSWORD='" in context["bootstrap"]
+
+
+# -- S7 891b8a50 — host-runnable approve path + block-until-approved -------
+
+@given(
+    parsers.parse(
+        "a footing run that has created the oauth-typed CLAUDE_OAUTH "
+        "credential-slot proposal on the product vault and that proposal is "
+        "still pending approval"
+    )
+)
+def given_footing_oauth_proposal_pending(context: dict) -> None:
+    context["footing"] = _n7_footing()
+
+
+@when(
+    parsers.parse(
+        "footing presents the approve path for that proposal to the operator "
+        "and continues toward declaring solid footing"
+    )
+)
+def when_footing_presents_approve(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        "the approve path footing presents is runnable from the operator's "
+        "context, with an address that resolves from where the operator runs it "
+        'rather than only the in-network "http://<product>-agent-vault:14321" '
+        "address that does not resolve from the host"
+    )
+)
+def then_footing_host_runnable_approve(context: dict) -> None:
+    f = context["footing"]
+    # Routed to the host-runnable bin/agent-vault-approve-claude (which resolves
+    # the broker via the docker socket, not the in-network DNS name).
+    assert "./bin/agent-vault-approve-claude <claude-oauth-token>" in f, (
+        "footing must present the host-runnable bin/agent-vault-approve-claude approve path"
+    )
+    # The OLD in-network env-addressed approve command is no longer the printed
+    # operator command.
+    assert "agent-vault vault proposal approve ${PROPOSAL_NUM:-<num>} CLAUDE_OAUTH=<value>" not in f
+
+
+@then(
+    parsers.parse(
+        "footing waits for the CLAUDE_OAUTH proposal to reach approved state "
+        "before it declares solid footing"
+    )
+)
+def then_footing_blocks_until_approved(context: dict) -> None:
+    f = context["footing"]
+    until = f.find("until ")
+    cred = f.find("grep -qw 'CLAUDE_OAUTH'")
+    footing_reached = f.find("solid footing reached")
+    assert until != -1 and cred != -1 and footing_reached != -1
+    assert until < footing_reached, "the block-until-approved must precede declaring solid footing"
+
+
+@then(
+    parsers.parse(
+        "footing does not reach solid footing while the CLAUDE_OAUTH proposal "
+        "is still unapproved"
+    )
+)
+def then_footing_no_solid_while_unapproved(context: dict) -> None:
+    f = context["footing"]
+    assert f.find("until ") < f.find("solid footing reached")

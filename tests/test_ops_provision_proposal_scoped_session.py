@@ -182,10 +182,6 @@ def test_provision_owner_steps_run_locally_not_docker_exec():
             )
     # The owner session binds to the local-first broker address.
     assert 'auth login --address "$AGENT_VAULT_ADDR"' in body
-        for ln in invocation_lines:
-            assert '"${DEXEC[@]}"' in ln, (
-                f"owner step must stay on the owner DEXEC (not scoped): {ln!r}"
-            )
     # The five services stay rendered.
     for svc in ("github-git", "github-api", "claude-api", "claude-platform", "claude-mcp-proxy"):
         assert f"--name {svc}" in body, f"service {svc} must still render"

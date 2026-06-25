@@ -28,13 +28,6 @@ Scenario: footing waits for broker readiness before its first agent-vault call
   And footing does not issue the first agent-vault call until the broker reports ready, so the call does not fail with a connection-refused race
   And when the readiness budget is exhausted without the broker becoming ready, footing aborts with a diagnostic naming the unready broker
 
-@scenario_hash:422f9f824c4d35d5 @bc:shopsystem-templates
-Scenario: footing aborts with a clear diagnostic when the owner password or GitHub PAT is empty after the auth gate
-  Given a footing run reaching the up-front auth gate with no terminal attached to standard input and neither "AGENT_VAULT_OWNER_PASSWORD" nor "GITHUB_TOKEN" pre-exported
-  When the auth-gate "read" prompts for the owner password and the GitHub PAT yield empty values through their "<var>:-" fallbacks
-  Then footing validates after the gate that both the owner password and the GitHub PAT are non-empty
-  And footing aborts with a non-zero exit and a clear diagnostic naming which credential was empty, rather than proceeding into later steps with a blank owner password or blank GitHub PAT
-
 @scenario_hash:0761c8febe333f50 @bc:shopsystem-templates
 Scenario: footing configures a git author identity before its footing commit
   Given a footing run reaching Step 5 in an environment where git "user.email" and "user.name" are not already configured

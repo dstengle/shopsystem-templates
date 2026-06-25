@@ -113,18 +113,22 @@ CLAUDE_OAUTH_SCOPES="${CLAUDE_OAUTH_SCOPES:-}"
 # =======================================================================
 echo "footing: single up-front auth gate — collecting ALL human credentials now, once, before any later step." >&2
 
-# (a) Owner password. Read it once, silently, here in the gate (never on argv,
-#     never re-prompted later). Falls back to a pre-exported env var for a
-#     fully non-interactive run.
-OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-}"
-if [[ -z "$OWNER_PASSWORD" ]]; then
-  read -r -s -p "footing[auth gate]: agent-vault owner password: " OWNER_PASSWORD
-  echo >&2
-fi
+# (a) Owner password — GENERATED, not prompted (lead-7s4k envup3). The
+#     agent-vault owner account is an internal bootstrap identity, so footing
+#     GENERATES its password (openssl) rather than asking a human for it — a
+#     pre-exported AGENT_VAULT_OWNER_PASSWORD is honored. It is recorded in .env
+#     (upserted in the .env init below) and used to register the owner. There
+#     is NO prompt for the owner password.
+OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-$(openssl rand -hex 32)}"
 export AGENT_VAULT_OWNER_PASSWORD="$OWNER_PASSWORD"
+# (a') Owner identity — a deterministic slug-derived email (lead-7s4k envup4),
+#      recorded in .env and used to register the owner account under that name.
+AGENT_VAULT_OWNER_EMAIL="${AGENT_VAULT_OWNER_EMAIL:-owner@{{OPS_SLUG}}.local}"
+export AGENT_VAULT_OWNER_EMAIL
 
-# (b) GitHub PAT. Read it once, silently, here in the gate (never re-prompted
-#     later). Falls back to a pre-exported env var for a non-interactive run.
+# (b) GitHub PAT — still PROMPTED: a human secret footing cannot generate. Read
+#     once, silently; a pre-exported GITHUB_TOKEN is honored for a
+#     non-interactive run.
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 if [[ -z "$GITHUB_TOKEN" ]]; then
   read -r -s -p "footing[auth gate]: GitHub PAT (repo + delete_repo scope): " GITHUB_TOKEN
@@ -132,15 +136,11 @@ if [[ -z "$GITHUB_TOKEN" ]]; then
 fi
 export GITHUB_TOKEN
 
-# EMPTY-CREDENTIAL GUARD (lead-n7dq S4): after the gate, validate that BOTH the
-# owner password and the GitHub PAT are non-empty. A blank value (an empty
-# pre-export or an empty `read` fallback) would otherwise silently propagate
-# into later steps — a blank owner password into the broker session, a blank
-# PAT into the authenticated push. Abort with a diagnostic naming which is empty.
-if [[ -z "$OWNER_PASSWORD" ]]; then
-  echo "footing: the agent-vault owner password is EMPTY after the auth gate — aborting (set AGENT_VAULT_OWNER_PASSWORD or supply it at the gate)." >&2
-  exit 1
-fi
+# EMPTY-CREDENTIAL GUARD — PAT-ONLY (lead-7s4k; supersedes lead-n7dq S4's
+# owner-pw+PAT guard). The GitHub PAT is the one human-supplied secret; abort if
+# it is empty so a blank PAT does not propagate into the authenticated push. The
+# owner password is GENERATED (never empty), so its guard arm is retired with
+# the old S4 owner-pw prompt premise.
 if [[ -z "$GITHUB_TOKEN" ]]; then
   echo "footing: the GitHub PAT is EMPTY after the auth gate — aborting (set GITHUB_TOKEN or supply it at the gate)." >&2
   exit 1
@@ -162,21 +162,45 @@ fi
 # Operator-set real values are preserved (only placeholders/empties are filled).
 # -----------------------------------------------------------------------
 ENV_FILE="$REPO_ROOT/.env"
+# FRESH path (avlocal1 9018e13b): create .env from the rendered .env.example
+# when there is no .env yet. PRE-EXISTING path (lead-7s4k): when bin/bootstrap
+# pre-created .env (only BC_BASE_IMAGE_RESOLVED), the cp is SKIPPED — so a
+# REWRITE-EXISTING-LINE-ONLY loop would never write the master password and
+# compose would interpolate ${AGENT_VAULT_MASTER_PASSWORD} BLANK. The UPSERT
+# below sets the REAL generated/constructed values DIRECTLY (append-when-absent),
+# robust against either case. S6 preserved: every upserted value is the real
+# generated secret, never a "<changeme>" placeholder.
 [[ -f "$ENV_FILE" ]] || cp "$REPO_ROOT/.env.example" "$ENV_FILE"
 AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://{{OPS_SLUG}}-agent-vault:14321}"
-_GEN_MASTER_PW="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40)"
-_env_tmp="$(mktemp)"
-while IFS= read -r line || [[ -n "$line" ]]; do
-  case "$line" in
-    AGENT_VAULT_MASTER_PASSWORD=\<changeme*|AGENT_VAULT_MASTER_PASSWORD=)
-      printf 'AGENT_VAULT_MASTER_PASSWORD=%s\n' "$_GEN_MASTER_PW" ;;
-    AGENT_VAULT_ADDR=\<changeme*|AGENT_VAULT_ADDR=)
-      printf 'AGENT_VAULT_ADDR=%s\n' "$AGENT_VAULT_ADDR" ;;
-    *)
-      printf '%s\n' "$line" ;;
-  esac
-done < "$ENV_FILE" > "$_env_tmp"
-mv "$_env_tmp" "$ENV_FILE"
+_GEN_MASTER_PW="$(openssl rand -hex 32)"
+
+# Upsert helper: replace the KEY= line if present, else APPEND it — so the value
+# reaches compose even when .env had no such line to rewrite.
+_env_upsert() {
+  local key="$1" val="$2" _tmp _found=""
+  _tmp="$(mktemp)"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      "$key="*) printf '%s=%s\n' "$key" "$val"; _found=1 ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$ENV_FILE" > "$_tmp"
+  [[ -n "$_found" ]] || printf '%s=%s\n' "$key" "$val" >> "$_tmp"
+  mv "$_tmp" "$ENV_FILE"
+}
+# Set each key only when absent / empty / a "<changeme>" placeholder; a real
+# pre-existing value is preserved (idempotent re-run).
+_env_set_if_unset() {
+  local key="$1" val="$2"
+  if grep -qE "^${key}=.+" "$ENV_FILE" && ! grep -qE "^${key}=<changeme" "$ENV_FILE"; then
+    return 0
+  fi
+  _env_upsert "$key" "$val"
+}
+_env_set_if_unset AGENT_VAULT_MASTER_PASSWORD "$_GEN_MASTER_PW"
+_env_set_if_unset AGENT_VAULT_ADDR "$AGENT_VAULT_ADDR"
+_env_set_if_unset AGENT_VAULT_OWNER_PASSWORD "$OWNER_PASSWORD"
+_env_set_if_unset AGENT_VAULT_OWNER_EMAIL "$AGENT_VAULT_OWNER_EMAIL"
 export AGENT_VAULT_ADDR
 
 # The agent-vault broker must be live before the oauth proposal can be created,
@@ -238,7 +262,9 @@ echo "footing: agent-vault broker is ready at '$AGENT_VAULT_ADDR'." >&2
 # session locally (auth login/register --address), mint the vault-scoped
 # session locally, then run the proposal subcommands locally under the scoped
 # session env.
-AGENT_VAULT_OWNER_EMAIL="${AGENT_VAULT_OWNER_EMAIL:-owner@{{OPS_SLUG}}.local}"
+# Register the owner using the GENERATED owner password + the recorded owner
+# email captured at the auth gate (lead-7s4k envup3/envup4); both were set
+# above and upserted into .env.
 if ! printf '%s' "$OWNER_PASSWORD" | agent-vault auth login --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin 2>/dev/null; then
   printf '%s' "$OWNER_PASSWORD" | agent-vault auth register --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin
 fi

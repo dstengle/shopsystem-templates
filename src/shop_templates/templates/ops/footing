@@ -268,6 +268,12 @@ echo "footing: agent-vault broker is ready at '$AGENT_VAULT_ADDR'." >&2
 if ! printf '%s' "$OWNER_PASSWORD" | agent-vault auth login --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin 2>/dev/null; then
   printf '%s' "$OWNER_PASSWORD" | agent-vault auth register --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin
 fi
+# CREATE the vault before minting a vault-scoped session against it (lead-h2rq).
+# `vault token --vault "$AGENT_VAULT_VAULT"` and the proposal subcommands below
+# require the vault to EXIST; footing never created it, so the scoped-session
+# mint failed with 'Vault "<slug>" not found'. Create it now, IDEMPOTENTLY — a
+# re-run on an already-existing vault must not abort under `set -e`.
+agent-vault vault create "$AGENT_VAULT_VAULT" --address "$AGENT_VAULT_ADDR" 2>/dev/null || true
 _SCOPED_SESSION="$(agent-vault vault token --vault "$AGENT_VAULT_VAULT" --address "$AGENT_VAULT_ADDR" | tr -d '\r\n')"
 if [[ -z "$_SCOPED_SESSION" ]]; then
   echo "footing: failed to mint a vault-scoped session for the Claude OAuth proposal on vault '$AGENT_VAULT_VAULT'." >&2

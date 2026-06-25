@@ -20718,16 +20718,20 @@ def then_creates_env_from_example(context: dict) -> None:
 )
 def then_master_password_generated(context: dict) -> None:
     f = context["footing_body"]
-    assert "AGENT_VAULT_MASTER_PASSWORD=%s" in f and "_GEN_MASTER_PW" in f, (
-        "footing does not write a generated master password into .env"
+    # lead-7s4k: footing generates the master password (openssl) and UPSERTS it
+    # into .env (replace-or-append), so the value reaches compose non-blank.
+    assert "_GEN_MASTER_PW" in f and 'openssl rand -hex 32' in f, (
+        "footing does not generate a master password"
+    )
+    assert "_env_set_if_unset AGENT_VAULT_MASTER_PASSWORD" in f, (
+        "footing does not upsert AGENT_VAULT_MASTER_PASSWORD into .env"
     )
     # Runtime: the generation command actually yields a high-entropy secret.
-    gen = subprocess.run(
-        ["bash", "-c", "head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40"],
-        capture_output=True, text=True,
+    gen = subprocess.run(["bash", "-c", "openssl rand -hex 32"], capture_output=True, text=True)
+    pw = gen.stdout.strip()
+    assert len(pw) == 64 and all(c in "0123456789abcdef" for c in pw), (
+        f"generated master password not high-entropy: {pw!r}"
     )
-    pw = gen.stdout
-    assert len(pw) == 40 and pw.isalnum(), f"generated master password not high-entropy: {pw!r}"
     assert "<changeme" not in pw
 
 
@@ -20740,9 +20744,8 @@ def then_master_password_generated(context: dict) -> None:
 def then_addr_real_not_placeholder(context: dict) -> None:
     f = context["footing_body"]
     assert "http://shopsystem-agent-vault:14321" in f, "footing does not set a real AGENT_VAULT_ADDR"
-    # The .env-init writes AGENT_VAULT_ADDR to the real address, not the placeholder.
-    assert "AGENT_VAULT_ADDR=%s" in f or "AGENT_VAULT_ADDR=$AGENT_VAULT_ADDR" in f or \
-        "printf 'AGENT_VAULT_ADDR=%s\\n'" in f, "footing does not fill AGENT_VAULT_ADDR in .env"
+    # The .env-init UPSERTS AGENT_VAULT_ADDR to the real address (lead-7s4k).
+    assert "_env_set_if_unset AGENT_VAULT_ADDR" in f, "footing does not upsert AGENT_VAULT_ADDR in .env"
 
 
 @then(
@@ -20753,10 +20756,10 @@ def then_addr_real_not_placeholder(context: dict) -> None:
 )
 def then_master_password_before_broker_start(context: dict) -> None:
     f = context["footing_body"]
-    pw_idx = f.find("AGENT_VAULT_MASTER_PASSWORD=%s")
+    pw_idx = f.find("_env_set_if_unset AGENT_VAULT_MASTER_PASSWORD")
     up_idx = f.find("docker compose -f")
     assert pw_idx != -1 and up_idx != -1 and pw_idx < up_idx, (
-        "the .env master-password write does not precede `docker compose up`"
+        "the .env master-password upsert does not precede `docker compose up`"
     )
 
 
@@ -21926,9 +21929,10 @@ def then_no_placeholder_master_pw(context: dict) -> None:
 )
 def then_broker_reads_materialized_pw(context: dict) -> None:
     # footing materializes the real master password into the repo .env that
-    # `docker compose up` reads; the filtered process env carries no placeholder.
+    # `docker compose up` reads (lead-7s4k: generated + UPSERTED, not a literal
+    # rewrite); the filtered process env carries no placeholder.
     f = _n7_footing()
-    assert "AGENT_VAULT_MASTER_PASSWORD=%s" in f and "_GEN_MASTER_PW" in f
+    assert "_GEN_MASTER_PW" in f and "_env_set_if_unset AGENT_VAULT_MASTER_PASSWORD" in f
     assert "grep -v '^AGENT_VAULT_MASTER_PASSWORD='" in context["bootstrap"]
 
 
@@ -21999,3 +22003,193 @@ def then_footing_blocks_until_approved(context: dict) -> None:
 def then_footing_no_solid_while_unapproved(context: dict) -> None:
     f = context["footing"]
     assert f.find("until ") < f.find("solid footing reached")
+
+
+# ---- Scenarios bd3bd4e0/82e50776/2ea8e65a/3509dc40 — footing .env UPSERT ----
+# lead-7s4k: footing GENERATES the master password, broker address, owner
+# password, and owner email and UPSERTS them into .env (append-when-absent, not
+# rewrite-existing-only), so the real values reach `docker compose up` even when
+# bin/bootstrap pre-created .env. Tested GENUINELY: footing's gate-value
+# generation + the .env-init upsert block are extracted from the rendered
+# footing and RUN against a pre-existing .env (pure bash, no docker), then the
+# resulting .env is asserted.
+
+_PREEXISTING_ENV = "BC_BASE_IMAGE_RESOLVED=ghcr.io/dstengle/shopsystem-bc-base@sha256:abc123\n"
+
+
+def _run_footing_env_init(preexisting_env: str, slug: str = "dummyco") -> str:
+    from shop_templates.cli import render_ops_template
+    import tempfile, os
+    f = render_ops_template("footing", slug)
+    owner_pw = next(l for l in f.splitlines() if l.startswith('OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD'))
+    owner_em = next(l for l in f.splitlines() if l.startswith('AGENT_VAULT_OWNER_EMAIL="${AGENT_VAULT_OWNER_EMAIL'))
+    lines = f.splitlines()
+    start = next(i for i, l in enumerate(lines) if l == 'ENV_FILE="$REPO_ROOT/.env"')
+    end = next(i for i in range(start, len(lines)) if lines[i] == "export AGENT_VAULT_ADDR")
+    env_init = "\n".join(lines[start:end + 1])
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, ".env"), "w") as fh:
+        fh.write(preexisting_env)
+    harness = f'set -uo pipefail\nREPO_ROOT="{d}"\n{owner_pw}\n{owner_em}\n{env_init}\n'
+    env = dict(os.environ)
+    for k in ("AGENT_VAULT_OWNER_PASSWORD", "AGENT_VAULT_OWNER_EMAIL", "AGENT_VAULT_ADDR", "AGENT_VAULT_MASTER_PASSWORD"):
+        env.pop(k, None)
+    r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, env=env)
+    assert r.returncode == 0, f"env-init harness failed: {r.stderr}\n{harness}"
+    with open(os.path.join(d, ".env")) as fh:
+        return fh.read()
+
+
+def _env_value(env_text: str, key: str):
+    vals = [ln[len(key) + 1:] for ln in env_text.splitlines() if ln.startswith(key + "=")]
+    return vals
+
+
+# Shared Given (the pre-existing .env premise) — 4 key-specific phrasings, all
+# setting the same BC_BASE_IMAGE_RESOLVED-only .env.
+@given(parsers.parse('bin/bootstrap has pre-created .env containing only a BC_BASE_IMAGE_RESOLVED line and no AGENT_VAULT_MASTER_PASSWORD line'))
+def given_preenv_no_master(context: dict) -> None:
+    context["preexisting_env"] = _PREEXISTING_ENV
+
+
+@given(parsers.parse('bin/bootstrap has pre-created .env containing only a BC_BASE_IMAGE_RESOLVED line and no AGENT_VAULT_ADDR line'))
+def given_preenv_no_addr(context: dict) -> None:
+    context["preexisting_env"] = _PREEXISTING_ENV
+
+
+@given(parsers.parse('bin/bootstrap has pre-created .env containing only a BC_BASE_IMAGE_RESOLVED line and no AGENT_VAULT_OWNER_PASSWORD line'))
+def given_preenv_no_owner_pw(context: dict) -> None:
+    context["preexisting_env"] = _PREEXISTING_ENV
+
+
+@given(parsers.parse('bin/bootstrap has pre-created .env containing only a BC_BASE_IMAGE_RESOLVED line and no AGENT_VAULT_OWNER_EMAIL line'))
+def given_preenv_no_owner_email(context: dict) -> None:
+    context["preexisting_env"] = _PREEXISTING_ENV
+
+
+@given(parsers.parse(".env therefore carries none of the .env.example placeholder keys"))
+def given_no_placeholder_keys(context: dict) -> None:
+    assert "<changeme" not in context["preexisting_env"]
+
+
+@given(parsers.parse("no AGENT_VAULT_OWNER_PASSWORD value is pre-exported in the environment"))
+def given_no_owner_pw_preexported(context: dict) -> None:
+    pass
+
+
+@when(parsers.parse("footing runs its .env initialization"))
+def when_footing_env_init(context: dict) -> None:
+    context["result_env"] = _run_footing_env_init(context["preexisting_env"])
+
+
+@when(parsers.parse("footing runs its auth gate"))
+def when_footing_auth_gate(context: dict) -> None:
+    context["result_env"] = _run_footing_env_init(context["preexisting_env"])
+    from shop_templates.cli import render_ops_template
+    context["footing_body"] = render_ops_template("footing", "dummyco")
+
+
+# -- Then steps (assert the resulting .env) --------------------------------
+
+@then(parsers.parse('.env contains exactly one {key} line'))
+def then_env_exactly_one_line(key: str, context: dict) -> None:
+    vals = _env_value(context["result_env"], key)
+    assert len(vals) == 1, f"expected exactly one {key} line, got {len(vals)}: {vals!r}"
+
+
+@then(
+    parsers.parse(
+        "that line's value is a generated secret that is neither empty nor a "
+        "<changeme> placeholder"
+    )
+)
+def then_value_generated_secret(context: dict) -> None:
+    # The most-recently-asserted key is whichever generated secret this scenario
+    # is about; check all generated-secret keys present are non-empty/non-placeholder.
+    for key in ("AGENT_VAULT_MASTER_PASSWORD", "AGENT_VAULT_OWNER_PASSWORD"):
+        for v in _env_value(context["result_env"], key):
+            assert v and "<changeme" not in v, f"{key} is empty or a placeholder: {v!r}"
+    # at least one generated secret must be present
+    assert _env_value(context["result_env"], "AGENT_VAULT_MASTER_PASSWORD") or \
+        _env_value(context["result_env"], "AGENT_VAULT_OWNER_PASSWORD")
+
+
+@then(parsers.parse("the pre-existing BC_BASE_IMAGE_RESOLVED line is preserved unchanged"))
+def then_bc_base_preserved(context: dict) -> None:
+    assert "BC_BASE_IMAGE_RESOLVED=ghcr.io/dstengle/shopsystem-bc-base@sha256:abc123" in context["result_env"]
+
+
+@then(
+    parsers.parse(
+        'docker compose up interpolates ${AGENT_VAULT_MASTER_PASSWORD} to that '
+        'same non-empty generated value with no "variable is not set" warning'
+    )
+)
+def then_compose_interpolates_master_pw(context: dict) -> None:
+    vals = _env_value(context["result_env"], "AGENT_VAULT_MASTER_PASSWORD")
+    assert len(vals) == 1 and vals[0] and "<changeme" not in vals[0], (
+        "AGENT_VAULT_MASTER_PASSWORD would interpolate blank/placeholder"
+    )
+
+
+@then(
+    parsers.parse(
+        "that line's value is the constructed in-network broker address and is "
+        "neither empty nor a <changeme> placeholder"
+    )
+)
+def then_addr_constructed(context: dict) -> None:
+    vals = _env_value(context["result_env"], "AGENT_VAULT_ADDR")
+    assert vals == ["http://dummyco-agent-vault:14321"], f"AGENT_VAULT_ADDR not constructed: {vals!r}"
+
+
+@then(
+    parsers.parse(
+        'docker compose up interpolates ${AGENT_VAULT_ADDR} to that same '
+        'constructed address with no "variable is not set" warning'
+    )
+)
+def then_compose_interpolates_addr(context: dict) -> None:
+    vals = _env_value(context["result_env"], "AGENT_VAULT_ADDR")
+    assert len(vals) == 1 and vals[0] == "http://dummyco-agent-vault:14321"
+
+
+@then(parsers.parse("footing does not prompt the operator for an owner password"))
+def then_no_owner_pw_prompt(context: dict) -> None:
+    f = context["footing_body"]
+    assert "agent-vault owner password:" not in f, "footing still prompts for the owner password"
+    assert 'OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-$(openssl rand -hex 32)}"' in f
+
+
+@then(
+    parsers.parse(
+        "footing registers the agent-vault owner account using that same "
+        "generated owner password"
+    )
+)
+def then_registers_with_owner_pw(context: dict) -> None:
+    f = context["footing_body"]
+    assert 'auth register --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin' in f
+    assert 'printf \'%s\' "$OWNER_PASSWORD" | agent-vault auth register' in f
+
+
+@then(
+    parsers.parse(
+        "that line's value is the owner account identity and is neither empty "
+        "nor a <changeme> placeholder"
+    )
+)
+def then_owner_email_identity(context: dict) -> None:
+    vals = _env_value(context["result_env"], "AGENT_VAULT_OWNER_EMAIL")
+    assert vals == ["owner@dummyco.local"], f"AGENT_VAULT_OWNER_EMAIL not captured: {vals!r}"
+
+
+@then(
+    parsers.parse(
+        "footing registers the agent-vault owner account under that same "
+        "recorded identity"
+    )
+)
+def then_registers_under_identity(context: dict) -> None:
+    f = context["footing_body"]
+    assert '--email "$AGENT_VAULT_OWNER_EMAIL"' in f

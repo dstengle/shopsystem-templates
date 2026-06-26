@@ -284,10 +284,16 @@ def test_compose_agent_vault_named_volume_source_and_type_intact():
     )
 
 
-def test_compose_postgres_healthcheck_unchanged():
-    body = _compose()
-    assert "pg_isready -U postgres" in body, (
-        "postgres pg_isready healthcheck must be left unchanged"
+def test_compose_postgres_healthcheck_targets_configured_user():
+    # lead-sgxd 87acbbbe: the healthcheck targets the CONFIGURED POSTGRES_USER
+    # (the slug), not the literal "postgres" role (which does not exist and logs
+    # 'role "postgres" does not exist' every interval).
+    body = _compose("shopsystem")
+    assert "pg_isready -U shopsystem" in body, (
+        "postgres healthcheck must target the configured POSTGRES_USER (the slug)"
+    )
+    assert "pg_isready -U postgres" not in body, (
+        "postgres healthcheck must not probe the nonexistent literal 'postgres' role"
     )
 
 

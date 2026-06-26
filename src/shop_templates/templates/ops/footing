@@ -203,6 +203,28 @@ _env_set_if_unset AGENT_VAULT_OWNER_PASSWORD "$OWNER_PASSWORD"
 _env_set_if_unset AGENT_VAULT_OWNER_EMAIL "$AGENT_VAULT_OWNER_EMAIL"
 export AGENT_VAULT_ADDR
 
+# pgdata ownership (lead-sgxd 25be1dd7): postgres runs as the INVOKING HOST USER
+# (compose `user: ${HOST_UID}:${HOST_GID}`) so the bind-mounted pgdata is owned
+# by the host user, not the in-image uid 999. Export that identity and
+# PRE-CREATE the pgdata host dir (the same path compose binds) owned by the host
+# user so postgres can initdb + serve as that uid.
+export HOST_UID="$(id -u)"
+export HOST_GID="$(id -g)"
+_PGDATA_DIR="${{{OPS_SLUG_UPPER}}_DATA:-$HOME/.local/share/{{OPS_SLUG}}}/pgdata"
+mkdir -p "$_PGDATA_DIR"
+
+# Reset a STALE agent-vault broker store (lead-sgxd c803b65b): the store lives in
+# the persistent named volume "{{OPS_SLUG}}-agent-vault-data" and is keyed to the
+# master password it was initialized with. footing materializes a fresh master
+# password, so a store left from a prior run (with a different password) would
+# reject it on unseal with "wrong password". Tear down any prior broker and
+# remove its volume so the store re-initializes cleanly against THIS run's
+# master password — on a fresh run and a re-run alike. Idempotent (non-fatal
+# when absent); scoped to the broker volume only, so postgres pgdata is left
+# intact. The broker-render contract (image/env wiring) is untouched.
+docker compose -f "$REPO_ROOT/compose.yaml" rm -sf agent-vault 2>/dev/null || true
+docker volume rm "{{OPS_SLUG}}-agent-vault-data" 2>/dev/null || true
+
 # The agent-vault broker must be live before the oauth proposal can be created,
 # so bring the footing services up as part of reaching the gate's OAuth step.
 # (Broker bring-up is a prerequisite OF the gate, not a later footing step.)

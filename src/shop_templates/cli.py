@@ -781,20 +781,54 @@ def _bd_init_in(target: Path, prefix: str | None = None) -> int:
     return result.returncode
 
 
-def _product_beads_remote(shop_name: str) -> str:
+# The literal org placeholder the rendered beads remote carries when bootstrap
+# cannot derive an owner from the target repo's origin. footing is the
+# authoritative org source (lead-nhr2): it derives the org from the cloned
+# <product>-lead origin at runtime and rewrites the remote, so the render must
+# NOT bake a cross-product org (ADR-043 D4 / lead-clyf). This placeholder makes
+# the render's lack-of-org explicit without inventing a product literal.
+_BEADS_REMOTE_ORG_PLACEHOLDER = "ORIGIN_OWNER"
+
+
+def _product_slug_for_beads(shop_name: str) -> str:
+    """The canonical product slug for the beads repo name: the bootstrap
+    `--shop-name` with a single trailing `-lead` or `-product` suffix stripped
+    (so `acme-lead` -> `acme`, `acme-product` -> `acme`, `acme` -> `acme`)."""
+    for suffix in ("-lead", "-product"):
+        if shop_name.endswith(suffix):
+            return shop_name[: -len(suffix)]
+    return shop_name
+
+
+def _product_beads_remote(shop_name: str, origin_owner: str | None = None) -> str:
     """Return the product beads remote URL the new shop's bd tracker syncs to.
 
-    Per tmpl-4k7 (PDR-019 U5 / ADR-040). The remote mirrors the convention
-    this very repository's .beads/config.yaml carries — for shop name
-    "shopsystem-templates" the committed sync.remote is
-    "git+https://github.com/dstengle/shopsystem-templates-beads.git". The rule
-    is therefore: the product beads remote is the shop's own sibling "-beads"
-    repo under the same GitHub org the framework itself ships from
-    (`dstengle`, the org of the shop-templates package — see README install
-    URL and the ops Dockerfile base image). It introduces no new identity
-    source beyond the bootstrap `--shop-name`.
+    ADR-043 D4/D5 (lead-clyf): single-sourced to match the Phase-1
+    ops-coordinates OPS_BEADS_REPO. (D5) the repository is named canonically as
+    "<product>-lead-beads" (the `-lead-beads` form, NOT "<product>-product-beads"
+    or the raw `<shop_name>-beads`). (D4) the org is NOT a hardcoded
+    cross-product literal: it is the owner derived from the target's origin remote
+    when available, else the explicit `ORIGIN_OWNER` placeholder for the footing
+    runtime to fill — footing remains the authoritative org source (lead-nhr2).
     """
-    return f"git+https://github.com/dstengle/{shop_name}-beads.git"
+    product = _product_slug_for_beads(shop_name)
+    owner = origin_owner if origin_owner else _BEADS_REMOTE_ORG_PLACEHOLDER
+    return f"git+https://github.com/{owner}/{product}-lead-beads.git"
+
+
+def _origin_owner(target: Path) -> str | None:
+    """Best-effort: the GitHub owner from the target repo's `origin` remote URL
+    (https://host/OWNER/REPO(.git) or git@host:OWNER/REPO(.git)), or None when
+    there is no origin. Mirrors footing's runtime org derivation."""
+    res = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=str(target), capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        return None
+    url = res.stdout.strip()
+    m = re.search(r"[:/]([^/]+)/[^/]+?(?:\.git)?$", url)
+    return m.group(1) if m else None
 
 
 # The Dolt remote name bootstrap configures the new shop's tracker under.
@@ -824,7 +858,7 @@ def _configure_bd_dolt_remote(target: Path, shop_name: str) -> str:
     Returns the configured remote URL, so the caller can run the `bd dolt push`
     smoke-test against the freshly-configured remote.
     """
-    remote = _product_beads_remote(shop_name)
+    remote = _product_beads_remote(shop_name, _origin_owner(target))
     add = subprocess.run(
         ["bd", "dolt", "remote", "add", _BD_DOLT_REMOTE_NAME, remote],
         cwd=str(target),

@@ -17178,8 +17178,14 @@ def then_lead_skill_dir_set_unchanged(context: dict) -> None:
 # =======================================================================
 
 
-def _expected_product_beads_remote(shop_name: str) -> str:
-    return f"git+https://github.com/dstengle/{shop_name}-beads.git"
+def _expected_product_beads_remote(shop_name: str, target=None) -> str:
+    # ADR-043 D4/D5 (lead-clyf): the configured beads remote is single-sourced —
+    # canonical "<product>-lead-beads" name, origin-derived owner (or the
+    # ORIGIN_OWNER placeholder when the target has no origin), no baked dstengle.
+    # Delegate to production so the expected exactly mirrors what bootstrap wires.
+    from shop_templates.cli import _product_beads_remote, _origin_owner
+    owner = _origin_owner(target) if target is not None else None
+    return _product_beads_remote(shop_name, owner)
 
 
 def _expected_product_issue_prefix(shop_name: str) -> str:
@@ -23305,3 +23311,81 @@ def then_dummyco_slug_clean(context: dict) -> None:
     from shop_templates.cli import render_ops_template
     art = render_ops_template("ops-coordinates", "dummyco").lower()
     assert "shopsystem" not in art and "fleet" not in art, "ops-coordinates artifact leaks shopsystem/fleet"
+
+
+# ---- Scenarios cb8fca2c / 104df5a6 — single-sourced beads remote (lead-clyf)
+# ADR-043 D4/D5: the bootstrap-rendered beads remote bakes no hardcoded org and
+# uses the canonical <product>-lead-beads name. GENUINE: bootstrap a product and
+# read the actual bd dolt remote it configured.
+
+@given(parsers.parse('a lead repository forked as "acme-lead" with no GitHub org assumed by the renderer'))
+def given_acme_lead_no_org(context: dict) -> None:
+    pass
+
+
+@given(parsers.parse('a lead repository forked as "acme-lead" whose derived product slug is "acme"'))
+def given_acme_lead_slug_acme(context: dict) -> None:
+    pass
+
+
+@when(parsers.parse('I invoke the "shop-templates" bootstrap entry point with shop type "{shop_type}", shop name "{shop_name}", and a target directory'))
+def when_bootstrap_into_a_target(shop_type: str, shop_name: str, context: dict, tmp_path: Path) -> None:
+    target = tmp_path / "clyf-beads-target"
+    subprocess.run(["git", "init", "-q", str(target)])
+    result = _run_shop_templates_with_bd_shim(
+        ["bootstrap", "--shop-type", shop_type, "--shop-name", shop_name, "--target", str(target)],
+        context, tmp_path,
+    )
+    context["cli_returncode"] = result.returncode
+    context["cli_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+    context["last_invocation_target"] = target
+    context["last_invocation_shop_name"] = shop_name
+
+
+@when(parsers.parse('bootstrap renders the product beads remote it configures as the bd dolt push remote'))
+def when_renders_beads_remote(context: dict) -> None:
+    # GENUINE: read the actual configured bd dolt remote from the bootstrapped target.
+    real = context["last_invocation_target"]
+    result = _run_bd_shim_query(context, real, ["dolt", "remote", "list"])
+    import re as _re
+    m = _re.search(r'git\+https://github\.com/\S+?-beads\.git', result.stdout)
+    assert m, f"no configured beads dolt remote found: {result.stdout!r}"
+    context["beads_remote_url"] = m.group(0)
+
+
+@then(parsers.parse('the rendered beads remote URL contains no hardcoded "dstengle" org segment'))
+def then_no_hardcoded_dstengle(context: dict) -> None:
+    assert "dstengle" not in context["beads_remote_url"], (
+        f"beads remote bakes a hardcoded dstengle org: {context['beads_remote_url']!r}"
+    )
+
+
+@then(parsers.parse('the org segment of the rendered beads remote is either an origin-derived placeholder the footing runtime fills or omitted for the footing runtime to supply'))
+def then_org_placeholder_or_omitted(context: dict) -> None:
+    import re as _re
+    url = context["beads_remote_url"]
+    m = _re.search(r'github\.com/([^/]*)/', url)
+    assert m, f"malformed beads remote URL: {url!r}"
+    org = m.group(1)
+    # Either the explicit ORIGIN_OWNER placeholder (footing fills it) or omitted.
+    assert org in ("ORIGIN_OWNER", ""), (
+        f"the org segment must be the ORIGIN_OWNER placeholder or omitted, got {org!r}"
+    )
+
+
+@then(parsers.parse('the repository name in the rendered beads remote URL is "acme-lead-beads"'))
+def then_repo_name_canonical(context: dict) -> None:
+    import re as _re
+    url = context["beads_remote_url"]
+    m = _re.search(r'/([^/]+)\.git$', url)
+    assert m and m.group(1) == "acme-lead-beads", (
+        f"beads repo name must be acme-lead-beads, got {m.group(1) if m else url!r}"
+    )
+
+
+@then(parsers.parse('the rendered beads remote URL does not name the repository "acme-product-beads" or any other non-"-lead-beads" form'))
+def then_repo_not_product_beads(context: dict) -> None:
+    url = context["beads_remote_url"]
+    assert "acme-product-beads" not in url, f"beads remote uses the wrong -product-beads name: {url!r}"
+    assert url.rstrip().endswith("-lead-beads.git"), f"beads remote must use the -lead-beads form: {url!r}"

@@ -137,17 +137,30 @@ fi
 #     ADR-026 D2 flow: vault create -> credential set -> service add
 #     (github.com Basic, brokered over the single MITM proxy listener).
 # -----------------------------------------------------------------------
-echo "agent-vault-provision: ensuring vault '$VAULT' exists on '$CONTAINER'."
+# BROKER-LOCAL credential ops (lead-0j7o / PDR-022 b0d1e504): on agent-vault
+# 0.32.0 the CREDENTIAL operations (vault create / credential set) work ONLY
+# broker-locally — through the owner REMOTE scoped session (or a fleet token)
+# they fail 'Member role required' (lead-0j60, live-confirmed). Establish a
+# broker-local owner session INSIDE the broker container and run the credential
+# ops via `docker exec`, NOT the owner remote session.
+DEXEC_LOCAL=(docker exec -i "$CONTAINER")
+if [[ -n "$OWNER_PASSWORD" ]]; then
+  printf '%s' "$OWNER_PASSWORD" | "${DEXEC_LOCAL[@]}" agent-vault auth login --email "$OWNER_EMAIL" --password-stdin >/dev/null 2>&1 \
+    || printf '%s' "$OWNER_PASSWORD" | "${DEXEC_LOCAL[@]}" agent-vault auth register --email "$OWNER_EMAIL" --password-stdin >/dev/null 2>&1 || true
+fi
+
+echo "agent-vault-provision: ensuring vault '$VAULT' exists on '$CONTAINER' (broker-local)."
 # `vault create` is idempotent for our purposes: a re-run on an existing
-# vault is non-fatal (we still need it to exist).
-agent-vault vault create "$VAULT" 2>/dev/null || true
+# vault is non-fatal (we still need it to exist). Broker-local docker-exec.
+"${DEXEC_LOCAL[@]}" agent-vault vault create "$VAULT" 2>/dev/null || true
 
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 if [[ -n "$GITHUB_TOKEN" ]]; then
-  echo "agent-vault-provision: storing GitHub credential into vault '$VAULT' on '$CONTAINER'."
+  echo "agent-vault-provision: storing GitHub credential into vault '$VAULT' on '$CONTAINER' (broker-local)."
   # `vault credential set <key=value> ...` — the github username + token are
-  # stored under the live fleet vault's AUTHORITATIVE SCREAMING_SNAKE keys.
-  agent-vault vault credential set \
+  # stored under the live fleet vault's AUTHORITATIVE SCREAMING_SNAKE keys, via
+  # broker-local docker-exec (NOT the owner remote scoped session — Member-role).
+  "${DEXEC_LOCAL[@]}" agent-vault vault credential set \
     "GITHUB_USERNAME=${GITHUB_USERNAME}" \
     "GITHUB_TOKEN=${GITHUB_TOKEN}" \
     --vault "$VAULT"
@@ -340,8 +353,23 @@ _proposal_out="$(printf '%s' "$_oauth_proposal_json" | "${DEXEC_SCOPED[@]}" agen
 # (Most robust portable parse: pull the first integer after a number/id key.)
 PROPOSAL_NUM="$(printf '%s' "$_proposal_out" | grep -oE '"(number|id)"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
 if [[ -z "$PROPOSAL_NUM" ]]; then
+  # Fallback parse (lead-21uk): take the proposal's IDENTITY number — the leading
+  # "#" column, the FIRST number on a pending data row — NOT `tail -n1`, which
+  # grabbed the trailing CREATED-timestamp minutes and produced 'Proposal #N not
+  # found'. (Now that provision OWNS the proposal-create, the fix lives here.)
   PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null \
-    | grep -oE '[0-9]+' | tail -n1)"
+    | grep -F 'pending' | head -n1 | grep -oE '[0-9]+' | head -n1)"
+fi
+# Persist the create-time identity number into .env as CLAUDE_OAUTH_PROPOSAL_NUM
+# so bin/agent-vault-approve-claude approves the RIGHT proposal by its "#" (not a
+# re-parsed timestamp digit, lead-21uk). Upsert it (append-if-absent).
+if [[ -n "$PROPOSAL_NUM" ]]; then
+  touch "$ENV_FILE"
+  if grep -q '^CLAUDE_OAUTH_PROPOSAL_NUM=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^CLAUDE_OAUTH_PROPOSAL_NUM=.*|CLAUDE_OAUTH_PROPOSAL_NUM=$PROPOSAL_NUM|" "$ENV_FILE"
+  else
+    printf 'CLAUDE_OAUTH_PROPOSAL_NUM=%s\n' "$PROPOSAL_NUM" >> "$ENV_FILE"
+  fi
 fi
 
 # -----------------------------------------------------------------------

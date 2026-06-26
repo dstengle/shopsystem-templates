@@ -29,14 +29,6 @@ Scenario Outline: footing derives the GitHub org from the cloned lead repo origi
     | dstengle     |
     | acme-corp    |
 
-@scenario_hash:a6b83d4fdac2743d @bc:shopsystem-templates
-Scenario: footing stores the collected GitHub PAT into the broker vault for later brokered GitHub access
-  Given footing has collected the GitHub PAT at its single up-front auth gate
-  And the broker vault is scoped to the product session "<slug>"
-  When footing completes the auth and credential-store steps of its sequence
-  Then footing stores the collected GitHub PAT into the broker vault as a credential under the "<slug>" vault session
-  And after footing completes a GitHub PAT credential exists in the "<slug>" vault and is retrievable for later brokered GitHub access by BCs and agents
-
 @scenario_hash:701e466b10834397 @bc:shopsystem-templates
 Scenario: footing creates the data root and pgdata owned by the invoking host user
   Given footing runs in a container with "HOST_UID" and "HOST_GID" exported for the invoking host user

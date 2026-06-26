@@ -23469,3 +23469,77 @@ def then_postgres_serves_normally(context: dict) -> None:
     c = context["compose"]
     # The configured DB + the (unaffected) slug-user healthcheck remain.
     assert "POSTGRES_DB: dummyco" in c and "pg_isready -U dummyco" in c
+
+
+# ---- Scenario 007b3866 — footing readiness grep expands OPS_* (lead-kgrq) ----
+# Regression from ADR-043 Phase 1: footing's container check single-quoted the
+# grep pattern so $OPS_*_CONTAINER did not expand. GENUINE: extract footing's
+# actual readiness grep, source the ops-coordinates artifact, and run it against
+# the running container names — the expanding (double-quote) form matches; the
+# old single-quote form does not.
+
+def _kgrq_footing_grep(slug: str = "acme"):
+    from shop_templates.cli import render_ops_template
+    f = render_ops_template("footing", slug)
+    coords = render_ops_template("ops-coordinates", slug)
+    line = next(l for l in f.splitlines() if l.strip().startswith("if ! docker ps") and "grep -Eq" in l)
+    grep_pat = line.split("grep -Eq ", 1)[1].rstrip().rstrip("; then").strip()
+    return f, coords, grep_pat
+
+
+def _kgrq_run(coords: str, grep_pat: str, names: list[str]) -> bool:
+    # Container names arrive on stdin (real newlines), the same shape
+    # `docker ps --format '{{.Names}}'` produces; the sourced coords define OPS_*.
+    h = f'set -uo pipefail\n{coords}\ngrep -Eq {grep_pat} && echo YES || echo NO'
+    payload = "".join(n + "\n" for n in names)
+    r = subprocess.run(["bash", "-c", h], input=payload, capture_output=True, text=True)
+    return r.stdout.strip() == "YES"
+
+
+@given(parsers.parse('a rendered "bin/footing" whose ops-coordinates artifact sets "$OPS_POSTGRES_CONTAINER" to "<slug>-postgres" and "$OPS_AGENT_VAULT_CONTAINER" to "<slug>-agent-vault"'))
+def given_footing_ops_container_vars(context: dict) -> None:
+    f, coords, grep_pat = _kgrq_footing_grep("acme")
+    context["footing"], context["coords"], context["grep_pat"] = f, coords, grep_pat
+
+
+@given(parsers.parse('the slug-scoped "<slug>-postgres" and "<slug>-agent-vault" containers are running after "docker compose up"'))
+def given_containers_running(context: dict) -> None:
+    context["running_names"] = ["acme-postgres", "acme-agent-vault"]
+
+
+@when(parsers.parse("footing runs its post-compose-up readiness check"))
+def when_footing_readiness(context: dict) -> None:
+    context["matched"] = _kgrq_run(context["coords"], context["grep_pat"], context["running_names"])
+
+
+@then(parsers.parse('the check matches running containers against the expanded values of "$OPS_POSTGRES_CONTAINER" and "$OPS_AGENT_VAULT_CONTAINER", not against the literal text "$OPS_POSTGRES_CONTAINER" / "$OPS_AGENT_VAULT_CONTAINER"'))
+def then_matches_expanded(context: dict) -> None:
+    # The rendered grep is DOUBLE-quoted (vars expand), not single-quoted.
+    assert context["grep_pat"].startswith('"'), f"readiness grep must be double-quoted: {context['grep_pat']!r}"
+    assert "$OPS_POSTGRES_CONTAINER" in context["grep_pat"], "must reference the OPS_ vars"
+    # GENUINE: it matched the running container names (only possible if expanded).
+    assert context["matched"], "the readiness check did not match the running containers"
+
+
+@then(parsers.parse('footing proceeds past the readiness check without aborting "expected the slug-scoped compose containers ... to be running, but neither was found"'))
+def then_footing_proceeds(context: dict) -> None:
+    assert context["matched"], "footing aborted on running containers (readiness false-negative)"
+
+
+@then(parsers.parse("a single-quoted readiness pattern that searches for the literal unexpanded variable names fails this check"))
+def then_single_quote_fails(context: dict) -> None:
+    # GENUINE: the old single-quoted (non-expanding) form does NOT match the
+    # running containers — it searches for the literal '$OPS_..._CONTAINER' text.
+    single = "'^$OPS_POSTGRES_CONTAINER$|^$OPS_AGENT_VAULT_CONTAINER$'"
+    assert not _kgrq_run(context["coords"], single, context["running_names"]), (
+        "a single-quoted non-expanding readiness pattern must NOT match the running containers"
+    )
+
+
+@then(parsers.parse('when neither slug-scoped container is running the check still aborts with the "neither was found" diagnostic'))
+def then_aborts_on_absence(context: dict) -> None:
+    # GENUINE: with no running containers the expanded grep does not match -> abort.
+    assert not _kgrq_run(context["coords"], context["grep_pat"], []), (
+        "the readiness check must NOT match when no slug-scoped containers run"
+    )
+    assert "neither was found" in context["footing"], "footing must keep the absence diagnostic"

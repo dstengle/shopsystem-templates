@@ -260,7 +260,7 @@ docker volume rm "$OPS_AGENT_VAULT_CONTAINER-data" 2>/dev/null || true
 # .env carries AGENT_VAULT_MASTER_PASSWORD now, so the broker auto-unseals.
 docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres agent-vault
 
-if ! docker ps --format '{{.Names}}' | grep -Eq '^$OPS_POSTGRES_CONTAINER$|^$OPS_AGENT_VAULT_CONTAINER$'; then
+if ! docker ps --format '{{.Names}}' | grep -Eq "^$OPS_POSTGRES_CONTAINER\$|^$OPS_AGENT_VAULT_CONTAINER\$"; then
   echo "footing: expected the slug-scoped compose containers ($OPS_POSTGRES_CONTAINER / $OPS_AGENT_VAULT_CONTAINER) to be running, but neither was found." >&2
   echo "  Check 'docker compose -f $REPO_ROOT/compose.yaml ps'. Aborting." >&2
   exit 1

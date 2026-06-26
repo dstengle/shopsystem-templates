@@ -93,11 +93,19 @@ DEXEC_SCOPED=(docker exec -i \
   "$CONTAINER")
 
 # -----------------------------------------------------------------------
-# Resolve the pending proposal number from the vault-scoped session — the same
-# `proposal list --status pending` fallback provision uses to surface it.
+# Resolve the CLAUDE_OAUTH proposal's IDENTITY number (lead-21uk). PRIMARY: read
+# the create-time number footing persisted into .env as CLAUDE_OAUTH_PROPOSAL_NUM
+# (the robust "id" from `proposal create --json`). FALLBACK: parse `proposal
+# list`, taking the LEADING "#" column — the FIRST number on a pending data row —
+# NEVER `tail -n1`, which grabbed the trailing CREATED-timestamp minutes (e.g.
+# '58' from '16:58') and produced 'Error: Proposal #58 not found'.
 # -----------------------------------------------------------------------
-PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null \
-  | grep -oE '[0-9]+' | tail -n1)"
+ENV_FILE="${ENV_FILE:-.env}"
+PROPOSAL_NUM="$(grep -E '^CLAUDE_OAUTH_PROPOSAL_NUM=' "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2 | tr -dc '0-9')"
+if [[ -z "$PROPOSAL_NUM" ]]; then
+  PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null \
+    | grep -F 'pending' | head -n1 | grep -oE '[0-9]+' | head -n1)"
+fi
 if [[ -z "$PROPOSAL_NUM" ]]; then
   echo "agent-vault-approve-claude: no pending proposal found on vault '$VAULT' (broker '$CONTAINER')." >&2
   echo "  Create the CLAUDE_OAUTH proposal first:  bin/agent-vault-provision" >&2

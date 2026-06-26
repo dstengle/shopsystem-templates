@@ -17931,12 +17931,16 @@ def then_footing_single_up_front_gate(context: dict) -> None:
         "before any later step"
     )
 
-    # It is ONE gate: the Claude OAuth proposal creation (the OAuth capture
-    # point) must itself sit inside the up-front segment, ahead of the later
-    # footing steps — not interleaved after services/pour/push.
-    assert "agent-vault vault proposal create" in gate, (
-        "the Claude OAuth credential must be captured by the single up-front "
-        "gate (before any later step), via `agent-vault vault proposal create`"
+    # It is ONE gate: the Claude OAuth capture point (PDR-022: the proposal-create
+    # is delegated to bin/agent-vault-provision, which footing invokes inside the
+    # up-front segment, then footing presents the approve handoff) must sit ahead
+    # of the later footing steps — not interleaved after the pour/push.
+    assert 'bin/agent-vault-provision' in gate, (
+        "the Claude OAuth credential must be captured by the single up-front gate "
+        "via the delegated bin/agent-vault-provision (which creates the proposal)"
+    )
+    assert "./bin/agent-vault-approve-claude" in gate, (
+        "the gate must present the human approve handoff for the OAuth proposal"
     )
 
 
@@ -17947,34 +17951,30 @@ def then_footing_single_up_front_gate(context: dict) -> None:
 )
 def then_footing_oauth_proposal_capture(context: dict) -> None:
     body = context["footing_body"]
+    from shop_templates.cli import render_ops_template
+    prov = render_ops_template("agent-vault-provision", "dummyco")
 
-    # Captured IN-SCRIPT via an `agent-vault vault proposal` of type oauth —
-    # reusing the bin/agent-vault-provision contract (proposal create + the
-    # oauth-typed slot).
-    assert "agent-vault vault proposal create" in body, (
-        "footing must capture the Claude OAuth credential in-script via "
-        "`agent-vault vault proposal create`"
+    # PDR-022: the oauth proposal is created by the delegated bin/agent-vault-
+    # provision (the oauth-typed slot), which footing invokes; footing presents
+    # the human approve handoff.
+    assert "agent-vault vault proposal create" in prov, (
+        "the delegated provision must create the oauth proposal"
     )
-    assert '"type":"oauth"' in body, (
-        "the proposal must be of type oauth (the oauth-typed credential slot)"
+    assert '"type":"oauth"' in prov and "CLAUDE_OAUTH" in prov, (
+        "the proposal must be the oauth-typed CLAUDE_OAUTH credential slot"
     )
-    assert "CLAUDE_OAUTH" in body, (
-        "the oauth proposal must target the CLAUDE_OAUTH credential"
-    )
+    assert 'bash "$REPO_ROOT/bin/agent-vault-provision"' in body, "footing must invoke provision"
 
-    # The human APPROVES it — the same `proposal approve <num> ... --yes`
-    # contract bin/agent-vault-provision uses.
-    approve_lines = [ln for ln in body.splitlines() if "proposal approve" in ln]
-    assert approve_lines, (
-        "footing must have the human approve the oauth proposal via the "
-        "`proposal approve <num> CLAUDE_OAUTH=<value> --yes` contract"
+    # The human APPROVES it — footing presents the bin/agent-vault-approve-claude
+    # handoff, and provision's printed approve command keeps CLAUDE_OAUTH=<value>
+    # a placeholder with --yes (the provision approve contract).
+    assert "./bin/agent-vault-approve-claude" in body, (
+        "footing must present the bin/agent-vault-approve-claude approve handoff"
     )
-    assert any(
-        "CLAUDE_OAUTH=<" in ln and "--yes" in ln for ln in approve_lines
-    ), (
-        "the approve command must keep CLAUDE_OAUTH=<...> a placeholder for "
-        "the human to fill at approve-time and carry --yes (reusing the "
-        "provision approve contract): {!r}".format(approve_lines)
+    approve_lines = [ln for ln in prov.splitlines() if "proposal approve" in ln]
+    assert any("CLAUDE_OAUTH=<" in ln and "--yes" in ln for ln in approve_lines), (
+        "provision's printed approve command must keep CLAUDE_OAUTH=<...> a "
+        "placeholder with --yes: {!r}".format(approve_lines)
     )
 
     # The real secret is supplied ONLY at approve-time; no automated step
@@ -21093,11 +21093,13 @@ def then_footing_connects_before_first_address(context: dict) -> None:
     slug = context["footing_slug"]
     connect = b.find('docker network connect "$OPS_NETWORK"')
     compose = b.find("docker compose -f")
-    addr = b.find("agent-vault auth login --address")
+    # PDR-022: footing delegates the in-network agent-vault calls to provision;
+    # the self-attach must precede that delegated provisioning invocation.
+    addr = b.find('bash "$REPO_ROOT/bin/agent-vault-provision"')
     assert connect != -1, "footing does not self-attach via `docker network connect`"
     assert compose != -1 and addr != -1
     assert compose < connect < addr, (
-        "the self-attach must be AFTER compose-up and BEFORE the first --address call"
+        "the self-attach must be AFTER compose-up and BEFORE the delegated provisioning"
     )
     assert '"$(hostname)"' in b, "footing must connect its OWN container ($(hostname))"
 
@@ -21128,7 +21130,9 @@ def then_footing_calls_reach_broker(context: dict) -> None:
     b = context["footing"]
     slug = context["footing_slug"]
     connect = b.find('docker network connect "$OPS_NETWORK"')
-    for marker in ("agent-vault auth login --address", "vault token", "vault proposal create"):
+    # PDR-022: the agent-vault calls are made by the delegated provision run (and
+    # footing's broker-local approve-wait) — both AFTER the self-attach.
+    for marker in ('bash "$REPO_ROOT/bin/agent-vault-provision"', 'docker exec -i "$OPS_AGENT_VAULT_CONTAINER" agent-vault vault credential list'):
         idx = b.find(marker)
         assert idx != -1 and idx > connect, f"{marker!r} must come AFTER the self-attach"
     assert "$OPS_AGENT_VAULT_ADDR" in b
@@ -21189,7 +21193,8 @@ def then_footing_member_exactly_once(context: dict) -> None:
 def then_footing_proceeds_after_attach(context: dict) -> None:
     b = context["footing"]
     slug = context["footing_slug"]
-    assert b.find('docker network connect "$OPS_NETWORK"') < b.find("agent-vault auth login --address")
+    # PDR-022: the in-network agent-vault calls run inside the delegated provision.
+    assert b.find('docker network connect "$OPS_NETWORK"') < b.find('bash "$REPO_ROOT/bin/agent-vault-provision"')
 
 
 # -- GROUP B — starter slim -------------------------------------------------
@@ -21784,9 +21789,10 @@ def then_footing_polls_readiness(context: dict) -> None:
     f = context["footing"]
     connect = f.find("docker network connect")
     poll = f.find("for _try in $(seq 1 60)")
-    call = f.find("agent-vault auth login --address")
+    # PDR-022: the first agent-vault call is the delegated provision invocation.
+    call = f.find('bash "$REPO_ROOT/bin/agent-vault-provision"')
     assert connect != -1 and poll != -1 and call != -1
-    assert connect < poll < call, "readiness poll must be after self-attach and before the first call"
+    assert connect < poll < call, "readiness poll must be after self-attach and before the delegated provisioning"
 
 
 @then(
@@ -21797,7 +21803,7 @@ def then_footing_polls_readiness(context: dict) -> None:
 )
 def then_footing_waits_until_ready(context: dict) -> None:
     f = context["footing"]
-    assert f.find("for _try in $(seq 1 60)") < f.find("agent-vault auth login --address")
+    assert f.find("for _try in $(seq 1 60)") < f.find('bash "$REPO_ROOT/bin/agent-vault-provision"')
     assert "_broker_ready=1" in f
 
 
@@ -22203,8 +22209,14 @@ def then_no_owner_pw_prompt(context: dict) -> None:
 )
 def then_registers_with_owner_pw(context: dict) -> None:
     f = context["footing_body"]
-    assert 'auth register --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin' in f
-    assert 'printf \'%s\' "$OWNER_PASSWORD" | agent-vault auth register' in f
+    # PDR-022: footing GENERATES the owner password and EXPORTS it; the owner
+    # registration is done by the delegated bin/agent-vault-provision (which
+    # footing invokes), consuming that same generated password.
+    assert 'export AGENT_VAULT_OWNER_PASSWORD="$OWNER_PASSWORD"' in f
+    assert 'bash "$REPO_ROOT/bin/agent-vault-provision"' in f
+    from shop_templates.cli import render_ops_template
+    prov = render_ops_template("agent-vault-provision", "dummyco")
+    assert "agent-vault auth register" in prov and "OWNER_PASSWORD" in prov
 
 
 @then(
@@ -22226,7 +22238,13 @@ def then_owner_email_identity(context: dict) -> None:
 )
 def then_registers_under_identity(context: dict) -> None:
     f = context["footing_body"]
-    assert '--email "$AGENT_VAULT_OWNER_EMAIL"' in f
+    # PDR-022: footing captures + exports the owner email; the delegated provision
+    # registers the owner under that recorded identity.
+    assert 'export AGENT_VAULT_OWNER_EMAIL' in f
+    assert 'bash "$REPO_ROOT/bin/agent-vault-provision"' in f
+    from shop_templates.cli import render_ops_template
+    prov = render_ops_template("agent-vault-provision", "dummyco")
+    assert '--email "$OWNER_EMAIL"' in prov and "auth register" in prov
 
 
 # ---- Scenario 04426cc4 — footing creates the vault before the scoped session
@@ -22258,7 +22276,8 @@ def given_footing_no_vault_yet(context: dict) -> None:
 
 @given(parsers.parse('the owner account has just been created via "agent-vault auth register"'))
 def given_owner_account_created(context: dict) -> None:
-    assert "agent-vault auth register" in context["footing"]
+    # PDR-022: the owner is registered by the delegated provision footing invokes.
+    assert 'bash "$REPO_ROOT/bin/agent-vault-provision"' in context["footing"]
 
 
 @when(parsers.parse("the script reaches the Claude OAuth provisioning sequence in its auth gate"))
@@ -22910,10 +22929,15 @@ def when_operator_runs_approve(context: dict) -> None:
 
 @then(parsers.parse('footing persists the create-time identity number "1" into ".env" as "CLAUDE_OAUTH_PROPOSAL_NUM"'))
 def then_footing_persists_num(context: dict) -> None:
+    # PDR-022: provision (which footing invokes) creates the proposal and persists
+    # the create-time identity number; footing no longer inlines the proposal-create.
     f = context["footing"]
-    assert '_env_upsert CLAUDE_OAUTH_PROPOSAL_NUM "$PROPOSAL_NUM"' in f, "footing must persist CLAUDE_OAUTH_PROPOSAL_NUM"
+    assert 'bash "$REPO_ROOT/bin/agent-vault-provision"' in f
+    from shop_templates.cli import render_ops_template
+    prov = render_ops_template("agent-vault-provision", "dummyco")
+    assert "CLAUDE_OAUTH_PROPOSAL_NUM=$PROPOSAL_NUM" in prov, "provision must persist CLAUDE_OAUTH_PROPOSAL_NUM"
     # The persisted value comes from the robust create-json head-parse (the "id").
-    assert 'grep -oE \'"(number|id)"[[:space:]]*:[[:space:]]*[0-9]+\'' in f
+    assert 'grep -oE \'"(number|id)"[[:space:]]*:[[:space:]]*[0-9]+\'' in prov
 
 
 @then(parsers.parse('approve-claude resolves the proposal number to "1" by reading the persisted "CLAUDE_OAUTH_PROPOSAL_NUM" from ".env"'))
@@ -22938,8 +22962,11 @@ def then_approve_fallback_hash(context: dict) -> None:
 
 @then(parsers.parse('footing\'s own "proposal list" fallback likewise resolves "1" and never "58"'))
 def then_footing_fallback_hash(context: dict) -> None:
-    out = _run_pipeline(_extract_fallback_pipeline(context["footing"]), context["ansi"])
-    assert out == "1", f"footing fallback must resolve the '#' column '1', got {out!r}"
+    # PDR-022: the proposal-list fallback lives in the delegated provision now.
+    from shop_templates.cli import render_ops_template
+    prov = render_ops_template("agent-vault-provision", "dummyco")
+    out = _run_pipeline(_extract_fallback_pipeline(prov), context["ansi"])
+    assert out == "1", f"provision fallback must resolve the '#' column '1', got {out!r}"
     assert out != "58"
 
 
@@ -22955,8 +22982,10 @@ def then_approve_never_58(context: dict) -> None:
     # Both resolution paths yield '1' for this row; '58' (the timestamp tail) is
     # never the RESOLVED number. (The string '58' may appear in an explanatory
     # comment; what matters is no parse path produces it.)
+    from shop_templates.cli import render_ops_template
+    prov = render_ops_template("agent-vault-provision", "dummyco")
     assert _run_pipeline(_extract_fallback_pipeline(context["approve"]), context["ansi"]) == "1"
-    assert _run_pipeline(_extract_fallback_pipeline(context["footing"]), context["ansi"]) == "1"
+    assert _run_pipeline(_extract_fallback_pipeline(prov), context["ansi"]) == "1"
     # The OLD buggy `tail -n1` parse must be gone from the approve invocation path.
     assert "| grep -oE '[0-9]+' | tail -n1" not in context["approve"]
 
@@ -23543,3 +23572,186 @@ def then_aborts_on_absence(context: dict) -> None:
         "the readiness check must NOT match when no slug-scoped containers run"
     )
     assert "neither was found" in context["footing"], "footing must keep the absence diagnostic"
+
+
+# ---- Scenarios b0d76876/7985e6b3/8c975527/b0d1e504 — footing delegates to
+# provision (PDR-022 Phase A, lead-0j7o). Body-assertion over footing + provision.
+
+def _yudo_footing(slug: str = "acme") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("footing", slug)
+
+
+def _yudo_provision(slug: str = "acme") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("agent-vault-provision", slug)
+
+
+def _yudo_footing_code(slug: str = "acme") -> str:
+    return "\n".join(l for l in _yudo_footing(slug).splitlines() if not l.lstrip().startswith("#"))
+
+
+# -- b0d76876 — footing invokes provision, no inline ------------------------
+
+@given(parsers.parse("footing has reached the point in its runway where the agent-vault broker is up and ready"))
+def given_footing_broker_ready(context: dict) -> None:
+    context["footing"] = _yudo_footing()
+    context["fcode"] = _yudo_footing_code()
+
+
+@given(parsers.parse("the single up-front auth gate has collected the owner password and the GitHub PAT"))
+def given_gate_collected(context: dict) -> None:
+    f = context["footing"]
+    assert "OWNER_PASSWORD" in f and "GITHUB_TOKEN" in f
+
+
+@when(parsers.parse("footing performs credential provisioning"))
+def when_footing_provisions(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('it invokes "bin/agent-vault-provision" as the provisioning step'))
+def then_footing_invokes_provision(context: dict) -> None:
+    assert 'bash "$REPO_ROOT/bin/agent-vault-provision"' in context["footing"], (
+        "footing must invoke bin/agent-vault-provision"
+    )
+
+
+@then(parsers.parse("it does not inline its own vault-create, broker-local PAT store, or OAuth proposal-create"))
+def then_footing_no_inline(context: dict) -> None:
+    code = context["fcode"]
+    assert "agent-vault vault create" not in code, "footing must not inline vault-create"
+    assert "vault credential set" not in code, "footing must not inline the PAT store"
+    assert "vault proposal create" not in code, "footing must not inline the OAuth proposal-create"
+
+
+@then(parsers.parse("provision resolves the slug, container, vault, and broker address from the shared ops-coordinates artifact rather than footing passing a divergent set"))
+def then_provision_sources_artifact(context: dict) -> None:
+    prov = _yudo_provision()
+    assert 'source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"' in prov, (
+        "provision must source the shared ops-coordinates artifact"
+    )
+    assert "$OPS_AGENT_VAULT_CONTAINER" in prov and "$OPS_VAULT_NAME" in prov
+
+
+# -- 7985e6b3 — provision: fleet token, .env writeback, github cred, services -
+
+@given(parsers.parse("a running agent-vault broker with an empty vault"))
+def given_broker_empty_vault(context: dict) -> None:
+    context["provision"] = _yudo_provision("acme")
+
+
+@given(parsers.parse("footing is bringing up a shop whose slug is acme"))
+def given_shop_slug_acme(context: dict) -> None:
+    pass
+
+
+@when(parsers.parse("footing invokes bin/agent-vault-provision"))
+def when_footing_invokes_prov(context: dict) -> None:
+    context.setdefault("provision", _yudo_provision("acme"))
+
+
+@then(parsers.parse("an acme-fleet agent token is minted"))
+def then_fleet_token_minted(context: dict) -> None:
+    p = context["provision"]
+    assert 'FLEET_AGENT="acme-fleet"' in p and "agent create" in p and "--token-only" in p
+
+
+@then(parsers.parse("AGENT_VAULT_TOKEN, AGENT_VAULT, and AGENT_VAULT_CA_PEM are written to .env"))
+def then_env_writeback(context: dict) -> None:
+    p = context["provision"]
+    for key in ("AGENT_VAULT_TOKEN=", "AGENT_VAULT_VAULT=", "AGENT_VAULT_CA_PEM="):
+        assert key in p, f"provision must write {key} into .env"
+
+
+@then(parsers.parse("the GitHub credential is stored in the vault"))
+def then_github_cred_stored(context: dict) -> None:
+    assert 'agent-vault vault credential set' in context["provision"] and "GITHUB_TOKEN" in context["provision"]
+
+
+@then(parsers.parse("the github-git and github-api services and the claude-api, claude-platform, and claude-mcp-proxy services are wired"))
+def then_services_wired(context: dict) -> None:
+    p = context["provision"]
+    for svc in ("github-git", "github-api", "claude-api", "claude-platform", "claude-mcp-proxy"):
+        assert f"--name {svc}" in p, f"service {svc} must be wired"
+
+
+# -- 8c975527 — provision owns proposal-create; footing keeps approve gate ---
+
+@given(parsers.parse('footing delegates credential provisioning to "bin/agent-vault-provision"'))
+def given_footing_delegates(context: dict) -> None:
+    context["footing"] = _yudo_footing()
+    context["fcode"] = _yudo_footing_code()
+    context["provision"] = _yudo_provision()
+
+
+@when(parsers.parse("footing reaches the Claude OAuth step of its runway"))
+def when_footing_oauth_step(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse("provision is the step that creates the CLAUDE_OAUTH proposal, and footing does not inline a proposal-create"))
+def then_provision_owns_proposal(context: dict) -> None:
+    assert "agent-vault vault proposal create" in context["provision"], "provision must create the proposal"
+    assert "vault proposal create" not in context["fcode"], "footing must not inline a proposal-create"
+
+
+@then(parsers.parse('footing presents the operator the exact "bin/agent-vault-approve-claude" command and waits for the proposal to be approved before continuing'))
+def then_footing_presents_approve(context: dict) -> None:
+    f = context["footing"]
+    assert "./bin/agent-vault-approve-claude" in f, "footing must present the approve command"
+    assert "until docker exec" in f and "grep -qw 'CLAUDE_OAUTH'" in f, "footing must block until approved"
+
+
+@then(parsers.parse("no later footing step re-creates the proposal or re-prompts for the OAuth credential"))
+def then_no_reprompt(context: dict) -> None:
+    code = context["fcode"]
+    assert code.count("vault proposal create") == 0
+    # The PAT is read once at the gate; no second prompt.
+    assert _yudo_footing().count('read -r -s -p "footing[auth gate]: GitHub PAT') == 1
+
+
+# -- b0d1e504 — provision creates vault + broker-local PAT store -------------
+
+@given(parsers.parse("a running agent-vault broker reachable broker-locally via docker exec"))
+def given_broker_dockerexec(context: dict) -> None:
+    context["provision"] = _yudo_provision()
+
+
+@given(parsers.parse("the owner password and the GitHub username and PAT are available to provision"))
+def given_creds_available(context: dict) -> None:
+    p = context["provision"]
+    assert "OWNER_PASSWORD" in p and "GITHUB_USERNAME" in p and "GITHUB_TOKEN" in p
+
+
+@when(parsers.parse('"bin/agent-vault-provision" runs'))
+def when_provision_runs(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('it registers the owner and creates the "<slug>" vault, so the vault exists after provision completes'))
+def then_provision_registers_creates(context: dict) -> None:
+    p = context["provision"]
+    assert "agent-vault auth register" in p, "provision must register the owner"
+    assert '"${DEXEC_LOCAL[@]}" agent-vault vault create "$VAULT"' in p, "provision must create the vault (broker-local)"
+
+
+@then(parsers.parse('it stores the GitHub PAT in the "<slug>" vault via a broker-local docker-exec credential set, so the stored credential is retrievable broker-locally'))
+def then_provision_pat_brokerlocal(context: dict) -> None:
+    p = context["provision"]
+    assert '"${DEXEC_LOCAL[@]}" agent-vault vault credential set' in p, (
+        "provision must store the PAT via a broker-local docker-exec credential set"
+    )
+    assert 'DEXEC_LOCAL=(docker exec -i "$CONTAINER")' in p, "DEXEC_LOCAL must be docker exec into the broker"
+
+
+@then(parsers.parse("these credential operations run broker-local docker-exec only, never through the owner remote scoped session or a fleet agent token"))
+def then_credops_dockerexec_only(context: dict) -> None:
+    p = context["provision"]
+    for marker in ("agent-vault vault create", "agent-vault vault credential set"):
+        lines = [l for l in p.splitlines() if marker in l and not l.lstrip().startswith("#")]
+        assert lines and all("DEXEC_LOCAL" in l for l in lines), (
+            f"{marker!r} must run broker-local docker-exec only: {lines!r}"
+        )
+        # Not through the owner remote scoped session (DEXEC_SCOPED is the proposal path only).
+        assert all("DEXEC_SCOPED" not in l for l in lines)

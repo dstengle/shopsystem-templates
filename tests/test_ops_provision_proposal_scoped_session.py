@@ -156,30 +156,39 @@ def test_provision_preserves_proposal_number_capture():
 
 
 def test_provision_owner_steps_run_locally_not_docker_exec():
-    """LOCAL-FIRST (lead-mrn2): owner register/login, vault create, credential
-    set, the service adds, fleet-token mint, and ca fetch run agent-vault
-    LOCALLY on the lead host (bound to the broker by the `auth --address`
-    session), NOT via `docker exec` into the broker container."""
+    """LOCAL-FIRST (lead-mrn2): the owner register/login session binds to the
+    broker over `auth --address`, and the service adds, fleet-token mint, and ca
+    fetch run agent-vault LOCALLY (NOT via docker exec). EXCEPTION (lead-0j7o /
+    PDR-022 b0d1e504): the CREDENTIAL ops (vault create / credential set) MUST run
+    broker-local via docker exec — through the owner remote session they fail
+    'Member role required'; those two run under `${DEXEC_LOCAL[@]}` (docker exec),
+    not locally."""
     body = _provision()
-    owner_markers = (
-        "agent-vault auth register",
-        "agent-vault vault create",
-        "agent-vault vault credential set",
+    # `auth register`/`login` now appears BOTH locally (--address, the instance-
+    # owner session) AND broker-local (the DEXEC_LOCAL session that authorizes the
+    # credential ops), so it is not in this local-only set.
+    local_markers = (
         "agent-vault agent create",
         "agent-vault ca fetch",
     )
-    for marker in owner_markers:
+    for marker in local_markers:
         assert marker in body, f"owner step {marker!r} must still render"
-        # The actual invocation lines must NOT be wrapped in a docker exec.
         invocation_lines = [
             ln for ln in body.splitlines()
             if marker in ln and not ln.strip().startswith("#")
         ]
         assert invocation_lines, f"owner step {marker!r} must render an invocation"
         for ln in invocation_lines:
-            assert "docker exec" not in ln, (
+            assert "docker exec" not in ln and "DEXEC_LOCAL" not in ln, (
                 f"owner step {marker!r} must run locally, not via docker exec: {ln!r}"
             )
+    # The credential ops run broker-local docker-exec (b0d1e504).
+    for marker in ("agent-vault vault create", "agent-vault vault credential set"):
+        cred_lines = [ln for ln in body.splitlines() if marker in ln and not ln.strip().startswith("#")]
+        assert cred_lines, f"credential op {marker!r} must render"
+        assert all("DEXEC_LOCAL" in ln for ln in cred_lines), (
+            f"credential op {marker!r} must run broker-local docker-exec (${{DEXEC_LOCAL[@]}}): {cred_lines!r}"
+        )
     # The owner session binds to the local-first broker address.
     assert 'auth login --address "$AGENT_VAULT_ADDR"' in body
     # The five services stay rendered.

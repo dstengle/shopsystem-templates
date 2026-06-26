@@ -318,134 +318,53 @@ else
 fi
 echo "footing: agent-vault broker is ready at '$AGENT_VAULT_ADDR'." >&2
 
-# (c) Claude OAuth credential — captured IN-SCRIPT via an oauth-typed proposal
-#     the human APPROVES (reusing the bin/agent-vault-provision contract). The
-#     proposal create/approve run in AGENT mode on agent-vault 0.32.0 and need
-#     a vault-SCOPED session.
-#
-# LOCAL-FIRST (lead-mrn2): run agent-vault on the LEAD HOST against
-# AGENT_VAULT_ADDR — NOT `docker exec` into the broker. Establish the owner
-# session locally (auth login/register --address), mint the vault-scoped
-# session locally, then run the proposal subcommands locally under the scoped
-# session env.
-# Register the owner using the GENERATED owner password + the recorded owner
-# email captured at the auth gate (lead-7s4k envup3/envup4); both were set
-# above and upserted into .env.
-if ! printf '%s' "$OWNER_PASSWORD" | agent-vault auth login --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin 2>/dev/null; then
-  printf '%s' "$OWNER_PASSWORD" | agent-vault auth register --address "$AGENT_VAULT_ADDR" --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin
-fi
-# CREATE the vault before minting a vault-scoped session against it (lead-h2rq).
-# `vault token --vault "$AGENT_VAULT_VAULT"` and the proposal subcommands below
-# require the vault to EXIST; footing never created it, so the scoped-session
-# mint failed with 'Vault "<slug>" not found'. Create it now, IDEMPOTENTLY — a
-# re-run on an already-existing vault must not abort under `set -e`.
-# `agent-vault vault create` reads the broker address from the AGENT_VAULT_ADDR
-# ENVIRONMENT (exported above) and REJECTS an `--address` flag ('unknown flag:
-# --address' — only `vault token` accepts `--address`). Passing `--address` and
-# then swallowing the error with `2>/dev/null || true` left the vault UNCREATED,
-# so the later `vault token --vault <slug>` failed 'Vault not found' (lead-4sg9,
-# superseding lead-h2rq). Pass NO `--address`; do NOT mask the exit status —
-# tolerate ONLY an idempotent already-exists; surface any other failure (unknown
-# flag, broker error) and ABORT.
-if _vc_out="$(agent-vault vault create "$AGENT_VAULT_VAULT" 2>&1)"; then
-  printf '%s\n' "$_vc_out" >&2
-elif printf '%s' "$_vc_out" | grep -qiE 'already exists'; then
-  echo "footing: vault '$AGENT_VAULT_VAULT' already exists — continuing (idempotent)." >&2
-else
-  echo "footing: 'agent-vault vault create $AGENT_VAULT_VAULT' failed (not an already-exists outcome): $_vc_out" >&2
-  exit 1
-fi
-_SCOPED_SESSION="$(agent-vault vault token --vault "$AGENT_VAULT_VAULT" --address "$AGENT_VAULT_ADDR" | tr -d '\r\n')"
-if [[ -z "$_SCOPED_SESSION" ]]; then
-  echo "footing: failed to mint a vault-scoped session for the Claude OAuth proposal on vault '$AGENT_VAULT_VAULT'." >&2
-  exit 1
-fi
-# Run the proposal subcommands LOCALLY under the vault-scoped session env.
-DEXEC_SCOPED=(env \
-  AGENT_VAULT_TOKEN="$_SCOPED_SESSION" \
-  AGENT_VAULT_ADDR="$AGENT_VAULT_ADDR" \
-  AGENT_VAULT_VAULT="$AGENT_VAULT_VAULT")
+# Claude OAuth + ALL credential/service/fleet-token provisioning is DELEGATED to
+# bin/agent-vault-provision (PDR-022 Phase A, lead-0j7o). provision does the full
+# broker-local sequence: owner register -> vault create -> github credential set
+# -> the five service adds (github-git/github-api/claude-api/claude-platform/
+# claude-mcp-proxy) -> fleet agent token (<slug>-fleet) -> ca fetch -> .env
+# writeback (AGENT_VAULT_TOKEN/AGENT_VAULT_VAULT/AGENT_VAULT_CA_PEM) -> the
+# CLAUDE_OAUTH proposal-create. footing does NOT inline vault-create, the
+# broker-local PAT store, or the OAuth proposal-create — it consumes the gate's
+# generated owner password + the collected GitHub PAT (exported) and presents
+# ONLY the human approve gate below. provision resolves the slug/container/vault/
+# addr from the SAME sourced ops-coordinates artifact (ADR-043), so footing
+# passes no divergent coordinate set.
+export GITHUB_USERNAME="${GITHUB_USERNAME:-x-access-token}"
+bash "$REPO_ROOT/bin/agent-vault-provision"
 
-# Store the already-collected GitHub PAT into the <slug> vault for later brokered
-# GitHub access by BCs and agents (lead-0j60, superseding lead-pdsd I3). On
-# agent-vault 0.32.0 `vault credential set` requires Member role and FAILS
-# 'Member role required' through the owner's REMOTE vault-scoped session (and any
-# fleet token) — it works ONLY BROKER-LOCALLY. So register a broker-local owner
-# session INSIDE the broker container and set the static GITHUB_TOKEN credential
-# via `docker exec` (the same broker-local mechanism that round-trips live), NOT
-# through the owner-remote scoped session. REUSES the gate PAT — NO second human
-# prompt (scenario 184). NON-FATAL under `set -e`: it SUCCEEDS or DEGRADES to a
-# surfaced warning — it must never abort footing.
-_BROKER="$OPS_AGENT_VAULT_CONTAINER"
-if printf '%s' "$OWNER_PASSWORD" | docker exec -i "$_BROKER" agent-vault auth login --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin >/dev/null 2>&1 \
-   || printf '%s' "$OWNER_PASSWORD" | docker exec -i "$_BROKER" agent-vault auth register --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin >/dev/null 2>&1; then
-  if docker exec -i "$_BROKER" agent-vault vault credential set "GITHUB_TOKEN=$GITHUB_TOKEN" --vault "$AGENT_VAULT_VAULT" >/dev/null 2>&1; then
-    echo "footing: stored the GitHub PAT broker-locally in vault '$AGENT_VAULT_VAULT' (GITHUB_TOKEN, static) for later brokered access." >&2
-  else
-    echo "footing: WARNING — broker-local 'vault credential set GITHUB_TOKEN' failed; continuing without the vaulted PAT (set it later via bin/agent-vault-provision)." >&2
-  fi
-else
-  echo "footing: WARNING — could not establish a broker-local owner session in '$_BROKER' to store the GitHub PAT; continuing." >&2
-fi
-
-# The oauth-typed CLAUDE_OAUTH credential-slot proposal. action:set + type:oauth
-# + the oauth block (token_url REQUIRED); the slot stores NO token value — the
-# real secret arrives ONLY at approve-time (no automated step transports it).
-_oauth_proposal_json="$(cat <<EOF
-{"credentials":[{"action":"set","key":"CLAUDE_OAUTH","type":"oauth","oauth":{"token_url":"${CLAUDE_OAUTH_TOKEN_URL}","client_id":"${CLAUDE_OAUTH_CLIENT_ID}","scopes":"${CLAUDE_OAUTH_SCOPES}"},"description":"Claude OAuth","obtain_instructions":"paste accessToken+refreshToken at approve time"}],"message":"Provision the refreshing CLAUDE_OAUTH credential for vault ${AGENT_VAULT_VAULT}."}
-EOF
-)"
-echo "footing[auth gate]: creating the oauth-typed CLAUDE_OAUTH proposal (vault '$AGENT_VAULT_VAULT')." >&2
-_proposal_out="$(printf '%s' "$_oauth_proposal_json" | "${DEXEC_SCOPED[@]}" agent-vault vault proposal create -f - --json --vault "$AGENT_VAULT_VAULT")"
-PROPOSAL_NUM="$(printf '%s' "$_proposal_out" | grep -oE '"(number|id)"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
-if [[ -z "$PROPOSAL_NUM" ]]; then
-  # Fallback parse (lead-21uk): take the proposal's IDENTITY number — the leading
-  # "#" column, the FIRST number on a pending data row — NOT `tail -n1`, which
-  # grabbed the trailing CREATED-timestamp minutes (e.g. '58' from '16:58') and
-  # produced 'Proposal #58 not found'.
-  PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$AGENT_VAULT_VAULT" 2>/dev/null | grep -F 'pending' | head -n1 | grep -oE '[0-9]+' | head -n1)"
-fi
-# Persist the create-time identity number into .env so approve-claude approves
-# the RIGHT proposal by its "#" — not a re-parsed timestamp digit (lead-21uk).
-if [[ -n "$PROPOSAL_NUM" ]]; then
-  _env_upsert CLAUDE_OAUTH_PROPOSAL_NUM "$PROPOSAL_NUM"
-fi
-
-# Human APPROVES the proposal here, in the gate — via the CLI proposal flow
-# only (no web/UI route). The real Claude OAuth secret is pasted in place
-# of <value> AT APPROVE TIME; no automated step carries it.
+# Human APPROVES the CLAUDE_OAUTH proposal provision created — the ONE human
+# action left in the footing run (D4). Present the host-runnable approve command
+# and BLOCK until the approval lands, so footing does NOT reach solid footing
+# with an unapproved CLAUDE_OAUTH and no later step re-creates the proposal or
+# re-prompts for the OAuth credential.
 cat <<EOF >&2
 
   ┌──────────────────────────────────────────────────────────────────────┐
   │ AUTH GATE — approve the Claude-OAuth proposal (CLI flow, one-time)     │
   └──────────────────────────────────────────────────────────────────────┘
 
-  An oauth-typed CLAUDE_OAUTH credential-slot proposal
-  (#${PROPOSAL_NUM:-<see 'agent-vault vault proposal list'>}) was created on
-  vault '$AGENT_VAULT_VAULT'. Approve it by running this EXACT command FROM THE
-  HOST — supply the real Claude OAuth secret in place of <claude-oauth-token>
-  AT APPROVE TIME (no automated step carries the real secret; it is pasted only
-  here):
+  bin/agent-vault-provision created an oauth-typed CLAUDE_OAUTH credential-slot
+  proposal on vault '$AGENT_VAULT_VAULT'. Approve it by running this EXACT
+  command FROM THE HOST — supply the real Claude OAuth secret in place of
+  <claude-oauth-token> AT APPROVE TIME (no automated step carries the real
+  secret; it is pasted only here):
 
     ./bin/agent-vault-approve-claude <claude-oauth-token>
 
   bin/agent-vault-approve-claude resolves the broker container, vault, and
   pending proposal from the host (via the docker socket) and runs the scoped
-  approve — so the command is RUNNABLE from where you (the operator) run it,
-  not only from the in-network '$AGENT_VAULT_ADDR' address that does not
-  resolve on the host.
-
-  This is the LAST human action in the footing run. footing WAITS below until
-  this approval lands; the remaining steps then run with NO further credential.
+  approve. This is the LAST human action in the footing run. footing WAITS below
+  until this approval lands; the remaining steps then run with NO further credential.
 
 EOF
 
-# BLOCK-UNTIL-APPROVED (lead-n7dq S7): footing must NOT reach solid footing with
-# an unapproved CLAUDE_OAUTH. Poll the vault locally until the approved
-# CLAUDE_OAUTH credential lands (the host approve command above materializes
-# it), so footing only proceeds once the approval is real.
-echo "footing: waiting for the CLAUDE_OAUTH proposal (#${PROPOSAL_NUM:-<pending>}) to be approved on vault '$AGENT_VAULT_VAULT' — run './bin/agent-vault-approve-claude <token>' from the host now." >&2
-until "${DEXEC_SCOPED[@]}" agent-vault vault credential list --vault "$AGENT_VAULT_VAULT" 2>/dev/null | grep -qw 'CLAUDE_OAUTH'; do
+# BLOCK-UNTIL-APPROVED: poll the vault BROKER-LOCALLY (docker exec — on
+# agent-vault 0.32.0 the credential ops work only broker-locally; lead-0j60)
+# until the approved CLAUDE_OAUTH credential lands. footing only proceeds once
+# the approval is real.
+echo "footing: waiting for the CLAUDE_OAUTH proposal to be approved on vault '$AGENT_VAULT_VAULT' — run './bin/agent-vault-approve-claude <token>' from the host now." >&2
+until docker exec -i "$OPS_AGENT_VAULT_CONTAINER" agent-vault vault credential list --vault "$AGENT_VAULT_VAULT" 2>/dev/null | grep -qw 'CLAUDE_OAUTH'; do
   sleep 5
 done
 echo "footing: CLAUDE_OAUTH approved on vault '$AGENT_VAULT_VAULT' — proceeding toward solid footing." >&2

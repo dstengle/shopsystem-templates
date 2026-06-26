@@ -294,6 +294,21 @@ if [[ -z "$_broker_ready" ]]; then
   echo "footing: the agent-vault broker at '$AGENT_VAULT_ADDR' (container '{{OPS_SLUG}}-agent-vault') did not become ready within the retry budget — aborting." >&2
   exit 1
 fi
+
+# Discover the broker's ACTUAL docker-mapped HOST port (lead-nhr2 I5). The
+# in-network AGENT_VAULT_ADDR uses container port 14321, but the HOST port is the
+# generated/overridden OPS_VAULT_API_PORT (compose-mapped onto container 14321),
+# so 'http://localhost:14321' is NOT host-reachable for a non-default slug. Ask
+# docker for the real mapped host port (NOT assuming 14321) and record a DISTINCT
+# host-facing address; the in-network AGENT_VAULT_ADDR (:14321) is left UNCHANGED
+# (containers on the '{{OPS_SLUG}}' network still use it).
+_HOST_PORT="$(docker port "{{OPS_SLUG}}-agent-vault" 14321 2>/dev/null | head -n1 | sed -E 's/.*:([0-9]+)$/\1/')"
+if [[ -n "$_HOST_PORT" ]]; then
+  _env_upsert AGENT_VAULT_HOST_ADDR "http://localhost:$_HOST_PORT"
+  echo "footing: recorded host-reachable broker address 'http://localhost:$_HOST_PORT' (AGENT_VAULT_HOST_ADDR); in-network AGENT_VAULT_ADDR stays ':14321'." >&2
+else
+  echo "footing: WARNING — could not discover the broker's docker-mapped host port via 'docker port {{OPS_SLUG}}-agent-vault 14321'; AGENT_VAULT_HOST_ADDR not recorded." >&2
+fi
 echo "footing: agent-vault broker is ready at '$AGENT_VAULT_ADDR'." >&2
 
 # (c) Claude OAuth credential — captured IN-SCRIPT via an oauth-typed proposal
@@ -529,6 +544,23 @@ if bd dolt remote list 2>/dev/null | grep -q '^origin'; then
   : # beads remote already wired
 else
   bd dolt remote add origin "$BEADS_REMOTE"
+fi
+
+# Rewrite the .beads/config.yaml JSONL `sync.remote` to the DERIVED-org
+# "$PRODUCT-lead-beads" repo footing just wired the bd dolt remote to (lead-nhr2
+# I6). `shop-templates bootstrap` scaffolds sync.remote with a HARDCODED wrong
+# org and a wrong NAME ("<slug>-product-beads"); footing fixes the bd dolt remote
+# but left this separate sync.remote key stale. Correct it to match BEADS_REMOTE
+# so the JSONL-sync remote points at the same repo under the same derived owner.
+# (sync.remote is a flat YAML key.)
+_BEADS_CONFIG="$REPO_ROOT/.beads/config.yaml"
+if [[ -f "$_BEADS_CONFIG" ]]; then
+  if grep -qE '^sync\.remote:' "$_BEADS_CONFIG"; then
+    sed -i -E "s#^sync\\.remote:.*#sync.remote: \"$BEADS_REMOTE\"#" "$_BEADS_CONFIG"
+  else
+    printf 'sync.remote: "%s"\n' "$BEADS_REMOTE" >> "$_BEADS_CONFIG"
+  fi
+  echo "footing: rewrote .beads/config.yaml sync.remote -> '$BEADS_REMOTE' (derived org '$GITHUB_ORG' + '$PRODUCT-lead-beads', matching the bd dolt remote)." >&2
 fi
 
 # -----------------------------------------------------------------------

@@ -29,7 +29,21 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-GITHUB_ORG="${GITHUB_ORG:-dstengle}"
+# Derive the GitHub org/owner from the cloned <product>-lead repo's "origin"
+# remote (lead-pdsd I2) so the beads repo + git/dolt remotes land in the SAME
+# owner as the lead repo — NOT a hardcoded default. A pre-exported GITHUB_ORG
+# wins; there is NO baked owner default.
+GITHUB_ORG="${GITHUB_ORG:-}"
+if [[ -z "$GITHUB_ORG" ]]; then
+  _origin_url="$(git remote get-url origin 2>/dev/null || true)"
+  # owner = the second-to-last path segment of the origin URL
+  # (https://host/OWNER/REPO(.git) or git@host:OWNER/REPO(.git)).
+  GITHUB_ORG="$(printf '%s\n' "$_origin_url" | sed -E 's#\.git$##; s#.*[:/]([^/]+)/[^/]+$#\1#')"
+fi
+if [[ -z "$GITHUB_ORG" ]]; then
+  echo "footing: could not derive the GitHub org from 'git remote get-url origin' — set GITHUB_ORG explicitly and re-run." >&2
+  exit 1
+fi
 
 # =======================================================================
 # Validate the forked repo name and derive the product identity.
@@ -210,8 +224,16 @@ export AGENT_VAULT_ADDR
 # user so postgres can initdb + serve as that uid.
 export HOST_UID="$(id -u)"
 export HOST_GID="$(id -g)"
-_PGDATA_DIR="${{{OPS_SLUG_UPPER}}_DATA:-$HOME/.local/share/{{OPS_SLUG}}}/pgdata"
+# Resolve the data ROOT (override-aware: honors {{OPS_SLUG_UPPER}}_DATA per
+# scenario 9c8b8b40) and the pgdata dir under it.
+_DATA_ROOT="${{{OPS_SLUG_UPPER}}_DATA:-$HOME/.local/share/{{OPS_SLUG}}}"
+_PGDATA_DIR="$_DATA_ROOT/pgdata"
 mkdir -p "$_PGDATA_DIR"
+# The mkdir runs as the CONTAINER user, so the bind-mounted host tree would end
+# up owned by the container user/root (lead-pdsd I4). Own the RESOLVED data root
+# and pgdata as the INVOKING HOST USER so the host can manage the tree and
+# postgres (running as that uid) can initdb + serve.
+chown -R "$HOST_UID:$HOST_GID" "$_DATA_ROOT"
 
 # Reset a STALE agent-vault broker store (lead-sgxd c803b65b): the store lives in
 # the persistent named volume "{{OPS_SLUG}}-agent-vault-data" and is keyed to the
@@ -321,6 +343,13 @@ DEXEC_SCOPED=(env \
   AGENT_VAULT_TOKEN="$_SCOPED_SESSION" \
   AGENT_VAULT_ADDR="$AGENT_VAULT_ADDR" \
   AGENT_VAULT_VAULT="$AGENT_VAULT_VAULT")
+
+# Store the already-collected GitHub PAT into the <slug> vault for later brokered
+# GitHub access by BCs and agents (lead-pdsd I3). REUSES the PAT captured at the
+# single up-front auth gate — NO second human prompt (scenario 184). Runs under
+# the vault-scoped session; the secret rides the local argv only.
+"${DEXEC_SCOPED[@]}" agent-vault vault credential set "GITHUB_TOKEN=$GITHUB_TOKEN" --vault "$AGENT_VAULT_VAULT" >/dev/null
+echo "footing: stored the collected GitHub PAT into vault '$AGENT_VAULT_VAULT' (GITHUB_TOKEN) for later brokered access." >&2
 
 # The oauth-typed CLAUDE_OAUTH credential-slot proposal. action:set + type:oauth
 # + the oauth block (token_url REQUIRED); the slot stores NO token value — the

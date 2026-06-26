@@ -1,0 +1,47 @@
+Feature: post-broker footing/approve-claude fixes (oauth tokens, org, PAT store, data-root ownership)
+  approve-claude sources both Claude OAuth tokens from the host credentials.json; footing
+  derives the GitHub org from the lead repo origin, stores the collected PAT in the vault,
+  and owns the created data root + pgdata as the invoking host user.
+
+@scenario_hash:74d0086b73d4e477 @bc:shopsystem-templates
+Scenario: agent-vault-approve-claude sources both Claude OAuth tokens from the host credentials.json by default
+  Given a host whose "~/.claude/.credentials.json" holds a "claudeAiOauth" object carrying an "accessToken", a "refreshToken", and an "expiresAt"
+  And the operator runs "agent-vault-approve-claude" with no positional token argument
+  When the script approves the "CLAUDE_OAUTH" agent-vault vault proposal of credential type oauth
+  Then the script reads the Claude OAuth secret from the host's "~/.claude/.credentials.json" "claudeAiOauth" object by default rather than requiring a single positional token
+  And it attaches BOTH the access token and the refresh token, together with the expiry, to the "CLAUDE_OAUTH" oauth credential in the KEY=VALUE form that agent-vault's oauth credential type expects, so the broker can refresh the credential
+  And after approval the "CLAUDE_OAUTH" credential carries both the access and refresh tokens rather than a single opaque value
+  And a manual override path that supplies the OAuth secret explicitly remains available
+  And when "~/.claude/.credentials.json" is missing or unreadable the script exits non-zero with a diagnostic naming the unreadable credentials file
+
+@scenario_hash:da11e122c275a344 @bc:shopsystem-templates
+Scenario Outline: footing derives the GitHub org from the cloned lead repo origin remote instead of a hardcoded default
+  Given a cloned "<product>-lead" repository whose git "origin" remote URL names the owner "<origin_owner>"
+  And no "GITHUB_ORG" value is exported into the environment
+  When the footing script runs its repository-and-remote wiring step
+  Then footing parses the owner from "git remote get-url origin" and uses "<origin_owner>" as the GitHub org rather than a hardcoded default owner
+  And footing creates the "<slug>-lead-beads" repository under "<origin_owner>"
+  And footing wires the git origin remote and the bd dolt remote under "<origin_owner>"
+  And the rendered footing script carries no hardcoded "dstengle" org default
+
+  Examples:
+    | origin_owner |
+    | dstengle     |
+    | acme-corp    |
+
+@scenario_hash:a6b83d4fdac2743d @bc:shopsystem-templates
+Scenario: footing stores the collected GitHub PAT into the broker vault for later brokered GitHub access
+  Given footing has collected the GitHub PAT at its single up-front auth gate
+  And the broker vault is scoped to the product session "<slug>"
+  When footing completes the auth and credential-store steps of its sequence
+  Then footing stores the collected GitHub PAT into the broker vault as a credential under the "<slug>" vault session
+  And after footing completes a GitHub PAT credential exists in the "<slug>" vault and is retrievable for later brokered GitHub access by BCs and agents
+
+@scenario_hash:701e466b10834397 @bc:shopsystem-templates
+Scenario: footing creates the data root and pgdata owned by the invoking host user
+  Given footing runs in a container with "HOST_UID" and "HOST_GID" exported for the invoking host user
+  And the data root "~/.local/share/<slug>/" does not yet exist on the host
+  When footing pre-creates the data root and the "pgdata" directory under it via its mount onto the host
+  Then the host data root "~/.local/share/<slug>/" is owned by "HOST_UID:HOST_GID"
+  And the "pgdata" directory under the data root is owned by "HOST_UID:HOST_GID"
+  And neither the data root nor pgdata is left owned by the container user or root

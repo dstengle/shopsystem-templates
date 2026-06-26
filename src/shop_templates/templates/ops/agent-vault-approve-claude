@@ -31,17 +31,35 @@ CONTAINER="${AGENT_VAULT_CONTAINER:-{{OPS_SLUG}}-agent-vault}"
 VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
 
 # -----------------------------------------------------------------------
-# The Claude token is the SOLE positional argument. If absent, print usage and
-# exit non-zero (the token is never defaulted, never read from a file).
+# Source the Claude OAuth secret. CLAUDE_OAUTH is an oauth-typed REFRESHING
+# credential (the proposal carries token_url/client_id/scopes), so it needs BOTH
+# the access token AND the refresh token (plus the expiry) — a single token
+# cannot refresh (lead-pdsd I1). By DEFAULT read both from the host's
+# ~/.claude/.credentials.json "claudeAiOauth" object (the legitimate reason this
+# runs on the host) and build the oauth credential value agent-vault expects: a
+# JSON object with access_token + refresh_token + expires_at. A single positional
+# argument remains a manual OVERRIDE, used verbatim as the CLAUDE_OAUTH value.
+# The secret stays on the local/in-container argv and is NEVER echoed nor written.
 # -----------------------------------------------------------------------
-CLAUDE_TOKEN="${1:-}"
-if [[ -z "$CLAUDE_TOKEN" ]]; then
-  echo "usage: bin/agent-vault-approve-claude <claude-token>" >&2
-  echo "  Approves the pending CLAUDE_OAUTH credential-slot proposal on vault" >&2
-  echo "  '$VAULT' (broker '$CONTAINER'), attaching <claude-token> as the" >&2
-  echo "  CLAUDE_OAUTH credential value. Create the proposal first with" >&2
-  echo "  bin/agent-vault-provision." >&2
-  exit 2
+CRED_FILE="${CLAUDE_CREDENTIALS_FILE:-$HOME/.claude/.credentials.json}"
+OVERRIDE_TOKEN="${1:-}"
+if [[ -n "$OVERRIDE_TOKEN" ]]; then
+  CLAUDE_OAUTH_VALUE="$OVERRIDE_TOKEN"
+else
+  if [[ ! -r "$CRED_FILE" ]]; then
+    echo "agent-vault-approve-claude: cannot read the Claude credentials file '$CRED_FILE'." >&2
+    echo "  CLAUDE_OAUTH is a refreshing oauth credential and needs the access+refresh" >&2
+    echo "  tokens. Log in with the Claude CLI (which writes '$CRED_FILE'), or pass an" >&2
+    echo "  explicit oauth value as the positional override argument." >&2
+    exit 1
+  fi
+  CLAUDE_OAUTH_VALUE="$(jq -ec '.claudeAiOauth | {access_token: .accessToken, refresh_token: .refreshToken, expires_at: .expiresAt}' "$CRED_FILE" 2>/dev/null || true)"
+  if [[ -z "$CLAUDE_OAUTH_VALUE" ]] \
+     || [[ -z "$(printf '%s' "$CLAUDE_OAUTH_VALUE" | jq -r '.access_token // empty')" ]] \
+     || [[ -z "$(printf '%s' "$CLAUDE_OAUTH_VALUE" | jq -r '.refresh_token // empty')" ]]; then
+    echo "agent-vault-approve-claude: '$CRED_FILE' has no usable claudeAiOauth access/refresh tokens." >&2
+    exit 1
+  fi
 fi
 
 # Fail fast if the compose-defined broker is not up.
@@ -92,7 +110,7 @@ fi
 # never echoed to stdout/stderr nor written to any file.
 # -----------------------------------------------------------------------
 "${DEXEC_SCOPED[@]}" agent-vault vault proposal approve "$PROPOSAL_NUM" \
-  CLAUDE_OAUTH="$CLAUDE_TOKEN" --yes --vault "$VAULT"
+  CLAUDE_OAUTH="$CLAUDE_OAUTH_VALUE" --yes --vault "$VAULT"
 
 echo "agent-vault-approve-claude: CLAUDE_OAUTH credential approved for vault '$VAULT' (broker '$CONTAINER', proposal #$PROPOSAL_NUM)."
 exit 0

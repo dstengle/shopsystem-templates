@@ -295,7 +295,22 @@ fi
 # require the vault to EXIST; footing never created it, so the scoped-session
 # mint failed with 'Vault "<slug>" not found'. Create it now, IDEMPOTENTLY — a
 # re-run on an already-existing vault must not abort under `set -e`.
-agent-vault vault create "$AGENT_VAULT_VAULT" --address "$AGENT_VAULT_ADDR" 2>/dev/null || true
+# `agent-vault vault create` reads the broker address from the AGENT_VAULT_ADDR
+# ENVIRONMENT (exported above) and REJECTS an `--address` flag ('unknown flag:
+# --address' — only `vault token` accepts `--address`). Passing `--address` and
+# then swallowing the error with `2>/dev/null || true` left the vault UNCREATED,
+# so the later `vault token --vault <slug>` failed 'Vault not found' (lead-4sg9,
+# superseding lead-h2rq). Pass NO `--address`; do NOT mask the exit status —
+# tolerate ONLY an idempotent already-exists; surface any other failure (unknown
+# flag, broker error) and ABORT.
+if _vc_out="$(agent-vault vault create "$AGENT_VAULT_VAULT" 2>&1)"; then
+  printf '%s\n' "$_vc_out" >&2
+elif printf '%s' "$_vc_out" | grep -qiE 'already exists'; then
+  echo "footing: vault '$AGENT_VAULT_VAULT' already exists — continuing (idempotent)." >&2
+else
+  echo "footing: 'agent-vault vault create $AGENT_VAULT_VAULT' failed (not an already-exists outcome): $_vc_out" >&2
+  exit 1
+fi
 _SCOPED_SESSION="$(agent-vault vault token --vault "$AGENT_VAULT_VAULT" --address "$AGENT_VAULT_ADDR" | tr -d '\r\n')"
 if [[ -z "$_SCOPED_SESSION" ]]; then
   echo "footing: failed to mint a vault-scoped session for the Claude OAuth proposal on vault '$AGENT_VAULT_VAULT'." >&2

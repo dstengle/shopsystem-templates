@@ -178,15 +178,16 @@ def test_provision_writes_addr_and_token_to_env():
     assert "AGENT_VAULT_TOKEN" in body, (
         "provision must write AGENT_VAULT_TOKEN to .env"
     )
-    # The write must target the .env file (replacing the changeme placeholders).
+    # The write must target the .env file.
     assert ".env" in body, "provision must reference the .env file it updates"
-    # The two changeme placeholders for ADDR/TOKEN must be the replacement
-    # targets (so they do not survive after provision).
-    assert "<changeme-broker-address>" in body, (
-        "provision must replace the <changeme-broker-address> placeholder"
+    # lead-qswi: the writeback UPSERTS — rewrite the line if present (case
+    # `AGENT_VAULT_ADDR=*`) ELSE append it (the `_av_found_*` append-if-absent
+    # guards) — so a pre-created .env lacking placeholders still lands the keys.
+    assert "AGENT_VAULT_ADDR=*)" in body and "AGENT_VAULT_TOKEN=*)" in body, (
+        "provision must rewrite the AGENT_VAULT_ADDR/TOKEN lines when present"
     )
-    assert "<changeme-broker-token>" in body, (
-        "provision must replace the <changeme-broker-token> placeholder"
+    assert "_av_found_addr" in body and "_av_found_token" in body, (
+        "provision must append AGENT_VAULT_ADDR/TOKEN when absent (upsert)"
     )
 
 

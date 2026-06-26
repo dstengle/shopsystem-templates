@@ -257,36 +257,34 @@ CA_PEM_FILE="${AGENT_VAULT_CA_PEM:-agent-vault-ca.pem}"
 echo "agent-vault-provision: fetching broker root CA into '$CA_PEM_FILE'."
 agent-vault ca fetch > "$CA_PEM_FILE"
 
-# Write the real broker addr + fleet token + vault selector + CA path into
-# .env, REPLACING the placeholder values so no <changeme> survives for these.
-if [[ -f "$ENV_FILE" ]]; then
-  echo "agent-vault-provision: writing AGENT_VAULT_ADDR + AGENT_VAULT_TOKEN + AGENT_VAULT_VAULT + AGENT_VAULT_CA_PEM into '$ENV_FILE'."
-  # Replace the placeholder lines in place (BSD/GNU-portable: rewrite via a
-  # temp file). The .env.example ships these as:
-  #   AGENT_VAULT_ADDR=<changeme-broker-address>
-  #   AGENT_VAULT_TOKEN=<changeme-broker-token>
-  #   AGENT_VAULT_VAULT=<changeme-broker-vault>
-  #   AGENT_VAULT_CA_PEM=<changeme-broker-ca-pem>
-  tmp_env="$(mktemp)"
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    case "$line" in
-      AGENT_VAULT_ADDR=*)   printf 'AGENT_VAULT_ADDR=%s\n' "$BROKER_ADDR" ;;
-      AGENT_VAULT_TOKEN=*)  printf 'AGENT_VAULT_TOKEN=%s\n' "$FLEET_TOKEN" ;;
-      AGENT_VAULT_VAULT=*)  printf 'AGENT_VAULT_VAULT=%s\n' "$VAULT" ;;
-      AGENT_VAULT_CA_PEM=*) printf 'AGENT_VAULT_CA_PEM=%s\n' "$CA_PEM_FILE" ;;
-      *)                    printf '%s\n' "$line" ;;
-    esac
-  done < "$ENV_FILE" > "$tmp_env"
-  mv "$tmp_env" "$ENV_FILE"
-else
-  echo "agent-vault-provision: '$ENV_FILE' not found; appending broker coordinates." >&2
-  {
-    printf 'AGENT_VAULT_ADDR=%s\n' "$BROKER_ADDR"
-    printf 'AGENT_VAULT_TOKEN=%s\n' "$FLEET_TOKEN"
-    printf 'AGENT_VAULT_VAULT=%s\n' "$VAULT"
-    printf 'AGENT_VAULT_CA_PEM=%s\n' "$CA_PEM_FILE"
-  } >> "$ENV_FILE"
-fi
+# Write the real broker addr + fleet token + vault selector + CA path into .env,
+# UPSERTING each key — rewrite the line if present (replacing any <changeme>
+# placeholder), ELSE append it (lead-qswi). bin/bootstrap PRE-CREATES .env (with
+# only a BC_BASE_IMAGE_RESOLVED line, no AGENT_VAULT_* placeholders), so a
+# rewrite-only path would never land these keys and shop-shell + the BC launches
+# would get NO broker credentials. The upsert guarantees all four land regardless
+# of whether the placeholders exist, each exactly once, none left as <changeme>.
+# (Same bug class as lead-7s4k's footing env-init upsert.)
+echo "agent-vault-provision: writing AGENT_VAULT_ADDR + AGENT_VAULT_TOKEN + AGENT_VAULT_VAULT + AGENT_VAULT_CA_PEM into '$ENV_FILE'."
+touch "$ENV_FILE"
+_av_found_addr="" ; _av_found_token="" ; _av_found_vault="" ; _av_found_ca=""
+tmp_env="$(mktemp)"
+while IFS= read -r line || [[ -n "$line" ]]; do
+  case "$line" in
+    AGENT_VAULT_ADDR=*)   printf 'AGENT_VAULT_ADDR=%s\n' "$BROKER_ADDR";   _av_found_addr=1 ;;
+    AGENT_VAULT_TOKEN=*)  printf 'AGENT_VAULT_TOKEN=%s\n' "$FLEET_TOKEN";  _av_found_token=1 ;;
+    AGENT_VAULT_VAULT=*)  printf 'AGENT_VAULT_VAULT=%s\n' "$VAULT";        _av_found_vault=1 ;;
+    AGENT_VAULT_CA_PEM=*) printf 'AGENT_VAULT_CA_PEM=%s\n' "$CA_PEM_FILE"; _av_found_ca=1 ;;
+    *)                    printf '%s\n' "$line" ;;
+  esac
+done < "$ENV_FILE" > "$tmp_env"
+# Append any key the .env did not already carry (the bin/bootstrap pre-created
+# case) so every coordinate lands exactly once.
+[[ -n "$_av_found_addr"  ]] || printf 'AGENT_VAULT_ADDR=%s\n'   "$BROKER_ADDR" >> "$tmp_env"
+[[ -n "$_av_found_token" ]] || printf 'AGENT_VAULT_TOKEN=%s\n'  "$FLEET_TOKEN" >> "$tmp_env"
+[[ -n "$_av_found_vault" ]] || printf 'AGENT_VAULT_VAULT=%s\n'  "$VAULT" >> "$tmp_env"
+[[ -n "$_av_found_ca"    ]] || printf 'AGENT_VAULT_CA_PEM=%s\n' "$CA_PEM_FILE" >> "$tmp_env"
+mv "$tmp_env" "$ENV_FILE"
 
 # -----------------------------------------------------------------------
 # (3) Claude-OAuth refreshing credential — THE HUMAN GATE (ADR-026 D4).

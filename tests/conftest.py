@@ -23882,3 +23882,86 @@ def then_no_committed_token(context: dict) -> None:
         )
     # The committed beads config rewrite + remote add are token-free (checked above).
     assert any("git config --global url." in l for l in code_token_lines)
+
+
+# ---- Scenario 657968ae — provision .env writeback upserts (lead-qswi) -------
+# bin/bootstrap pre-creates .env (no AGENT_VAULT_* placeholders), so provision's
+# rewrite-only writeback never landed the broker coordinates. GENUINE: extract
+# provision's actual writeback block and RUN it against a pre-created .env that
+# LACKS the placeholders (the real adopter state) — a placeholder-seeded fixture
+# would false-pass via the rewrite path.
+
+def _qswi_run_writeback(env_initial: str) -> str:
+    import tempfile, os as _os
+    from shop_templates.cli import render_ops_template
+    p = render_ops_template("agent-vault-provision", "acme").splitlines()
+    s = next(i for i, l in enumerate(p) if "writing AGENT_VAULT_ADDR + AGENT_VAULT_TOKEN" in l)
+    e = next(i for i in range(s, len(p)) if p[i].strip() == 'mv "$tmp_env" "$ENV_FILE"')
+    block = "\n".join(p[s:e + 1])
+    d = tempfile.mkdtemp(); envf = _os.path.join(d, ".env")
+    with open(envf, "w") as fh:
+        fh.write(env_initial)
+    h = (f'set -uo pipefail\nENV_FILE="{envf}"\nBROKER_ADDR="http://acme-agent-vault:14321"\n'
+         f'FLEET_TOKEN="av_agt_REALFLEETTOKEN0123456789"\nVAULT="acme"\nCA_PEM_FILE="acme-ca.pem"\n{block}')
+    subprocess.run(["bash", "-c", h], capture_output=True, text=True)
+    with open(envf) as fh:
+        return fh.read()
+
+
+@given(parsers.parse("a repo whose .env was pre-created by bin/bootstrap and exists"))
+def given_precreated_env(context: dict) -> None:
+    # The bin/bootstrap pre-created state: .env exists with only a BC_BASE line.
+    context["env_initial"] = "BC_BASE_IMAGE_RESOLVED=ghcr.io/dstengle/shopsystem-bc-base@sha256:abc123\n"
+
+
+@given(parsers.parse("that .env contains no AGENT_VAULT_ADDR, AGENT_VAULT_TOKEN, AGENT_VAULT_VAULT, or AGENT_VAULT_CA_PEM line"))
+def given_no_av_lines(context: dict) -> None:
+    assert "AGENT_VAULT_" not in context["env_initial"]
+
+
+@given(parsers.parse("the broker minted a real fleet token, vault name, and CA pem path"))
+def given_broker_minted(context: dict) -> None:
+    pass
+
+
+@when(parsers.parse("bin/agent-vault-provision performs its .env writeback against that file"))
+def when_provision_writeback(context: dict) -> None:
+    context["env_after"] = _qswi_run_writeback(context["env_initial"])
+
+
+def _qswi_val(env_text: str, key: str):
+    vals = [l[len(key) + 1:] for l in env_text.splitlines() if l.startswith(key + "=")]
+    return vals
+
+
+@then(parsers.parse("the .env afterward contains an AGENT_VAULT_ADDR line set to the real broker address"))
+def then_env_addr(context: dict) -> None:
+    assert _qswi_val(context["env_after"], "AGENT_VAULT_ADDR") == ["http://acme-agent-vault:14321"]
+
+
+@then(parsers.parse("the .env contains an AGENT_VAULT_TOKEN line set to the real minted fleet token"))
+def then_env_token(context: dict) -> None:
+    assert _qswi_val(context["env_after"], "AGENT_VAULT_TOKEN") == ["av_agt_REALFLEETTOKEN0123456789"]
+
+
+@then(parsers.parse("the .env contains an AGENT_VAULT_VAULT line set to the real vault name"))
+def then_env_vault(context: dict) -> None:
+    assert _qswi_val(context["env_after"], "AGENT_VAULT_VAULT") == ["acme"]
+
+
+@then(parsers.parse("the .env contains an AGENT_VAULT_CA_PEM line set to the real CA pem path"))
+def then_env_ca(context: dict) -> None:
+    assert _qswi_val(context["env_after"], "AGENT_VAULT_CA_PEM") == ["acme-ca.pem"]
+
+
+@then(parsers.parse("none of those four values is the literal <changeme> placeholder text"))
+def then_no_changeme(context: dict) -> None:
+    assert "<changeme" not in context["env_after"]
+    # BC_BASE line preserved (the pre-created content is not clobbered).
+    assert "BC_BASE_IMAGE_RESOLVED=" in context["env_after"]
+
+
+@then(parsers.parse("each key appears exactly once in the .env"))
+def then_each_key_once(context: dict) -> None:
+    for key in ("AGENT_VAULT_ADDR", "AGENT_VAULT_TOKEN", "AGENT_VAULT_VAULT", "AGENT_VAULT_CA_PEM"):
+        assert len(_qswi_val(context["env_after"], key)) == 1, f"{key} must appear exactly once"

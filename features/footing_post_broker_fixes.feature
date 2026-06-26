@@ -29,11 +29,3 @@ Scenario Outline: footing derives the GitHub org from the cloned lead repo origi
     | dstengle     |
     | acme-corp    |
 
-@scenario_hash:701e466b10834397 @bc:shopsystem-templates
-Scenario: footing creates the data root and pgdata owned by the invoking host user
-  Given footing runs in a container with "HOST_UID" and "HOST_GID" exported for the invoking host user
-  And the data root "~/.local/share/<slug>/" does not yet exist on the host
-  When footing pre-creates the data root and the "pgdata" directory under it via its mount onto the host
-  Then the host data root "~/.local/share/<slug>/" is owned by "HOST_UID:HOST_GID"
-  And the "pgdata" directory under the data root is owned by "HOST_UID:HOST_GID"
-  And neither the data root nor pgdata is left owned by the container user or root

@@ -23389,3 +23389,83 @@ def then_repo_not_product_beads(context: dict) -> None:
     url = context["beads_remote_url"]
     assert "acme-product-beads" not in url, f"beads remote uses the wrong -product-beads name: {url!r}"
     assert url.rstrip().endswith("-lead-beads.git"), f"beads remote must use the -lead-beads form: {url!r}"
+
+
+# ---- Scenario 6d14fb61 — postgres default in-image uid (revert, lead-kz4j) ---
+# Reverts the host-user-ownership coupling (25be1dd7 + 701e466b retired): no
+# compose `user:` override, no footing HOST_UID/chown — but footing STILL creates
+# the pgdata bind-source dir; the data-root PATH (9c8b8b40) is unchanged.
+
+def _kz_code(text: str) -> str:
+    return "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+
+
+@given(parsers.parse("a rendered ops scaffolding for a product slug"))
+def given_rendered_ops_scaffolding(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    context["compose"] = render_ops_template("compose.yaml", "dummyco")
+    context["footing"] = render_ops_template("footing", "dummyco")
+
+
+@given(parsers.re(r"the data root resolves to \$\{<SLUG_UPPER>_DATA:-\$HOME/\.local/share/<slug>\} with pgdata under it"))
+def given_data_root_resolves(context: dict) -> None:
+    assert '_DATA_ROOT="${DUMMYCO_DATA:-$HOME/.local/share/dummyco}"' in context["footing"]
+
+
+@when(parsers.parse("the compose postgres service definition is rendered"))
+def when_compose_postgres_rendered(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('the postgres service carries no "user:" override and runs as its default in-image uid'))
+def then_postgres_no_user_override(context: dict) -> None:
+    import yaml as _yaml
+    pg = _yaml.safe_load(context["compose"])["services"]["postgres"]
+    assert "user" not in pg, "postgres must carry no `user:` override (default in-image uid)"
+
+
+@when(parsers.parse("footing brings the ops services up"))
+def when_footing_brings_up(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse("footing does not export HOST_UID or HOST_GID from id -u or id -g"))
+def then_footing_no_host_uid_export(context: dict) -> None:
+    code = _kz_code(context["footing"])
+    assert "HOST_UID" not in code and "HOST_GID" not in code, "footing must not export HOST_UID/HOST_GID"
+    assert "id -u" not in code and "id -g" not in code, "footing must not derive the host uid/gid"
+
+
+@then(parsers.parse("footing does not chown the data root or pgdata to the host uid or gid"))
+def then_footing_no_chown(context: dict) -> None:
+    code = _kz_code(context["footing"])
+    assert "chown" not in code, "footing must not chown the data root/pgdata to the host uid"
+
+
+@then(parsers.parse("footing still ensures the data-root pgdata directory exists so the bind-mount source is present"))
+def then_footing_mkdir_pgdata(context: dict) -> None:
+    f = context["footing"]
+    assert '_PGDATA_DIR="$_DATA_ROOT/pgdata"' in f and 'mkdir -p "$_PGDATA_DIR"' in f, (
+        "footing must still create the pgdata bind-source directory"
+    )
+
+
+@when(parsers.parse("the postgres container initializes the bind-mounted pgdata"))
+def when_postgres_initializes(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse("pgdata is owned by postgres's standard in-image uid via the image's normal init"))
+def then_pgdata_default_uid(context: dict) -> None:
+    # STRUCTURAL: no `user:` override -> the image's normal root->postgres init
+    # owns pgdata as its standard uid. Runtime ownership is the lead's verify.
+    import yaml as _yaml
+    pg = _yaml.safe_load(context["compose"])["services"]["postgres"]
+    assert "user" not in pg
+
+
+@then(parsers.parse("postgres initializes and serves normally on the configured database"))
+def then_postgres_serves_normally(context: dict) -> None:
+    c = context["compose"]
+    # The configured DB + the (unaffected) slug-user healthcheck remain.
+    assert "POSTGRES_DB: dummyco" in c and "pg_isready -U dummyco" in c

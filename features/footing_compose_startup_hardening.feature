@@ -22,10 +22,3 @@ Scenario: the rendered postgres healthcheck targets the configured POSTGRES_USER
   Then the healthcheck pg_isready probe targets the configured POSTGRES_USER value "acme" rather than the literal "postgres"
   And the postgres container logs do not contain "role \"postgres\" does not exist" on any healthcheck interval
 
-@scenario_hash:25be1dd7b421059a @bc:shopsystem-templates
-Scenario: footing brings postgres up so the bind-mounted pgdata host directory is owned by the invoking host user and postgres still serves
-  Given a "lead" shop named "acme" whose compose postgres service bind-mounts the host pgdata directory to "/var/lib/postgresql/data"
-  And the operator invokes "./bin/bootstrap" as host user with uid "1000" and gid "1000"
-  When footing prepares the pgdata host directory and brings the postgres service up
-  Then the bind-mounted pgdata host directory exists and is owned by uid "1000" and gid "1000" rather than uid "999"
-  And the postgres container initializes its data directory as that uid and reaches a healthy serving state accepting connections as the configured "acme" user

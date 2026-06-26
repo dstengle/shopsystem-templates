@@ -27,12 +27,10 @@ services:
   postgres:
     image: postgres:16
     container_name: {{OPS_SLUG}}-postgres
-    # Run as the INVOKING HOST USER (lead-sgxd 25be1dd7) so the bind-mounted
-    # pgdata is owned by the host user, not postgres's in-image uid 999 (which
-    # the host user then cannot manage). footing exports HOST_UID/HOST_GID
-    # (id -u / id -g) and pre-creates the pgdata dir owned by that user; the
-    # :-1000 fallbacks keep a bare `docker compose up` working.
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    # postgres runs as its DEFAULT in-image uid — NO `user:` override (lead-kz4j
+    # revert of 25be1dd7). Forcing the host uid made permissions hard to manage
+    # and the chown forced the FOOTING-container uid (not the real host user)
+    # anyway; the image's normal root->postgres init owns the bind-mounted pgdata.
     networks:
       - {{OPS_SLUG}}
     environment:

@@ -230,23 +230,17 @@ _env_set_if_unset AGENT_VAULT_OWNER_PASSWORD "$OWNER_PASSWORD"
 _env_set_if_unset AGENT_VAULT_OWNER_EMAIL "$AGENT_VAULT_OWNER_EMAIL"
 export AGENT_VAULT_ADDR
 
-# pgdata ownership (lead-sgxd 25be1dd7): postgres runs as the INVOKING HOST USER
-# (compose `user: ${HOST_UID}:${HOST_GID}`) so the bind-mounted pgdata is owned
-# by the host user, not the in-image uid 999. Export that identity and
-# PRE-CREATE the pgdata host dir (the same path compose binds) owned by the host
-# user so postgres can initdb + serve as that uid.
-export HOST_UID="$(id -u)"
-export HOST_GID="$(id -g)"
-# Resolve the data ROOT (override-aware: honors {{OPS_SLUG_UPPER}}_DATA per
-# scenario 9c8b8b40) and the pgdata dir under it.
+# Ensure the pgdata bind-mount SOURCE exists so `docker compose up postgres` has
+# a directory to bind (lead-kz4j revert of 25be1dd7 / lead-pdsd I4). postgres
+# runs as its DEFAULT in-image uid — footing does NOT export HOST_UID/HOST_GID
+# and does NOT chown the data root to the host uid (forcing the host uid made
+# permissions hard, and `id -u` here is the FOOTING-container uid, not the real
+# host user, anyway); the image's normal root->postgres init owns pgdata. The
+# data-root PATH is unchanged (override-aware: honors {{OPS_SLUG_UPPER}}_DATA per
+# scenario 9c8b8b40).
 _DATA_ROOT="${{{OPS_SLUG_UPPER}}_DATA:-$HOME/.local/share/{{OPS_SLUG}}}"
 _PGDATA_DIR="$_DATA_ROOT/pgdata"
 mkdir -p "$_PGDATA_DIR"
-# The mkdir runs as the CONTAINER user, so the bind-mounted host tree would end
-# up owned by the container user/root (lead-pdsd I4). Own the RESOLVED data root
-# and pgdata as the INVOKING HOST USER so the host can manage the tree and
-# postgres (running as that uid) can initdb + serve.
-chown -R "$HOST_UID:$HOST_GID" "$_DATA_ROOT"
 
 # Reset a STALE agent-vault broker store (lead-sgxd c803b65b): the store lives in
 # the persistent named volume "$OPS_AGENT_VAULT_CONTAINER-data" and is keyed to the

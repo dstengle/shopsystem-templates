@@ -22405,3 +22405,143 @@ def then_postgres_initdb_healthy(context: dict) -> None:
     # initdb + serving happen as that uid. Runtime serving is the lead's verify.
     assert 'user: "${HOST_UID:-1000}:${HOST_GID:-1000}"' in c
     assert "pg_isready -U acme" in c
+
+
+# ---- Scenario a3242f1f — footing creates the vault via AGENT_VAULT_ADDR env
+# lead-4sg9 (supersedes lead-h2rq 04426cc): `agent-vault vault create` rejects
+# `--address` and reads the addr from AGENT_VAULT_ADDR; footing passed
+# `--address` and swallowed the failure with `2>/dev/null || true`, so the vault
+# was never created. GENUINE test (the prior fix false-passed by running a
+# different command than footing): footing's ACTUAL rendered vault-create block
+# is extracted and RUN against a stub `agent-vault` that mimics the real broker's
+# flag behavior (rejects --address on create; reads AGENT_VAULT_ADDR from env;
+# `vault token` only finds a vault that was actually created).
+
+_AGENT_VAULT_STUB = r'''#!/usr/bin/env bash
+# Stub mimicking infisical/agent-vault flag behavior for `vault create`/`token`.
+sub="${1:-}"; verb="${2:-}"; shift 2 2>/dev/null || true
+case "$sub $verb" in
+  "vault create")
+    for a in "$@"; do
+      if [ "$a" = "--address" ]; then echo "unknown flag: --address" >&2; exit 1; fi
+    done
+    name="$1"
+    [ -n "${AGENT_VAULT_ADDR:-}" ] || { echo "Error: no broker address" >&2; exit 1; }
+    if [ -n "${STUB_CREATE_FAIL:-}" ]; then echo "Error: broker unreachable" >&2; exit 1; fi
+    if [ -e "$VAULTDIR/$name" ]; then echo "Error: vault already exists" >&2; exit 1; fi
+    : > "$VAULTDIR/$name"; echo "Created vault $name"; exit 0 ;;
+  "vault token")
+    name=""; prev=""
+    for a in "$@"; do [ "$prev" = "--vault" ] && name="$a"; prev="$a"; done
+    if [ -e "$VAULTDIR/$name" ]; then echo "av_sess_stub"; exit 0; fi
+    echo "Error: failed to create scoped session: Vault \"$name\" not found" >&2; exit 1 ;;
+  *) exit 0 ;;
+esac
+'''
+
+
+def _run_footing_vault_provision(stub_create_fail: bool = False, pre_exists: bool = False):
+    """Extract footing's ACTUAL rendered vault-create block + the scoped-session
+    mint and run them against the stub broker. Returns (rc, output, vault_made)."""
+    import tempfile, os, stat
+    from shop_templates.cli import render_ops_template
+    lines = render_ops_template("footing", "acme").splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith('if _vc_out="$(agent-vault vault create'))
+    tok = next(i for i in range(start, len(lines)) if lines[i].startswith("_SCOPED_SESSION="))
+    snippet = "\n".join(lines[start:tok + 1])
+    d = tempfile.mkdtemp()
+    vaultdir = os.path.join(d, "vaults"); os.makedirs(vaultdir)
+    stubdir = os.path.join(d, "bin"); os.makedirs(stubdir)
+    stub_path = os.path.join(stubdir, "agent-vault")
+    with open(stub_path, "w") as fh:
+        fh.write(_AGENT_VAULT_STUB)
+    os.chmod(stub_path, os.stat(stub_path).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    if pre_exists:
+        open(os.path.join(vaultdir, "acme"), "w").close()
+    harness = (
+        "set -uo pipefail\n"
+        'AGENT_VAULT_VAULT="acme"\n'
+        'AGENT_VAULT_ADDR="http://acme-agent-vault:14321"\n'
+        f"{snippet}\n"
+        'echo "SCOPED=$_SCOPED_SESSION"\n'
+    )
+    env = dict(os.environ)
+    env["PATH"] = stubdir + os.pathsep + env["PATH"]
+    env["VAULTDIR"] = vaultdir
+    if stub_create_fail:
+        env["STUB_CREATE_FAIL"] = "1"
+    r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, env=env)
+    out = r.stdout + r.stderr
+    vault_made = os.path.exists(os.path.join(vaultdir, "acme"))
+    return r.returncode, out, vault_made
+
+
+@given(parsers.parse("footing has exported AGENT_VAULT_ADDR with the in-network broker address and AGENT_VAULT_VAULT set to the product slug"))
+def given_footing_exported_addr_vault(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    f = render_ops_template("footing", "acme")
+    context["footing"] = f
+    assert 'export AGENT_VAULT_ADDR' in f and 'AGENT_VAULT_VAULT=' in f
+
+
+@given(parsers.parse("the broker holds no vault for the product slug yet"))
+def given_broker_no_vault_4sg9(context: dict) -> None:
+    pass
+
+
+@given(parsers.parse('the broker\'s "agent-vault vault create" subcommand rejects an "--address" flag with "unknown flag: --address" and reads its broker address only from the AGENT_VAULT_ADDR environment'))
+def given_broker_rejects_address(context: dict) -> None:
+    # This precondition is embodied by the stub broker used in the When step.
+    pass
+
+
+@when(parsers.parse('footing reaches the vault-provisioning step that precedes the first "agent-vault vault token --vault <slug>" call in the auth gate'))
+def when_footing_reaches_provisioning(context: dict) -> None:
+    # GENUINE run: footing's actual rendered block against the --address-rejecting stub.
+    rc, out, made = _run_footing_vault_provision()
+    context["vc_rc"], context["vc_out"], context["vc_made"] = rc, out, made
+
+
+@then(parsers.parse('footing runs its rendered "agent-vault vault create <slug>" with the exact flags footing passes, carrying the broker address through the AGENT_VAULT_ADDR environment and NOT through an "--address" flag'))
+def then_create_via_env(context: dict) -> None:
+    f = context["footing"]
+    line = next(l for l in f.splitlines() if 'agent-vault vault create "$AGENT_VAULT_VAULT"' in l)
+    assert "--address" not in line, f"vault create must pass no --address: {line!r}"
+    # GENUINE: against the --address-rejecting stub the create SUCCEEDED (vault made),
+    # which can only happen if footing passes no --address.
+    assert context["vc_made"], f"footing's rendered vault create did not create the vault: {context['vc_out']!r}"
+    assert context["vc_rc"] == 0
+
+
+@then(parsers.parse('that create invocation does not pass "--address" to "agent-vault vault create"'))
+def then_create_no_address_flag(context: dict) -> None:
+    f = context["footing"]
+    line = next(l for l in f.splitlines() if 'agent-vault vault create "$AGENT_VAULT_VAULT"' in l)
+    assert "--address" not in line
+
+
+@then(parsers.parse('the create\'s exit status is not swallowed by a "2>/dev/null || true" mask, so an "unknown flag: --address" or other genuine create failure aborts footing with a surfaced diagnostic rather than continuing'))
+def then_create_not_masked(context: dict) -> None:
+    f = context["footing"]
+    block = "\n".join(f.splitlines()[next(i for i, l in enumerate(f.splitlines()) if l.startswith('if _vc_out=')):][:8])
+    assert "2>/dev/null || true" not in block, "the vault-create mask must be removed"
+    # GENUINE: force a genuine create failure -> the block must ABORT (rc!=0) with a diagnostic.
+    rc, out, made = _run_footing_vault_provision(stub_create_fail=True)
+    assert rc != 0, "a genuine vault-create failure must abort footing (not be swallowed)"
+    assert "failed" in out and not made
+
+
+@then(parsers.parse("a create that fails only because the slug vault already exists is tolerated as idempotent and footing continues"))
+def then_already_exists_tolerated(context: dict) -> None:
+    # GENUINE: pre-existing vault -> create fails "already exists" -> block tolerates,
+    # continues, and the token mint still succeeds (rc 0).
+    rc, out, made = _run_footing_vault_provision(pre_exists=True)
+    assert rc == 0, f"already-exists must be tolerated as idempotent: {out!r}"
+    assert "already exists" in out and "av_sess_stub" in out
+
+
+@then(parsers.parse('after the provisioning step the <slug> vault exists in the broker and "agent-vault vault token --vault <slug>" succeeds with no "Vault not found" error'))
+def then_vault_exists_token_succeeds(context: dict) -> None:
+    assert context["vc_made"], "the slug vault must exist after provisioning"
+    assert "Vault \"acme\" not found" not in context["vc_out"], "scoped-session mint must not hit 'Vault not found'"
+    assert "av_sess_stub" in context["vc_out"], "the scoped-session mint must succeed"

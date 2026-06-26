@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# bin/ops-coordinates — the SINGLE SOURCE of this product's ops coordinates
+# (ADR-043 Phase 1, lead-0t5m). Every bin/ ops script SOURCES this file and
+# references the OPS_* variables below; no script re-derives a coordinate from
+# the slug or re-spells the broker address. Each coordinate is a DEFINING literal
+# HERE and a variable reference everywhere else (D6).
+#
+# PRODUCT-NEUTRAL (166b86d7): rendered from {{OPS_*}} tokens; no cross-product
+# default-slug literal is baked in. Port + data coordinates stay OVERRIDE-AWARE
+# (9c8b8b40).
+#
+# This file is meant to be SOURCED, not executed:  source bin/ops-coordinates
+
+# The product slug — the single identity root. footing reconciles the runtime
+# slug to the manifest "product:" field (D1) and may re-derive these coordinates
+# from that reconciled slug; for non-footing scripts the rendered values below
+# are canonical.
+OPS_SLUG="{{OPS_SLUG}}"
+
+# Docker coordinates.
+OPS_NETWORK="{{OPS_SLUG}}"
+OPS_AGENT_VAULT_CONTAINER="{{OPS_SLUG}}-agent-vault"
+OPS_POSTGRES_CONTAINER="{{OPS_SLUG}}-postgres"
+
+# Broker addressing. OPS_AGENT_VAULT_ADDR is the IN-NETWORK address (containers
+# on OPS_NETWORK). OPS_BROKER_LOCAL_ADDR is the broker's own in-container address
+# (used by broker-local `docker exec` calls). The HOST-reachable address is
+# discovered at runtime by footing via `docker port` (the host port is mapped,
+# not fixed) and recorded as AGENT_VAULT_HOST_ADDR in .env.
+OPS_AGENT_VAULT_ADDR="http://{{OPS_SLUG}}-agent-vault:14321"
+OPS_BROKER_LOCAL_ADDR="http://localhost:14321"
+
+# Vault + beads coordinates.
+OPS_VAULT_NAME="{{OPS_SLUG}}"
+OPS_BEADS_REPO="{{OPS_SLUG}}-lead-beads"
+
+# Generated host ports (override-aware, 9c8b8b40): {{OPS_SLUG_UPPER}}_*_PORT wins.
+OPS_VAULT_API_PORT="${{{OPS_SLUG_UPPER}}_VAULT_API_PORT:-{{OPS_VAULT_API_PORT}}}"
+OPS_VAULT_PROXY_PORT="${{{OPS_SLUG_UPPER}}_VAULT_PROXY_PORT:-{{OPS_VAULT_PROXY_PORT}}}"
+OPS_POSTGRES_PORT="${{{OPS_SLUG_UPPER}}_POSTGRES_PORT:-{{OPS_POSTGRES_PORT}}}"
+
+# Data root (override-aware, 9c8b8b40): {{OPS_SLUG_UPPER}}_DATA wins.
+OPS_DATA_ROOT="${{{OPS_SLUG_UPPER}}_DATA:-$HOME/.local/share/{{OPS_SLUG}}}"

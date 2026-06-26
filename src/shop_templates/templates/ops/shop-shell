@@ -43,6 +43,10 @@ set -euo pipefail
 # Resolve the repo root (this script lives at <repo>/bin/shop-shell).
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Source the single ops-coordinates artifact (ADR-043 Phase 1) — the container
+# names and the docker network come from OPS_* defined there.
+source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"
+
 # Persistent data root lives OUTSIDE the repo so the shop tree stays clean.
 {{OPS_SLUG_UPPER}}_DATA="${{{OPS_SLUG_UPPER}}_DATA:-$HOME/.local/share/{{OPS_SLUG}}}"
 export {{OPS_SLUG_UPPER}}_DATA
@@ -54,8 +58,8 @@ docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres agent-vault
 # Confirm the slug-scoped compose containers are actually running by name
 # before proceeding. The container names are product-scoped ({{OPS_SLUG}}-*)
 # so a second product's postgres/agent-vault never satisfies this check.
-if ! docker ps --format '{{.Names}}' | grep -Eq '^{{OPS_SLUG}}-postgres$|^{{OPS_SLUG}}-agent-vault$'; then
-  echo "bin/shop-shell: expected the slug-scoped compose containers ({{OPS_SLUG}}-postgres / {{OPS_SLUG}}-agent-vault) to be running, but neither was found." >&2
+if ! docker ps --format '{{.Names}}' | grep -Eq "^$OPS_POSTGRES_CONTAINER\$|^$OPS_AGENT_VAULT_CONTAINER\$"; then
+  echo "bin/shop-shell: expected the slug-scoped compose containers ($OPS_POSTGRES_CONTAINER / $OPS_AGENT_VAULT_CONTAINER) to be running, but neither was found." >&2
   echo "  Check 'docker compose -f $REPO_ROOT/compose.yaml ps'. Aborting." >&2
   exit 1
 fi
@@ -97,7 +101,7 @@ SOCKET_GID="$(stat -L -c '%g' /var/run/docker.sock)"
 # product-neutral — the SAME tag for every product slug, not slug-rewritten to
 # {{OPS_SLUG}}-bc-lead.
 docker run --rm -it \
-  --network {{OPS_SLUG}} \
+  --network "$OPS_NETWORK" \
   --env-file "$AGENT_VAULT_ENV_FILE" \
   --group-add "$SOCKET_GID" \
   -v "$REPO_ROOT:$REPO_ROOT" \
@@ -106,7 +110,7 @@ docker run --rm -it \
   ghcr.io/dstengle/shopsystem-bc-lead:latest \
   bc-container launch {{OPS_SLUG}}-lead \
     --image ghcr.io/dstengle/shopsystem-bc-lead:latest \
-    --network {{OPS_SLUG}} \
+    --network "$OPS_NETWORK" \
     --workspace-mount "$REPO_ROOT" \
     --mount-docker-socket \
     --startup-prompt "$LEAD_STARTUP_PROMPT"
@@ -114,7 +118,7 @@ docker run --rm -it \
 # (4) Drop the operator into the brokered session via the bc-lead launcher
 # (attach takes no --image; it reattaches to the already-running leaf-BC).
 exec docker run --rm -it \
-  --network {{OPS_SLUG}} \
+  --network "$OPS_NETWORK" \
   -v "$REPO_ROOT:$REPO_ROOT" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -w "$REPO_ROOT" \

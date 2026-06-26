@@ -577,6 +577,7 @@ def _render_lead_ops_scaffolding(target: Path, slug: str) -> None:
             # Set the owner-execute bit (scenario 3d94639d5af360d7).
             dest.chmod(mode | 0o100)
     _render_lead_env_example(target, slug)
+    _render_lead_ops_coordinates(target, slug)
     _render_lead_footing_script(target, slug)
 
 
@@ -634,6 +635,26 @@ def _render_lead_footing_script(target: Path, slug: str) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(body)
     dest.chmod(dest.stat().st_mode | 0o100)
+
+
+# The single-source ops-coordinates artifact (ADR-043 Phase 1, lead-0t5m).
+# Like bin/footing and .env.example above, this is DELIBERATELY rendered OUTSIDE
+# the six-file `_LEAD_OPS_FILES` ops-tool enumeration (it is a sourced DATA
+# artifact, not a seventh ops tool — the "exactly six ops tools" scenario stays
+# intact). Every bin/ ops script SOURCES bin/ops-coordinates and references its
+# OPS_* variables; each derived coordinate is a defining literal here exactly
+# once and a variable reference everywhere else.
+_LEAD_OPS_COORDINATES_TEMPLATE = "ops-coordinates"
+
+
+def _render_lead_ops_coordinates(target: Path, slug: str) -> None:
+    """Render bin/ops-coordinates for a lead shop — the single source of the
+    product's ops coordinates that every other bin/ ops script sources. Sourced,
+    not executed (no execute bit)."""
+    body = render_ops_template(_LEAD_OPS_COORDINATES_TEMPLATE, slug)
+    dest = target / "bin" / "ops-coordinates"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(body)
 
 
 def canonical_role_set(shop_type: str) -> tuple[str, ...]:

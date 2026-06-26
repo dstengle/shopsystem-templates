@@ -438,10 +438,12 @@ def test_launch_attaches_leaf_to_slug_scoped_network_via_network_flag():
     --network does NOT attach the leaf, so the inner launch must carry its own."""
     for slug in ("shopsystem", "dummyco"):
         parsed = _parse_shop_shell(slug)
-        assert parsed["launch_network_flag"] == slug, (
-            f"bc-container launch must carry --network {slug!r} (slug-scoped) so "
-            f"the leaf reaches the compose postgres/agent-vault; got "
-            f"{parsed['launch_network_flag']!r}"
+        # ADR-043 Phase 1 (lead-0t5m): the slug-scoped network is sourced from
+        # the single ops-coordinates artifact ($OPS_NETWORK), not re-spelled here.
+        assert parsed["launch_network_flag"] == "$OPS_NETWORK", (
+            f"bc-container launch must carry --network \"$OPS_NETWORK\" (the slug-"
+            f"scoped network sourced from ops-coordinates) so the leaf reaches the "
+            f"compose postgres/agent-vault; got {parsed['launch_network_flag']!r}"
         )
 
 

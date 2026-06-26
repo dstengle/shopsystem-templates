@@ -42,19 +42,24 @@
 # approve it; it is the ONE documented human step (approval, not a hand paste).
 set -euo pipefail
 
+# Source the single ops-coordinates artifact (ADR-043 Phase 1) — the broker
+# container, vault, network, and address come from OPS_* defined there; this
+# script re-derives none of them.
+source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"
+
 # -----------------------------------------------------------------------
-# Slug-derived broker coordinates (every <product>-* literal is rendered
-# from {{OPS_SLUG}} at bootstrap; nothing here is hardcoded to a product).
+# Broker coordinates — referenced from the sourced ops-coordinates artifact
+# (nothing here is hardcoded to a product).
 # -----------------------------------------------------------------------
-SLUG="{{OPS_SLUG}}"
+SLUG="$OPS_SLUG"
 # The broker container compose.yaml brings up (container_name:
 # <slug>-agent-vault). Override only if you renamed the compose service.
-CONTAINER="${AGENT_VAULT_CONTAINER:-{{OPS_SLUG}}-agent-vault}"
-# The logical vault/namespace the broker stores this product's secrets under.
-# Slug-derived (NOT a shared fixed namespace) so two products never share a vault.
-VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
+CONTAINER="${AGENT_VAULT_CONTAINER:-$OPS_AGENT_VAULT_CONTAINER}"
+# The logical vault/namespace the broker stores this product's secrets under
+# (slug-derived, NOT a shared fixed namespace) so two products never share a vault.
+VAULT="${AGENT_VAULT_VAULT:-$OPS_VAULT_NAME}"
 # The docker network the broker and its clients share.
-NETWORK="${AGENT_VAULT_NETWORK:-{{OPS_SLUG}}}"
+NETWORK="${AGENT_VAULT_NETWORK:-$OPS_NETWORK}"
 # The broker API address the in-network clients (shop-shell, bc-launcher
 # containers) reach. On the shared docker network the broker is addressable
 # by its container name on the fixed API port 14321 (compose maps it to a
@@ -63,7 +68,7 @@ NETWORK="${AGENT_VAULT_NETWORK:-{{OPS_SLUG}}}"
 # broker over the product compose network at AGENT_VAULT_ADDR. Default is the
 # in-network broker address (the lead is attached to the product network); a
 # .env / env override wins. This is the address the auth session below binds.
-AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://{{OPS_SLUG}}-agent-vault:14321}"
+AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-$OPS_AGENT_VAULT_ADDR}"
 BROKER_ADDR="$AGENT_VAULT_ADDR"
 # The MITM HTTPS proxy listener the broker exposes (fixed container port).
 # ADR-026 D2: BOTH the github.com Basic leg and the agent's outbound traffic

@@ -83,23 +83,36 @@ case "$REPO_NAME" in
     exit 1
     ;;
 esac
-PRODUCT="${REPO_NAME%-lead}"
+# Derive a basename candidate ONCE (ADR-043 Phase 1 / D1).
+_PRODUCT_CANDIDATE="${REPO_NAME%-lead}"
 
-# Write the product manifest — the declared product identity for this fork.
-# The derived slug is recorded under the "product:" key so every downstream
-# footing step (and later agent-driven phases) reads one canonical product
-# identity rather than re-deriving it.
+# The product manifest "product:" field is the SINGLE identity root (ADR-038/043
+# D1). Write it once if the manifest does not already declare a product, then
+# read the runtime product slug BACK from the manifest — footing does NOT
+# independently recompute the identity a second time from the basename.
 PRODUCT_MANIFEST="${FOOTING_PRODUCT_MANIFEST:-$REPO_ROOT/.shop/product-manifest.yaml}"
 mkdir -p "$(dirname "$PRODUCT_MANIFEST")"
-{
-  echo "# product manifest — declared product identity, written at footing."
-  echo "product: $PRODUCT"
-} > "$PRODUCT_MANIFEST"
+if ! grep -qE '^product:' "$PRODUCT_MANIFEST" 2>/dev/null; then
+  {
+    echo "# product manifest — declared product identity, written at footing."
+    echo "product: $_PRODUCT_CANDIDATE"
+  } > "$PRODUCT_MANIFEST"
+fi
+PRODUCT="$(grep -E '^product:' "$PRODUCT_MANIFEST" | head -n1 | sed -E 's/^product:[[:space:]]*//')"
+# Reconcile a basename<->manifest divergence TO the manifest value, with a
+# diagnostic — never silently proceed on the basename-derived value (D1).
+if [[ -n "$_PRODUCT_CANDIDATE" && "$PRODUCT" != "$_PRODUCT_CANDIDATE" ]]; then
+  echo "footing: product identity divergence — manifest 'product: $PRODUCT' vs repo basename-derived '$_PRODUCT_CANDIDATE'. Reconciling to the manifest 'product:' value '$PRODUCT' (the single identity root)." >&2
+fi
 
-# Slug-derived broker coordinates (mirrors bin/agent-vault-provision). Every
-# <product>-* literal is rendered from {{OPS_SLUG}} at bootstrap.
-AGENT_VAULT_CONTAINER="${AGENT_VAULT_CONTAINER:-{{OPS_SLUG}}-agent-vault}"
-AGENT_VAULT_VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
+# Source the single ops-coordinates artifact (ADR-043 Phase 1) — the agent-vault
+# container, vault, network, and broker address come from OPS_* defined there;
+# footing references them rather than re-spelling the coordinates from the slug.
+source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"
+
+# Broker coordinates — referenced from the sourced ops-coordinates artifact.
+AGENT_VAULT_CONTAINER="${AGENT_VAULT_CONTAINER:-$OPS_AGENT_VAULT_CONTAINER}"
+AGENT_VAULT_VAULT="${AGENT_VAULT_VAULT:-$OPS_VAULT_NAME}"
 # Claude-OAuth slot config (the oauth-typed proposal block the broker
 # validates; token_url is REQUIRED on agent-vault 0.32.0). Same defaults the
 # provision script verified against the live broker.
@@ -185,7 +198,7 @@ ENV_FILE="$REPO_ROOT/.env"
 # robust against either case. S6 preserved: every upserted value is the real
 # generated secret, never a "<changeme>" placeholder.
 [[ -f "$ENV_FILE" ]] || cp "$REPO_ROOT/.env.example" "$ENV_FILE"
-AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://{{OPS_SLUG}}-agent-vault:14321}"
+AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-$OPS_AGENT_VAULT_ADDR}"
 _GEN_MASTER_PW="$(openssl rand -hex 32)"
 
 # Upsert helper: replace the KEY= line if present, else APPEND it — so the value
@@ -236,7 +249,7 @@ mkdir -p "$_PGDATA_DIR"
 chown -R "$HOST_UID:$HOST_GID" "$_DATA_ROOT"
 
 # Reset a STALE agent-vault broker store (lead-sgxd c803b65b): the store lives in
-# the persistent named volume "{{OPS_SLUG}}-agent-vault-data" and is keyed to the
+# the persistent named volume "$OPS_AGENT_VAULT_CONTAINER-data" and is keyed to the
 # master password it was initialized with. footing materializes a fresh master
 # password, so a store left from a prior run (with a different password) would
 # reject it on unseal with "wrong password". Tear down any prior broker and
@@ -245,7 +258,7 @@ chown -R "$HOST_UID:$HOST_GID" "$_DATA_ROOT"
 # when absent); scoped to the broker volume only, so postgres pgdata is left
 # intact. The broker-render contract (image/env wiring) is untouched.
 docker compose -f "$REPO_ROOT/compose.yaml" rm -sf agent-vault 2>/dev/null || true
-docker volume rm "{{OPS_SLUG}}-agent-vault-data" 2>/dev/null || true
+docker volume rm "$OPS_AGENT_VAULT_CONTAINER-data" 2>/dev/null || true
 
 # The agent-vault broker must be live before the oauth proposal can be created,
 # so bring the footing services up as part of reaching the gate's OAuth step.
@@ -253,8 +266,8 @@ docker volume rm "{{OPS_SLUG}}-agent-vault-data" 2>/dev/null || true
 # .env carries AGENT_VAULT_MASTER_PASSWORD now, so the broker auto-unseals.
 docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres agent-vault
 
-if ! docker ps --format '{{.Names}}' | grep -Eq '^{{OPS_SLUG}}-postgres$|^{{OPS_SLUG}}-agent-vault$'; then
-  echo "footing: expected the slug-scoped compose containers ({{OPS_SLUG}}-postgres / {{OPS_SLUG}}-agent-vault) to be running, but neither was found." >&2
+if ! docker ps --format '{{.Names}}' | grep -Eq '^$OPS_POSTGRES_CONTAINER$|^$OPS_AGENT_VAULT_CONTAINER$'; then
+  echo "footing: expected the slug-scoped compose containers ($OPS_POSTGRES_CONTAINER / $OPS_AGENT_VAULT_CONTAINER) to be running, but neither was found." >&2
   echo "  Check 'docker compose -f $REPO_ROOT/compose.yaml ps'. Aborting." >&2
   exit 1
 fi
@@ -264,16 +277,16 @@ fi
 #
 # bin/bootstrap launches this footing container WITHOUT `--network`, so it
 # begins on Docker's default bridge. `docker compose up` (above) created the
-# user-defined "{{OPS_SLUG}}" network carrying the "{{OPS_SLUG}}-agent-vault"
+# user-defined "{{OPS_SLUG}}" network carrying the "$OPS_AGENT_VAULT_CONTAINER"
 # broker. A bridge container CANNOT DNS-resolve a user-network container name,
-# so the local-first `agent-vault --address http://{{OPS_SLUG}}-agent-vault:14321`
+# so the local-first `agent-vault --address http://$OPS_AGENT_VAULT_CONTAINER:14321`
 # calls below would fail to resolve the broker. footing has the host docker
 # socket, so it self-attaches its OWN container to the "{{OPS_SLUG}}" network
 # now — AFTER infra-up and BEFORE the first --address call — so the in-network
 # broker name resolves. Idempotent: a second attach (already a member) is a
 # no-op (the "already exists in network" error is non-fatal here).
 echo "footing: attaching this footing container to the '{{OPS_SLUG}}' network so the in-network broker name resolves." >&2
-docker network connect "{{OPS_SLUG}}" "$(hostname)" 2>/dev/null || true
+docker network connect "$OPS_NETWORK" "$(hostname)" 2>/dev/null || true
 
 # BROKER-READINESS WAIT (lead-n7dq S3): the broker container has started but may
 # not yet be LISTENING + unsealed on :14321. After the network self-attach (so
@@ -291,7 +304,7 @@ for _try in $(seq 1 60); do
   sleep 2
 done
 if [[ -z "$_broker_ready" ]]; then
-  echo "footing: the agent-vault broker at '$AGENT_VAULT_ADDR' (container '{{OPS_SLUG}}-agent-vault') did not become ready within the retry budget — aborting." >&2
+  echo "footing: the agent-vault broker at '$AGENT_VAULT_ADDR' (container '$OPS_AGENT_VAULT_CONTAINER') did not become ready within the retry budget — aborting." >&2
   exit 1
 fi
 
@@ -302,12 +315,12 @@ fi
 # docker for the real mapped host port (NOT assuming 14321) and record a DISTINCT
 # host-facing address; the in-network AGENT_VAULT_ADDR (:14321) is left UNCHANGED
 # (containers on the '{{OPS_SLUG}}' network still use it).
-_HOST_PORT="$(docker port "{{OPS_SLUG}}-agent-vault" 14321 2>/dev/null | head -n1 | sed -E 's/.*:([0-9]+)$/\1/')"
+_HOST_PORT="$(docker port "$OPS_AGENT_VAULT_CONTAINER" 14321 2>/dev/null | head -n1 | sed -E 's/.*:([0-9]+)$/\1/')"
 if [[ -n "$_HOST_PORT" ]]; then
   _env_upsert AGENT_VAULT_HOST_ADDR "http://localhost:$_HOST_PORT"
   echo "footing: recorded host-reachable broker address 'http://localhost:$_HOST_PORT' (AGENT_VAULT_HOST_ADDR); in-network AGENT_VAULT_ADDR stays ':14321'." >&2
 else
-  echo "footing: WARNING — could not discover the broker's docker-mapped host port via 'docker port {{OPS_SLUG}}-agent-vault 14321'; AGENT_VAULT_HOST_ADDR not recorded." >&2
+  echo "footing: WARNING — could not discover the broker's docker-mapped host port via 'docker port $OPS_AGENT_VAULT_CONTAINER 14321'; AGENT_VAULT_HOST_ADDR not recorded." >&2
 fi
 echo "footing: agent-vault broker is ready at '$AGENT_VAULT_ADDR'." >&2
 
@@ -369,7 +382,7 @@ DEXEC_SCOPED=(env \
 # through the owner-remote scoped session. REUSES the gate PAT — NO second human
 # prompt (scenario 184). NON-FATAL under `set -e`: it SUCCEEDS or DEGRADES to a
 # surfaced warning — it must never abort footing.
-_BROKER="{{OPS_SLUG}}-agent-vault"
+_BROKER="$OPS_AGENT_VAULT_CONTAINER"
 if printf '%s' "$OWNER_PASSWORD" | docker exec -i "$_BROKER" agent-vault auth login --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin >/dev/null 2>&1 \
    || printf '%s' "$OWNER_PASSWORD" | docker exec -i "$_BROKER" agent-vault auth register --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin >/dev/null 2>&1; then
   if docker exec -i "$_BROKER" agent-vault vault credential set "GITHUB_TOKEN=$GITHUB_TOKEN" --vault "$AGENT_VAULT_VAULT" >/dev/null 2>&1; then

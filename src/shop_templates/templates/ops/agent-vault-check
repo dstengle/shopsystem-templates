@@ -20,22 +20,26 @@
 # warning from killing the shop-shell startup it runs inside.
 set -uo pipefail
 
+# Source the single ops-coordinates artifact (ADR-043 Phase 1) — the broker
+# container, vault, network, and address come from OPS_* defined there.
+source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"
+
 # Threshold (days) below which we warn about impending GitHub-PAT expiry.
 EXPIRY_WARN_DAYS=30
 
 # -----------------------------------------------------------------------
-# Slug-derived broker coordinates (rendered from {{OPS_SLUG}} at bootstrap).
+# Broker coordinates — referenced from the sourced ops-coordinates artifact.
 # -----------------------------------------------------------------------
-CONTAINER="${AGENT_VAULT_CONTAINER:-{{OPS_SLUG}}-agent-vault}"
-VAULT="${AGENT_VAULT_VAULT:-{{OPS_SLUG}}}"
-NETWORK="${AGENT_VAULT_NETWORK:-{{OPS_SLUG}}}"
-# The broker proxy host (slug-derived service name on the product network).
-PROXY_HOST="${AGENT_VAULT_PROXY_HOST:-{{OPS_SLUG}}-agent-vault}"
+CONTAINER="${AGENT_VAULT_CONTAINER:-$OPS_AGENT_VAULT_CONTAINER}"
+VAULT="${AGENT_VAULT_VAULT:-$OPS_VAULT_NAME}"
+NETWORK="${AGENT_VAULT_NETWORK:-$OPS_NETWORK}"
+# The broker proxy host (the agent-vault service name on the product network).
+PROXY_HOST="${AGENT_VAULT_PROXY_HOST:-$OPS_AGENT_VAULT_CONTAINER}"
 # LOCAL-FIRST (lead-mrn2): the probe runs agent-vault on the LEAD HOST in agent
 # mode and targets the broker at AGENT_VAULT_ADDR — NOT a docker exec into the
 # broker container. AGENT_VAULT_TOKEN/_ADDR/_VAULT are sourced from the
 # shop-shell .env that invokes this check.
-AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://{{OPS_SLUG}}-agent-vault:14321}"
+AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-$OPS_AGENT_VAULT_ADDR}"
 
 # Best-effort: confirm the provisioned GitHub credential and read its expiry
 # with a SINGLE local agent-vault command — NO docker exec into the broker, and

@@ -20560,9 +20560,14 @@ def when_adopter_runs_approve_claude(context: dict) -> None:
 )
 def then_resolves_coordinates(context: dict) -> None:
     body = context["approve_claude_body"]
-    slug = context["approve_claude_slug"]
-    assert f"{slug}-agent-vault" in body, "container is not slug-derived"
-    assert "AGENT_VAULT_VAULT" in body and slug in body, "vault slug not derived"
+    # ADR-043 Phase 1 (lead-0t5m): the coordinates are now resolved from the
+    # single sourced ops-coordinates artifact (still slug-derived) rather than
+    # re-spelled here.
+    assert 'source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"' in body, (
+        "approve-claude must source the ops-coordinates artifact"
+    )
+    assert "$OPS_AGENT_VAULT_CONTAINER" in body, "container is not resolved from the artifact"
+    assert "AGENT_VAULT_VAULT" in body and "$OPS_VAULT_NAME" in body, "vault not resolved from the artifact"
     assert "proposal list --status pending" in body, (
         "pending proposal number is not auto-resolved"
     )
@@ -20760,7 +20765,9 @@ def then_master_password_generated(context: dict) -> None:
 )
 def then_addr_real_not_placeholder(context: dict) -> None:
     f = context["footing_body"]
-    assert "http://shopsystem-agent-vault:14321" in f, "footing does not set a real AGENT_VAULT_ADDR"
+    # ADR-043 Phase 1: the real broker address is sourced from the ops-coordinates
+    # artifact ($OPS_AGENT_VAULT_ADDR), not re-spelled in footing.
+    assert "$OPS_AGENT_VAULT_ADDR" in f, "footing does not set a real AGENT_VAULT_ADDR from the artifact"
     # The .env-init UPSERTS AGENT_VAULT_ADDR to the real address (lead-7s4k).
     assert "_env_set_if_unset AGENT_VAULT_ADDR" in f, "footing does not upsert AGENT_VAULT_ADDR in .env"
 
@@ -21078,7 +21085,7 @@ def when_footing_compose_up(context: dict) -> None:
 def then_footing_connects_before_first_address(context: dict) -> None:
     b = context["footing"]
     slug = context["footing_slug"]
-    connect = b.find(f'docker network connect "{slug}"')
+    connect = b.find('docker network connect "$OPS_NETWORK"')
     compose = b.find("docker compose -f")
     addr = b.find("agent-vault auth login --address")
     assert connect != -1, "footing does not self-attach via `docker network connect`"
@@ -21100,8 +21107,8 @@ def then_footing_broker_resolves(context: dict) -> None:
     # <slug> network that carries <slug>-agent-vault, and targets it at :14321.
     b = context["footing"]
     slug = context["footing_slug"]
-    assert f'docker network connect "{slug}"' in b
-    assert f"http://{slug}-agent-vault:14321" in b
+    assert 'docker network connect "$OPS_NETWORK"' in b
+    assert "$OPS_AGENT_VAULT_ADDR" in b
 
 
 @then(
@@ -21114,11 +21121,11 @@ def then_footing_broker_resolves(context: dict) -> None:
 def then_footing_calls_reach_broker(context: dict) -> None:
     b = context["footing"]
     slug = context["footing_slug"]
-    connect = b.find(f'docker network connect "{slug}"')
+    connect = b.find('docker network connect "$OPS_NETWORK"')
     for marker in ("agent-vault auth login --address", "vault token", "vault proposal create"):
         idx = b.find(marker)
         assert idx != -1 and idx > connect, f"{marker!r} must come AFTER the self-attach"
-    assert f"http://{slug}-agent-vault:14321" in b
+    assert "$OPS_AGENT_VAULT_ADDR" in b
 
 
 @given(
@@ -21146,7 +21153,7 @@ def when_footing_self_attach_again(context: dict) -> None:
 def then_footing_self_attach_idempotent(context: dict) -> None:
     b = context["footing"]
     slug = context["footing_slug"]
-    assert f'docker network connect "{slug}" "$(hostname)" 2>/dev/null || true' in b, (
+    assert 'docker network connect "$OPS_NETWORK" "$(hostname)" 2>/dev/null || true' in b, (
         "the self-attach must be idempotent/non-fatal (`|| true`) on already-member"
     )
 
@@ -21160,7 +21167,7 @@ def then_footing_self_attach_idempotent(context: dict) -> None:
 def then_footing_member_exactly_once(context: dict) -> None:
     b = context["footing"]
     slug = context["footing_slug"]
-    assert b.count(f'docker network connect "{slug}" "$(hostname)"') == 1, (
+    assert b.count('docker network connect "$OPS_NETWORK" "$(hostname)"') == 1, (
         "the self-attach renders exactly once (docker network connect does not "
         "duplicate membership)"
     )
@@ -21176,7 +21183,7 @@ def then_footing_member_exactly_once(context: dict) -> None:
 def then_footing_proceeds_after_attach(context: dict) -> None:
     b = context["footing"]
     slug = context["footing_slug"]
-    assert b.find(f'docker network connect "{slug}"') < b.find("agent-vault auth login --address")
+    assert b.find('docker network connect "$OPS_NETWORK"') < b.find("agent-vault auth login --address")
 
 
 # -- GROUP B — starter slim -------------------------------------------------
@@ -22044,10 +22051,14 @@ def _run_footing_env_init(preexisting_env: str, slug: str = "dummyco") -> str:
     start = next(i for i, l in enumerate(lines) if l == 'ENV_FILE="$REPO_ROOT/.env"')
     end = next(i for i in range(start, len(lines)) if lines[i] == "export AGENT_VAULT_ADDR")
     env_init = "\n".join(lines[start:end + 1])
+    # ADR-043 Phase 1: the .env-init block now references OPS_* coordinates (e.g.
+    # $OPS_AGENT_VAULT_ADDR); source the rendered ops-coordinates so the extracted
+    # block runs standalone exactly as footing would (footing sources it).
+    coords = render_ops_template("ops-coordinates", slug)
     d = tempfile.mkdtemp()
     with open(os.path.join(d, ".env"), "w") as fh:
         fh.write(preexisting_env)
-    harness = f'set -uo pipefail\nREPO_ROOT="{d}"\n{owner_pw}\n{owner_em}\n{env_init}\n'
+    harness = f'set -uo pipefail\nREPO_ROOT="{d}"\n{coords}\n{owner_pw}\n{owner_em}\n{env_init}\n'
     env = dict(os.environ)
     for k in ("AGENT_VAULT_OWNER_PASSWORD", "AGENT_VAULT_OWNER_EMAIL", "AGENT_VAULT_ADDR", "AGENT_VAULT_MASTER_PASSWORD"):
         env.pop(k, None)
@@ -22322,7 +22333,7 @@ def then_broker_running_no_wrong_pw(context: dict) -> None:
     # footing resets the broker store volume before bringing the stack up, so
     # the store re-initializes against THIS run's master password (no stale
     # password mismatch -> no "wrong password" exit).
-    reset = f.find('docker volume rm "acme-agent-vault-data"')
+    reset = f.find('docker volume rm "$OPS_AGENT_VAULT_CONTAINER-data"')
     up = f.find("up -d postgres agent-vault")
     assert reset != -1 and up != -1 and reset < up, (
         "footing must reset the agent-vault store volume before bringing the stack up"
@@ -22334,7 +22345,7 @@ def then_broker_keyed_unlocks(context: dict) -> None:
     f = context["footing"]
     # The reset is scoped to the broker volume + container only (postgres intact)
     # and idempotent, so the broker re-keys cleanly to the materialized password.
-    line = next(l for l in f.splitlines() if 'docker volume rm "acme-agent-vault-data"' in l)
+    line = next(l for l in f.splitlines() if 'docker volume rm "$OPS_AGENT_VAULT_CONTAINER-data"' in l)
     assert "|| true" in line and "rm -sf agent-vault" in f
 
 
@@ -22348,7 +22359,7 @@ def then_broker_running_rerun(context: dict) -> None:
     # Same reset path runs on every footing invocation, so the re-run re-keys the
     # store too — the "wrong password" exit cannot occur on the re-run either.
     f = context["footing"]
-    assert f.find('docker volume rm "acme-agent-vault-data"') < f.find("up -d postgres agent-vault")
+    assert f.find('docker volume rm "$OPS_AGENT_VAULT_CONTAINER-data"') < f.find("up -d postgres agent-vault")
 
 
 @then(parsers.parse("the broker store remains consistent with the master password footing uses on the re-run, so the broker unlocks and serves"))
@@ -22731,7 +22742,7 @@ def _0j_footing_pat_block(slug: str = "dummyco"):
     from shop_templates.cli import render_ops_template
     f = render_ops_template("footing", slug)
     lines = f.splitlines()
-    s = next(i for i, l in enumerate(lines) if f"_BROKER=\"{slug}-agent-vault\"" in l)
+    s = next(i for i, l in enumerate(lines) if '_BROKER="$OPS_AGENT_VAULT_CONTAINER"' in l)
     return f, "\n".join(lines[s:s + 14])
 
 
@@ -22957,15 +22968,18 @@ def given_compose_up_broker_running(context: dict) -> None:
 
 @given(parsers.parse('footing has written the in-network "AGENT_VAULT_ADDR=http://<slug>-agent-vault:14321" to the run ".env" for in-network containers'))
 def given_in_network_addr(context: dict) -> None:
-    assert 'AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://testproduct3-agent-vault:14321}"' in context["footing"]
+    assert 'AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-$OPS_AGENT_VAULT_ADDR}"' in context["footing"]
 
 
 @when(parsers.parse('footing discovers the broker\'s host-mapped API port by running "docker port <slug>-agent-vault 14321" rather than assuming the container port 14321'))
 def when_footing_discovers_port(context: dict) -> None:
     import tempfile, os as _os, stat
+    from shop_templates.cli import render_ops_template
     f = context["footing"]
     disc = next(l for l in f.splitlines() if l.startswith("_HOST_PORT="))
-    assert 'docker port "testproduct3-agent-vault" 14321' in disc, "must discover via `docker port`, not assume 14321"
+    # ADR-043 Phase 1: the container name comes from the sourced artifact.
+    assert 'docker port "$OPS_AGENT_VAULT_CONTAINER" 14321' in disc, "must discover via `docker port`, not assume 14321"
+    coords = render_ops_template("ops-coordinates", "testproduct3")
     d = tempfile.mkdtemp()
     stub = _os.path.join(d, "docker")
     # The generated/overridden OPS_VAULT_API_PORT mapped to container 14321 (!= 14321).
@@ -22973,7 +22987,7 @@ def when_footing_discovers_port(context: dict) -> None:
         fh.write('#!/usr/bin/env bash\nif [ "$1" = "port" ]; then echo "0.0.0.0:14987"; echo "[::]:14987"; fi\nexit 0\n')
     _os.chmod(stub, _os.stat(stub).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     env = dict(_os.environ); env["PATH"] = d + _os.pathsep + env["PATH"]
-    r = subprocess.run(["bash", "-c", f'set -uo pipefail\n{disc}\necho "PORT=$_HOST_PORT"'], capture_output=True, text=True, env=env)
+    r = subprocess.run(["bash", "-c", f'set -uo pipefail\n{coords}\n{disc}\necho "PORT=$_HOST_PORT"'], capture_output=True, text=True, env=env)
     context["host_port"] = ""
     for ln in r.stdout.splitlines():
         if ln.startswith("PORT="):
@@ -22999,7 +23013,7 @@ def then_port_not_hardcoded(context: dict) -> None:
 @then(parsers.parse('the in-network "AGENT_VAULT_ADDR" still resolves to "http://<slug>-agent-vault:14321" unchanged for in-network containers'))
 def then_in_network_unchanged(context: dict) -> None:
     f = context["footing"]
-    assert 'AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://testproduct3-agent-vault:14321}"' in f
+    assert 'AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-$OPS_AGENT_VAULT_ADDR}"' in f
     # The discovery does not rewrite AGENT_VAULT_ADDR itself.
     assert 'AGENT_VAULT_ADDR="http://localhost' not in f
 
@@ -23069,3 +23083,225 @@ def then_sync_matches_beads_remote(context: dict) -> None:
     assert 'git+https://github.com/acme-corp/testproduct3-lead-beads.git' in line, (
         f"sync.remote must match BEADS_REMOTE: {line!r}"
     )
+
+
+# ---- Scenarios 38c7cc83/ffb602e6/e59b29a6/b499c9ba — ADR-043 Phase 1 (lead-0t5m)
+# Identity single-source + the ops-coordinates artifact.
+
+_OPS_SCRIPTS_THAT_SOURCE = (
+    "footing", "agent-vault-provision", "agent-vault-check",
+    "agent-vault-approve-claude", "shop-shell",
+)
+
+
+def _rendered_bin(context: dict) -> dict:
+    target = context["last_invocation_target"]
+    binp = target / "bin"
+    return {p.name: p.read_text() for p in binp.iterdir() if p.is_file()}
+
+
+def _assign_count(text: str, literal: str) -> int:
+    # Count DEFINING assignments to an exact literal value: lines of the form
+    # KEY="<literal>" (the literal as a complete double-quoted assignment value).
+    import re
+    return len(re.findall(r'^[A-Za-z_][A-Za-z0-9_]*="' + re.escape(literal) + r'"\s*$',
+                          text, flags=re.MULTILINE))
+
+
+# -- 38c7cc83 (D1) — manifest is the single identity root -------------------
+
+def _run_footing_identity(basename: str, pre_manifest: str = None):
+    import tempfile, os as _os
+    from shop_templates.cli import render_ops_template
+    lines = render_ops_template("footing", "acme").splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith("REPO_NAME="))
+    end = next(i for i in range(start, len(lines)) if lines[i].startswith("source "))
+    block = "\n".join(lines[start:end])  # identity block, up to (not incl) the source line
+    d = tempfile.mkdtemp()
+    manifest = _os.path.join(d, ".shop", "product-manifest.yaml")
+    if pre_manifest is not None:
+        _os.makedirs(_os.path.dirname(manifest))
+        with open(manifest, "w") as fh:
+            fh.write(pre_manifest)
+    harness = (f'set -uo pipefail\nREPO_ROOT="{d}"\nFOOTING_REPO_NAME="{basename}"\n'
+               f'FOOTING_PRODUCT_MANIFEST="{manifest}"\n{block}\necho "PRODUCT=$PRODUCT"')
+    r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True)
+    product = ""
+    for ln in r.stdout.splitlines():
+        if ln.startswith("PRODUCT="):
+            product = ln[len("PRODUCT="):]
+    mtext = open(manifest).read() if _os.path.exists(manifest) else ""
+    return product, mtext, r.stdout + r.stderr
+
+
+@given(parsers.parse('a forked lead repository whose directory basename is "acme-lead"'))
+def given_basename_acme_lead(context: dict) -> None:
+    context["basename"] = "acme-lead"
+
+
+@given(parsers.re(r'the bootstrap render injected the product slug "acme" wherever an "\{\{OPS_SLUG\}\}" token appeared'))
+def given_render_injected_acme(context: dict) -> None:
+    pass
+
+
+@when(parsers.parse("the footing script runs and writes the product manifest"))
+def when_footing_writes_manifest(context: dict) -> None:
+    product, mtext, out = _run_footing_identity("acme-lead")
+    context["d1_product"], context["d1_manifest"], context["d1_out"] = product, mtext, out
+
+
+@then(parsers.parse('footing derives the product identity once and records it as "product: acme" in ".shop/product-manifest.yaml"'))
+def then_records_product_acme(context: dict) -> None:
+    assert "product: acme" in context["d1_manifest"], f"manifest: {context['d1_manifest']!r}"
+
+
+@then(parsers.parse('the runtime value footing uses for the product slug is read back from the manifest "product:" field, not independently recomputed a second time from the repository basename'))
+def then_runtime_from_manifest(context: dict) -> None:
+    assert context["d1_product"] == "acme", f"runtime PRODUCT not read from manifest: {context['d1_out']!r}"
+    from shop_templates.cli import render_ops_template
+    f = render_ops_template("footing", "acme")
+    assert 'PRODUCT="$(grep -E \'^product:\' "$PRODUCT_MANIFEST"' in f, "footing must read PRODUCT back from the manifest"
+
+
+@then(parsers.parse('when the manifest "product:" field and a basename-derived candidate would disagree, footing reconciles to the manifest "product:" value and emits a diagnostic naming the divergence rather than silently proceeding on the basename-derived value'))
+def then_reconciles_to_manifest(context: dict) -> None:
+    # GENUINE: pre-seed a manifest declaring a DIFFERENT product than the basename.
+    product, mtext, out = _run_footing_identity("acme-lead", pre_manifest="product: othercorp\n")
+    assert product == "othercorp", f"footing must reconcile to the manifest value, got {product!r}"
+    assert "divergence" in out.lower() and "othercorp" in out, f"no reconciliation diagnostic: {out!r}"
+
+
+# -- ffb602e6 (D2) — one artifact, each coordinate once ----------------------
+
+@then(parsers.parse('the target directory contains exactly one rendered ops-coordinates artifact under "bin/" that declares the derived product coordinates as shell-sourceable assignments'))
+def then_one_artifact(context: dict) -> None:
+    binf = _rendered_bin(context)
+    assert "ops-coordinates" in binf, "bin/ops-coordinates not rendered"
+    art = binf["ops-coordinates"]
+    assert 'OPS_SLUG="acme"' in art and 'OPS_AGENT_VAULT_CONTAINER=' in art
+    context["artifact"] = art
+
+
+@then(parsers.parse('that artifact assigns the product slug "acme" exactly once'))
+def then_slug_once(context: dict) -> None:
+    assert _assign_count(context["artifact"], "acme") >= 1
+    assert sum(1 for l in context["artifact"].splitlines() if l.startswith('OPS_SLUG=')) == 1
+
+
+@then(parsers.parse('that artifact assigns the agent-vault container name "acme-agent-vault" exactly once and the postgres container name "acme-postgres" exactly once'))
+def then_containers_once(context: dict) -> None:
+    art = context["artifact"]
+    assert _assign_count(art, "acme-agent-vault") == 1, "agent-vault container name not assigned exactly once"
+    assert _assign_count(art, "acme-postgres") == 1, "postgres container name not assigned exactly once"
+
+
+@then(parsers.parse('that artifact assigns the in-network broker address "http://acme-agent-vault:14321" exactly once and the generated host ports exactly once each'))
+def then_addr_ports_once(context: dict) -> None:
+    art = context["artifact"]
+    assert _assign_count(art, "http://acme-agent-vault:14321") == 1, "broker addr not assigned exactly once"
+    for key in ("OPS_VAULT_API_PORT", "OPS_VAULT_PROXY_PORT", "OPS_POSTGRES_PORT"):
+        assert sum(1 for l in art.splitlines() if l.startswith(key + "=")) == 1, f"{key} not assigned exactly once"
+
+
+@then(parsers.parse('that artifact assigns the vault name "acme" exactly once and the lead beads repository name "acme-lead-beads" exactly once'))
+def then_vault_beads_once(context: dict) -> None:
+    art = context["artifact"]
+    assert sum(1 for l in art.splitlines() if l.startswith("OPS_VAULT_NAME=")) == 1
+    assert _assign_count(art, "acme-lead-beads") == 1, "beads repo name not assigned exactly once"
+
+
+@then(parsers.parse('no derived coordinate carried by the artifact appears as a second independent literal assignment anywhere else in the rendered "bin/" scripts'))
+def then_no_second_literal(context: dict) -> None:
+    binf = _rendered_bin(context)
+    others = {n: t for n, t in binf.items() if n != "ops-coordinates"}
+    for literal in ("acme-agent-vault", "acme-postgres", "acme-lead-beads", "http://acme-agent-vault:14321"):
+        for name, text in others.items():
+            assert _assign_count(text, literal) == 0, (
+                f"{name} carries a second literal assignment of {literal!r}"
+            )
+
+
+# -- e59b29a6 (D2) — every script sources the artifact -----------------------
+
+@then(parsers.parse('each of the rendered scripts "bin/footing", "bin/agent-vault-provision", "bin/agent-vault-check", "bin/agent-vault-approve-claude", and "bin/shop-shell" sources the one rendered ops-coordinates artifact before it uses any product coordinate'))
+def then_each_sources(context: dict) -> None:
+    binf = _rendered_bin(context)
+    src = 'source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"'
+    for name in _OPS_SCRIPTS_THAT_SOURCE:
+        assert name in binf, f"bin/{name} not rendered"
+        assert src in binf[name], f"bin/{name} does not source the ops-coordinates artifact"
+
+
+@then(parsers.parse('in each of those scripts the agent-vault container name, the vault name, the docker network name, and the broker address are variable references to values defined by the sourced ops-coordinates artifact'))
+def then_each_var_refs(context: dict) -> None:
+    binf = _rendered_bin(context)
+    for name in _OPS_SCRIPTS_THAT_SOURCE:
+        t = binf[name]
+        assert "$OPS_AGENT_VAULT_CONTAINER" in t, f"{name} does not reference $OPS_AGENT_VAULT_CONTAINER"
+        # network/vault/addr referenced via OPS_* (each script uses the ones it needs).
+        assert any(v in t for v in ("$OPS_NETWORK", "$OPS_VAULT_NAME", "$OPS_AGENT_VAULT_ADDR")), (
+            f"{name} references no OPS_ network/vault/addr variable"
+        )
+
+
+@then(parsers.parse('none of those scripts re-derives the agent-vault container name by independently concatenating the slug with a "-agent-vault" suffix'))
+def then_no_concat_rederivation(context: dict) -> None:
+    binf = _rendered_bin(context)
+    import re
+    for name in _OPS_SCRIPTS_THAT_SOURCE:
+        # Check CODE only — comments may mention the container name in prose.
+        code = "\n".join(l for l in binf[name].splitlines() if not l.lstrip().startswith("#"))
+        # The slug-prefixed container name as a literal is the re-derivation signal.
+        assert "acme-agent-vault" not in code, f"{name} re-spells the literal acme-agent-vault in code"
+        # …and no `${var}-agent-vault` / `$var-agent-vault` runtime concatenation
+        # of a slug-like var with the -agent-vault container suffix (the broker CA
+        # filename `agent-vault-ca.pem` and the command `agent-vault` are exempt).
+        assert not re.search(r'[}\w]-agent-vault["\s/]', code.replace("$OPS_AGENT_VAULT_CONTAINER", "OPSREF")), (
+            f"{name} concatenates a -agent-vault container suffix instead of referencing $OPS_AGENT_VAULT_CONTAINER"
+        )
+
+
+@then(parsers.parse('none of those scripts independently re-spells the broker host literal "http://localhost:14321"'))
+def then_no_localhost_respell(context: dict) -> None:
+    binf = _rendered_bin(context)
+    for name in _OPS_SCRIPTS_THAT_SOURCE:
+        # CODE only — a comment may mention the literal in prose.
+        code = "\n".join(l for l in binf[name].splitlines() if not l.lstrip().startswith("#"))
+        assert "http://localhost:14321" not in code, f"{name} re-spells http://localhost:14321 in code"
+
+
+# -- b499c9ba (D6) — coordinate literal in exactly one file ------------------
+
+@then(parsers.parse('across all rendered "bin/" scripts together the literal string "acme-agent-vault" appears as a defining assignment in exactly one file, the ops-coordinates artifact'))
+def then_container_one_file(context: dict) -> None:
+    binf = _rendered_bin(context)
+    files = [n for n, t in binf.items() if _assign_count(t, "acme-agent-vault") > 0]
+    assert files == ["ops-coordinates"], f"acme-agent-vault defining assignment in: {files}"
+
+
+@then(parsers.parse('across all rendered "bin/" scripts together the generated broker host port value appears as a defining assignment in exactly one file, the ops-coordinates artifact'))
+def then_port_one_file(context: dict) -> None:
+    binf = _rendered_bin(context)
+    # The generated host port literal lives only in the artifact's OPS_VAULT_API_PORT line.
+    art = binf["ops-coordinates"]
+    import re
+    m = re.search(r'OPS_VAULT_API_PORT="\$\{[A-Z_]+:-(\d+)\}"', art)
+    assert m, f"no generated host port in the artifact: {art!r}"
+    port = m.group(1)
+    files = [n for n, t in binf.items() if any(
+        l.strip().endswith(f":-{port}}}\"") or f'="{port}"' in l for l in t.splitlines())]
+    assert files == ["ops-coordinates"], f"host port {port} defining assignment in: {files}"
+
+
+@then(parsers.parse('across all rendered "bin/" scripts together the lead beads repository name "acme-lead-beads" appears as a defining assignment in exactly one file, the ops-coordinates artifact'))
+def then_beads_one_file(context: dict) -> None:
+    binf = _rendered_bin(context)
+    files = [n for n, t in binf.items() if _assign_count(t, "acme-lead-beads") > 0]
+    assert files == ["ops-coordinates"], f"acme-lead-beads defining assignment in: {files}"
+
+
+@then(parsers.parse('the rendered ops scaffolding for shop name "dummyco" contains no case-insensitive occurrence of the literal "shopsystem" and no case-insensitive occurrence of the literal "fleet" except where part of a product-neutral framework image reference'))
+def then_dummyco_slug_clean(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    art = render_ops_template("ops-coordinates", "dummyco").lower()
+    assert "shopsystem" not in art and "fleet" not in art, "ops-coordinates artifact leaks shopsystem/fleet"

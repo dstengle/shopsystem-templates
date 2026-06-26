@@ -345,11 +345,26 @@ DEXEC_SCOPED=(env \
   AGENT_VAULT_VAULT="$AGENT_VAULT_VAULT")
 
 # Store the already-collected GitHub PAT into the <slug> vault for later brokered
-# GitHub access by BCs and agents (lead-pdsd I3). REUSES the PAT captured at the
-# single up-front auth gate — NO second human prompt (scenario 184). Runs under
-# the vault-scoped session; the secret rides the local argv only.
-"${DEXEC_SCOPED[@]}" agent-vault vault credential set "GITHUB_TOKEN=$GITHUB_TOKEN" --vault "$AGENT_VAULT_VAULT" >/dev/null
-echo "footing: stored the collected GitHub PAT into vault '$AGENT_VAULT_VAULT' (GITHUB_TOKEN) for later brokered access." >&2
+# GitHub access by BCs and agents (lead-0j60, superseding lead-pdsd I3). On
+# agent-vault 0.32.0 `vault credential set` requires Member role and FAILS
+# 'Member role required' through the owner's REMOTE vault-scoped session (and any
+# fleet token) — it works ONLY BROKER-LOCALLY. So register a broker-local owner
+# session INSIDE the broker container and set the static GITHUB_TOKEN credential
+# via `docker exec` (the same broker-local mechanism that round-trips live), NOT
+# through the owner-remote scoped session. REUSES the gate PAT — NO second human
+# prompt (scenario 184). NON-FATAL under `set -e`: it SUCCEEDS or DEGRADES to a
+# surfaced warning — it must never abort footing.
+_BROKER="{{OPS_SLUG}}-agent-vault"
+if printf '%s' "$OWNER_PASSWORD" | docker exec -i "$_BROKER" agent-vault auth login --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin >/dev/null 2>&1 \
+   || printf '%s' "$OWNER_PASSWORD" | docker exec -i "$_BROKER" agent-vault auth register --email "$AGENT_VAULT_OWNER_EMAIL" --password-stdin >/dev/null 2>&1; then
+  if docker exec -i "$_BROKER" agent-vault vault credential set "GITHUB_TOKEN=$GITHUB_TOKEN" --vault "$AGENT_VAULT_VAULT" >/dev/null 2>&1; then
+    echo "footing: stored the GitHub PAT broker-locally in vault '$AGENT_VAULT_VAULT' (GITHUB_TOKEN, static) for later brokered access." >&2
+  else
+    echo "footing: WARNING — broker-local 'vault credential set GITHUB_TOKEN' failed; continuing without the vaulted PAT (set it later via bin/agent-vault-provision)." >&2
+  fi
+else
+  echo "footing: WARNING — could not establish a broker-local owner session in '$_BROKER' to store the GitHub PAT; continuing." >&2
+fi
 
 # The oauth-typed CLAUDE_OAUTH credential-slot proposal. action:set + type:oauth
 # + the oauth block (token_url REQUIRED); the slot stores NO token value — the

@@ -22721,40 +22721,74 @@ def then_no_dstengle_default(context: dict) -> None:
     assert "dstengle" not in render_ops_template("footing", "dummyco")
 
 
-# -- a6b83d4f (I3) — store the collected PAT in the vault --------------------
+# -- 7c96f830 — store the PAT BROKER-LOCALLY (lead-0j60, supersedes a6b83d4f) -
+# agent-vault 0.32.0 `credential set` fails 'Member role required' via the owner
+# REMOTE scoped session; it works only broker-locally (docker exec). footing must
+# use the broker-local mechanism and continue past the step (no abort). Body-
+# assertion over footing; the live round-trip is the lead's verify.
 
-@given(parsers.parse("footing has collected the GitHub PAT at its single up-front auth gate"))
-def given_footing_collected_pat(context: dict) -> None:
+def _0j_footing_pat_block(slug: str = "dummyco"):
     from shop_templates.cli import render_ops_template
-    context["footing"] = render_ops_template("footing", "dummyco")
+    f = render_ops_template("footing", slug)
+    lines = f.splitlines()
+    s = next(i for i, l in enumerate(lines) if f"_BROKER=\"{slug}-agent-vault\"" in l)
+    return f, "\n".join(lines[s:s + 14])
 
 
-@given(parsers.parse('the broker vault is scoped to the product session "<slug>"'))
-def given_vault_scoped_slug(context: dict) -> None:
+@given(parsers.parse("footing has collected the GitHub PAT in the single up-front auth gate"))
+def given_footing_collected_pat_0j(context: dict) -> None:
+    f, block = _0j_footing_pat_block()
+    context["footing"], context["pat_block"] = f, block
+
+
+@given(parsers.parse('the "<slug>" vault exists with no "GITHUB_TOKEN" credential yet'))
+def given_vault_no_pat_yet(context: dict) -> None:
     pass
 
 
-@when(parsers.parse("footing completes the auth and credential-store steps of its sequence"))
-def when_footing_credential_store(context: dict) -> None:
+@when(parsers.parse('footing reaches the step that stores the PAT into the "<slug>" vault'))
+def when_footing_stores_pat(context: dict) -> None:
     pass
 
 
-@then(parsers.parse('footing stores the collected GitHub PAT into the broker vault as a credential under the "<slug>" vault session'))
-def then_stores_pat(context: dict) -> None:
+@then(parsers.parse('it sets the credential broker-locally by registering a broker-local owner session in the broker container and running "agent-vault vault credential set GITHUB_TOKEN=<pat> --vault <slug>" via "docker exec" into the broker, the same mechanism "bin/agent-vault-provision" uses'))
+def then_pat_broker_local(context: dict) -> None:
+    f, block = context["footing"], context["pat_block"]
+    # Broker-local owner session via docker exec into the broker container.
+    assert 'docker exec -i "$_BROKER" agent-vault auth login' in block
+    assert 'docker exec -i "$_BROKER" agent-vault auth register' in block
+    # Credential set runs broker-locally via docker exec, --vault <slug>.
+    assert 'docker exec -i "$_BROKER" agent-vault vault credential set "GITHUB_TOKEN=$GITHUB_TOKEN" --vault "$AGENT_VAULT_VAULT"' in block
+
+
+@then(parsers.parse('it does NOT set the credential through the owner\'s remote vault-scoped session, which fails "Member role required"'))
+def then_pat_not_owner_remote(context: dict) -> None:
     f = context["footing"]
-    line = next((l for l in f.splitlines() if "vault credential set" in l and "GITHUB_TOKEN" in l), None)
-    assert line is not None, "footing must run `vault credential set GITHUB_TOKEN=...`"
-    assert 'GITHUB_TOKEN=$GITHUB_TOKEN' in line and '--vault "$AGENT_VAULT_VAULT"' in line
-    assert 'DEXEC_SCOPED' in line, "the PAT store must run under the vault-scoped session"
-    # No SECOND human prompt: GITHUB_TOKEN is read once at the gate (scenario 184).
-    assert f.count('read -r -s -p "footing[auth gate]: GitHub PAT') == 1
+    # The owner-remote scoped-session credential set (the aborting path) is gone.
+    assert 'DEXEC_SCOPED[@]}" agent-vault vault credential set' not in f, (
+        "the PAT store must NOT use the owner-remote scoped session (Member role required)"
+    )
 
 
-@then(parsers.parse('after footing completes a GitHub PAT credential exists in the "<slug>" vault and is retrievable for later brokered GitHub access by BCs and agents'))
-def then_pat_retrievable(context: dict) -> None:
-    # Structural: the credential set lands GITHUB_TOKEN in the vault; runtime
-    # retrievability is the lead's live-verify.
-    assert "vault credential set" in context["footing"]
+@then(parsers.parse('the stored "GITHUB_TOKEN" is a "static" credential retrievable by a broker-local "agent-vault vault credential get GITHUB_TOKEN --vault <slug>" returning the exact PAT value'))
+def then_pat_static_retrievable(context: dict) -> None:
+    # A bare KEY=VALUE credential set creates a 'static' credential; retrieval is
+    # the lead's broker-local live-verify. Structural: the set lands GITHUB_TOKEN.
+    assert 'vault credential set "GITHUB_TOKEN=$GITHUB_TOKEN"' in context["footing"]
+
+
+@then(parsers.parse('footing continues past the store step without aborting on a "Member role required" error, the store either succeeding via the broker-local mechanism or degrading to a surfaced non-fatal warning rather than crashing the script'))
+def then_pat_non_fatal(context: dict) -> None:
+    block = context["pat_block"]
+    # The store is guarded (if/else) and degrades to a WARNING — never a bare
+    # aborting call under set -e.
+    assert "WARNING" in block and "continuing" in block, "the store must degrade non-fatally"
+    assert block.lstrip().startswith("_BROKER=") and "if " in block
+
+
+@then(parsers.parse("the single up-front human auth gate is not repeated for the credential"))
+def then_pat_no_second_prompt(context: dict) -> None:
+    assert context["footing"].count('read -r -s -p "footing[auth gate]: GitHub PAT') == 1
 
 
 # -- 701e466b (I4) — data root + pgdata owned by host user -------------------

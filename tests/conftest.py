@@ -22942,3 +22942,130 @@ def then_approve_never_58(context: dict) -> None:
     assert _run_pipeline(_extract_fallback_pipeline(context["footing"]), context["ansi"]) == "1"
     # The OLD buggy `tail -n1` parse must be gone from the approve invocation path.
     assert "| grep -oE '[0-9]+' | tail -n1" not in context["approve"]
+
+
+# ---- Scenarios f340689b/c1b769fb — host-reachable port + beads sync.remote (lead-nhr2)
+# Both tested GENUINELY: footing's actual `docker port` discovery line runs
+# against a stub `docker port`; the actual sync.remote rewrite runs against a
+# real scaffolded .beads/config.yaml (hardcoded dstengle + <slug>-product-beads).
+
+@given(parsers.parse('footing has brought up the compose services for product slug "<slug>" so the "<slug>-agent-vault" broker container is running'))
+def given_compose_up_broker_running(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    context["footing"] = render_ops_template("footing", "testproduct3")
+
+
+@given(parsers.parse('footing has written the in-network "AGENT_VAULT_ADDR=http://<slug>-agent-vault:14321" to the run ".env" for in-network containers'))
+def given_in_network_addr(context: dict) -> None:
+    assert 'AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://testproduct3-agent-vault:14321}"' in context["footing"]
+
+
+@when(parsers.parse('footing discovers the broker\'s host-mapped API port by running "docker port <slug>-agent-vault 14321" rather than assuming the container port 14321'))
+def when_footing_discovers_port(context: dict) -> None:
+    import tempfile, os as _os, stat
+    f = context["footing"]
+    disc = next(l for l in f.splitlines() if l.startswith("_HOST_PORT="))
+    assert 'docker port "testproduct3-agent-vault" 14321' in disc, "must discover via `docker port`, not assume 14321"
+    d = tempfile.mkdtemp()
+    stub = _os.path.join(d, "docker")
+    # The generated/overridden OPS_VAULT_API_PORT mapped to container 14321 (!= 14321).
+    with open(stub, "w") as fh:
+        fh.write('#!/usr/bin/env bash\nif [ "$1" = "port" ]; then echo "0.0.0.0:14987"; echo "[::]:14987"; fi\nexit 0\n')
+    _os.chmod(stub, _os.stat(stub).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    env = dict(_os.environ); env["PATH"] = d + _os.pathsep + env["PATH"]
+    r = subprocess.run(["bash", "-c", f'set -uo pipefail\n{disc}\necho "PORT=$_HOST_PORT"'], capture_output=True, text=True, env=env)
+    context["host_port"] = ""
+    for ln in r.stdout.splitlines():
+        if ln.startswith("PORT="):
+            context["host_port"] = ln[5:]
+
+
+@then(parsers.parse('footing records a host-reachable broker address whose host is "localhost" and whose port is the discovered docker-mapped host port into the run ".env" as a host-facing variable distinct from "AGENT_VAULT_ADDR"'))
+def then_records_host_addr(context: dict) -> None:
+    f = context["footing"]
+    # A DISTINCT host-facing var (not AGENT_VAULT_ADDR), value localhost:<discovered>.
+    assert '_env_upsert AGENT_VAULT_HOST_ADDR "http://localhost:$_HOST_PORT"' in f
+    assert "AGENT_VAULT_HOST_ADDR" != "AGENT_VAULT_ADDR"
+    assert context["host_port"] == "14987", f"discovered host port wrong: {context['host_port']!r}"
+
+
+@then(parsers.parse('the recorded host-reachable broker address port equals the value reported by "docker port <slug>-agent-vault 14321", which matches the generated or env-overridden "OPS_VAULT_API_PORT" and is not hardcoded to 14321'))
+def then_port_not_hardcoded(context: dict) -> None:
+    assert context["host_port"] == "14987" and context["host_port"] != "14321", (
+        "the host port must be the discovered mapped port, not hardcoded 14321"
+    )
+
+
+@then(parsers.parse('the in-network "AGENT_VAULT_ADDR" still resolves to "http://<slug>-agent-vault:14321" unchanged for in-network containers'))
+def then_in_network_unchanged(context: dict) -> None:
+    f = context["footing"]
+    assert 'AGENT_VAULT_ADDR="${AGENT_VAULT_ADDR:-http://testproduct3-agent-vault:14321}"' in f
+    # The discovery does not rewrite AGENT_VAULT_ADDR itself.
+    assert 'AGENT_VAULT_ADDR="http://localhost' not in f
+
+
+# -- c1b769fb — rewrite .beads/config.yaml sync.remote -----------------------
+
+def _run_sync_remote_rewrite(scaffolded: str, owner: str = "acme-corp", product: str = "testproduct3"):
+    import tempfile, os as _os
+    from shop_templates.cli import render_ops_template
+    f = render_ops_template("footing", "testproduct3")
+    rewrite_lines = [l for l in f.splitlines() if l.strip().startswith(("if grep -qE '^sync", "sed -i -E", "printf 'sync.remote:", "_BEADS_CONFIG=", "if [[ -f \"$_BEADS_CONFIG"))]
+    d = tempfile.mkdtemp(); bd = _os.path.join(d, ".beads"); _os.makedirs(bd)
+    with open(_os.path.join(bd, "config.yaml"), "w") as fh:
+        fh.write(scaffolded)
+    # Run the actual rewrite block from the rendered footing.
+    s = f.splitlines()
+    start = next(i for i, l in enumerate(s) if l.strip().startswith("_BEADS_CONFIG="))
+    # The block has an inner `fi` (the grep-if) and an outer `fi` (the -f if);
+    # take the SECOND (outer) so the extracted block is balanced.
+    fis = [i for i in range(start, len(s)) if s[i].strip() == "fi"]
+    end = fis[1]
+    block = "\n".join(s[start:end + 1])
+    harness = (f'set -uo pipefail\nREPO_ROOT="{d}"\nGITHUB_ORG="{owner}"\nPRODUCT="{product}"\n'
+               f'BEADS_REMOTE="git+https://github.com/$GITHUB_ORG/$PRODUCT-lead-beads.git"\n{block}\ncat "$_BEADS_CONFIG"')
+    r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True)
+    return r.stdout, r.returncode
+
+
+@given(parsers.parse('a forked lead repository whose git origin owner is "<owner>" and whose derived product slug is "<product>"'))
+def given_forked_lead_owner(context: dict) -> None:
+    context["owner"], context["product"] = "acme-corp", "testproduct3"
+
+
+@given(parsers.parse('"shop-templates bootstrap" scaffolded ".beads/config.yaml" with a "sync.remote" pointing at a hardcoded "dstengle" org and a "<product>-product-beads" repository name'))
+def given_scaffolded_config(context: dict) -> None:
+    context["scaffolded"] = '# Beads config\nsync.remote: "git+https://github.com/dstengle/testproduct3-product-beads.git"\n'
+
+
+@given(parsers.parse('footing has created the "<product>-lead-beads" beads repository and wired its bd dolt remote "BEADS_REMOTE" to that repository under owner "<owner>"'))
+def given_footing_wired_dolt(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    f = render_ops_template("footing", "testproduct3")
+    assert 'BEADS_REMOTE="git+https://github.com/$GITHUB_ORG/$PRODUCT-lead-beads.git"' in f
+
+
+@when(parsers.parse('footing reconciles the ".beads/config.yaml" "sync.remote" at runtime'))
+def when_footing_reconciles_sync(context: dict) -> None:
+    out, rc = _run_sync_remote_rewrite(context["scaffolded"])
+    context["rewritten"], context["rw_rc"] = out, rc
+
+
+@then(parsers.parse('the rewritten "sync.remote" owner equals the git origin owner "<owner>" and is not the hardcoded "dstengle"'))
+def then_sync_owner_derived(context: dict) -> None:
+    line = next(l for l in context["rewritten"].splitlines() if l.startswith("sync.remote:"))
+    assert "acme-corp" in line and "dstengle" not in line, f"sync.remote owner not derived: {line!r}"
+
+
+@then(parsers.parse('the rewritten "sync.remote" repository name equals "<product>-lead-beads" and is not "<product>-product-beads"'))
+def then_sync_name_lead_beads(context: dict) -> None:
+    line = next(l for l in context["rewritten"].splitlines() if l.startswith("sync.remote:"))
+    assert "testproduct3-lead-beads" in line and "testproduct3-product-beads" not in line, f"sync.remote name wrong: {line!r}"
+
+
+@then(parsers.parse('the rewritten "sync.remote" names the same beads repository footing wired its bd dolt remote "BEADS_REMOTE" to'))
+def then_sync_matches_beads_remote(context: dict) -> None:
+    line = next(l for l in context["rewritten"].splitlines() if l.startswith("sync.remote:"))
+    assert 'git+https://github.com/acme-corp/testproduct3-lead-beads.git' in line, (
+        f"sync.remote must match BEADS_REMOTE: {line!r}"
+    )

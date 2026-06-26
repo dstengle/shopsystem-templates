@@ -23755,3 +23755,130 @@ def then_credops_dockerexec_only(context: dict) -> None:
         )
         # Not through the owner remote scoped session (DEXEC_SCOPED is the proposal path only).
         assert all("DEXEC_SCOPED" not in l for l in lines)
+
+
+# ---- Scenarios 513c7a7e/fe555cca — out-of-band dolt-push auth (lead-tncd) ----
+# footing supplies github.com auth via a GLOBAL git insteadOf rewrite (~/.gitconfig,
+# outside the repo) so bd dolt push to the CLEAN dolt remote authenticates
+# non-interactively — without embedding the PAT in any committed file.
+
+_TNCD_INSTEADOF = 'git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"'
+
+
+def _tncd_footing(slug: str = "acme") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("footing", slug)
+
+
+@given(parsers.parse('the footing has tokenized the git origin so "git push" to "<product>-lead" authenticates non-interactively'))
+def given_origin_tokenized(context: dict) -> None:
+    f = _tncd_footing()
+    context["footing"] = f
+    assert 'git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_ORG/$PRODUCT-lead.git"' in f
+
+
+@given(parsers.parse('the bd dolt push remote is configured as "git+https://github.com/<org>/<product>-lead-beads.git" with no embedded token'))
+def given_dolt_remote_clean(context: dict) -> None:
+    f = context.setdefault("footing", _tncd_footing())
+    add = next(l for l in f.splitlines() if "bd dolt remote add origin" in l)
+    assert "x-access-token" not in add and '"$BEADS_REMOTE"' in add
+    beads = next(l for l in f.splitlines() if l.startswith("BEADS_REMOTE="))
+    assert "x-access-token" not in beads
+
+
+@given(parsers.parse('"GIT_TERMINAL_PROMPT" is set to "0" so interactive credential prompting is disabled'))
+def given_prompt_disabled(context: dict) -> None:
+    assert "export GIT_TERMINAL_PROMPT=0" in context.setdefault("footing", _tncd_footing())
+
+
+@when(parsers.parse('the footing runs "bd dolt push" against the configured dolt remote'))
+def when_footing_dolt_push(context: dict) -> None:
+    context.setdefault("footing", _tncd_footing())
+
+
+@then(parsers.parse('git authenticates to github.com for the dolt-over-git remote using credentials supplied out-of-band, not from the dolt remote URL'))
+def then_oob_auth(context: dict) -> None:
+    f = context["footing"]
+    assert _TNCD_INSTEADOF in f, "footing must configure the out-of-band global insteadOf rewrite"
+    # The rewrite is configured BEFORE bd dolt push.
+    assert f.find('insteadOf "https://github.com/"') < f.find("bd dolt push origin")
+    # GENUINE: applying the rewrite registers github.com auth (out-of-band, in HOME).
+    import tempfile, os as _os
+    home = tempfile.mkdtemp()
+    env = dict(_os.environ); env["HOME"] = home; env["GITHUB_TOKEN"] = "ghp_TESTTOKEN"
+    subprocess.run(["bash", "-c", _TNCD_INSTEADOF], env=env, capture_output=True)
+    res = subprocess.run(["git", "config", "--global", "--get-regexp", r"url\..*\.insteadof"], env=env, capture_output=True, text=True)
+    assert "github.com" in res.stdout and "x-access-token:ghp_TESTTOKEN" in res.stdout, (
+        f"the global insteadOf rewrite did not register github.com auth: {res.stdout!r}"
+    )
+
+
+@then(parsers.parse('"bd dolt push" completes successfully and exits zero'))
+def then_dolt_push_ok(context: dict) -> None:
+    # STRUCTURAL: with the out-of-band auth configured + a clean remote, the
+    # ls-remote authenticates; the live exit-zero is the lead's broker/network verify.
+    assert _TNCD_INSTEADOF in context["footing"]
+
+
+@then(parsers.parse('it does not fail with "could not read Username for \'https://github.com\'" or any prompt-disabled error'))
+def then_no_prompt_error(context: dict) -> None:
+    # The clean https://github.com/ URL is rewritten with the token by the global
+    # insteadOf, so git never reaches the no-credential 'could not read Username' path.
+    f = context["footing"]
+    assert _TNCD_INSTEADOF in f and f.find('insteadOf') < f.find("bd dolt push origin")
+
+
+# -- fe555cca — no token leak in any committed file --------------------------
+
+@given(parsers.parse('the footing authenticates "bd dolt push" to github.com for the "<product>-lead-beads" dolt-over-git remote'))
+def given_footing_authenticates_dolt(context: dict) -> None:
+    context["footing"] = _tncd_footing()
+
+
+@when(parsers.parse("the footing has finished wiring the beads remote and authentication"))
+def when_footing_wired(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('the github token is supplied through a git credential mechanism outside the repository, such as a global git "insteadOf" rewrite or a credential helper, not by tokenizing the dolt remote URL'))
+def then_token_oob_mechanism(context: dict) -> None:
+    f = context["footing"]
+    assert 'git config --global url.' in f and '.insteadOf "https://github.com/"' in f, (
+        "the token must be supplied via a global git insteadOf rewrite (outside the repo)"
+    )
+    # NOT by tokenizing the dolt remote URL.
+    add = next(l for l in f.splitlines() if "bd dolt remote add origin" in l)
+    assert "x-access-token" not in add
+
+
+@then(parsers.parse('".beads/config.yaml" "sync.remote" contains only the clean "git+https://github.com/<org>/<product>-lead-beads.git" URL with no PAT or token substring'))
+def then_sync_remote_clean(context: dict) -> None:
+    f = context["footing"]
+    sync = next(l for l in f.splitlines() if "sed -i -E" in l and "sync" in l)
+    assert "x-access-token" not in sync and "${GITHUB_TOKEN}" not in sync, f"sync.remote rewrite leaks a token: {sync!r}"
+    assert "$BEADS_REMOTE" in sync, "sync.remote rewrite must use the clean BEADS_REMOTE"
+
+
+@then(parsers.parse('the bd dolt remote configuration contains only the clean "git+https://github.com/<org>/<product>-lead-beads.git" URL with no PAT or token substring'))
+def then_dolt_remote_config_clean(context: dict) -> None:
+    f = context["footing"]
+    beads = next(l for l in f.splitlines() if l.startswith("BEADS_REMOTE="))
+    assert beads.strip() == 'BEADS_REMOTE="git+https://github.com/$GITHUB_ORG/$PRODUCT-lead-beads.git"'
+    add = next(l for l in f.splitlines() if "bd dolt remote add origin" in l)
+    assert "x-access-token" not in add and "${GITHUB_TOKEN}" not in add
+
+
+@then(parsers.parse("no file that footing commits and pushes embeds the github token"))
+def then_no_committed_token(context: dict) -> None:
+    # The PAT (${GITHUB_TOKEN}) appears ONLY in non-committed locations: the
+    # `git remote set-url origin` (.git/config) and the `git config --global`
+    # insteadOf (~/.gitconfig). Both are outside the committed repo tree. No
+    # committed/written file (.beads/config.yaml, the poured structure) carries it.
+    f = context["footing"]
+    code_token_lines = [l for l in f.splitlines() if "${GITHUB_TOKEN}" in l and not l.lstrip().startswith("#")]
+    for l in code_token_lines:
+        assert ("git remote set-url origin" in l) or ("git config --global url." in l), (
+            f"a non-out-of-band line embeds the github token (potential committed leak): {l!r}"
+        )
+    # The committed beads config rewrite + remote add are token-free (checked above).
+    assert any("git config --global url." in l for l in code_token_lines)

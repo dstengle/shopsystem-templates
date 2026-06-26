@@ -516,6 +516,19 @@ fi
 # the terminal credential prompt belt-and-suspenders.
 export GIT_TERMINAL_PROMPT=0
 git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_ORG/$PRODUCT-lead.git"
+
+# OUT-OF-BAND github.com auth for the dolt-over-git remote (lead-tncd). The bd
+# dolt remote (and .beads/config.yaml sync.remote) is deliberately TOKEN-FREE —
+# footing COMMITS .beads/config.yaml, so tokenizing that URL would embed the PAT
+# into a committed-and-pushed file (a leak). But `bd dolt push`'s underlying
+# `git ls-remote` to the clean 'https://github.com/...-lead-beads.git' would then
+# fail non-interactively under GIT_TERMINAL_PROMPT=0 ('could not read Username').
+# Supply the token OUT-OF-BAND via a GLOBAL git `insteadOf` rewrite in
+# ~/.gitconfig (OUTSIDE the repo, never committed), so every github.com HTTPS git
+# op — including bd dolt push — authenticates without embedding the token in any
+# committed file. (This also covers the `git push` above.)
+git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
 git push -u origin HEAD
 
 # DOLT-OVER-GIT (lead-n7dq): the bd dolt remote is a dolt-over-git remote to a

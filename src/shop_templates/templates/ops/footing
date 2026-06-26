@@ -377,7 +377,16 @@ echo "footing[auth gate]: creating the oauth-typed CLAUDE_OAUTH proposal (vault 
 _proposal_out="$(printf '%s' "$_oauth_proposal_json" | "${DEXEC_SCOPED[@]}" agent-vault vault proposal create -f - --json --vault "$AGENT_VAULT_VAULT")"
 PROPOSAL_NUM="$(printf '%s' "$_proposal_out" | grep -oE '"(number|id)"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
 if [[ -z "$PROPOSAL_NUM" ]]; then
-  PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$AGENT_VAULT_VAULT" 2>/dev/null | grep -oE '[0-9]+' | tail -n1)"
+  # Fallback parse (lead-21uk): take the proposal's IDENTITY number — the leading
+  # "#" column, the FIRST number on a pending data row — NOT `tail -n1`, which
+  # grabbed the trailing CREATED-timestamp minutes (e.g. '58' from '16:58') and
+  # produced 'Proposal #58 not found'.
+  PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$AGENT_VAULT_VAULT" 2>/dev/null | grep -F 'pending' | head -n1 | grep -oE '[0-9]+' | head -n1)"
+fi
+# Persist the create-time identity number into .env so approve-claude approves
+# the RIGHT proposal by its "#" — not a re-parsed timestamp digit (lead-21uk).
+if [[ -n "$PROPOSAL_NUM" ]]; then
+  _env_upsert CLAUDE_OAUTH_PROPOSAL_NUM "$PROPOSAL_NUM"
 fi
 
 # Human APPROVES the proposal here, in the gate — via the CLI proposal flow

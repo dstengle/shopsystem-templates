@@ -22832,3 +22832,113 @@ def then_not_container_owned(context: dict) -> None:
     # Structural: the chown -R to HOST_UID:HOST_GID re-owns the whole tree.
     # Runtime ownership is the lead's live-verify.
     assert 'chown -R "$HOST_UID:$HOST_GID"' in context["footing"]
+
+
+# ---- Scenario d8422606 — proposal number = identity "#", not timestamp tail
+# lead-21uk: the parse `proposal list | grep -oE '[0-9]+' | tail -n1` grabbed the
+# CREATED-timestamp minutes (e.g. '58' from '16:58') instead of the leading '#'
+# column ('1'). Tested GENUINELY: the ACTUAL rendered fallback pipelines + the
+# .env-read are run against a REAL ANSI proposal-list row whose timestamp minutes
+# (58) DIFFER from the '#' (1).
+
+# A real agent-vault `proposal list --status pending` ANSI table (# col=1, 16:58).
+_ANSI_PROPOSAL_LIST = (
+    "┌────┬─────────┬──────────────────┬────────────────────────┐\n"
+    "│ #  │ Status  │ Created          │ Message                │\n"
+    "├────┼─────────┼──────────────────┼────────────────────────┤\n"
+    "│ 1  │ pending │ 2026-06-26 16:58 │ Provision CLAUDE_OAUTH │\n"
+    "└────┴─────────┴──────────────────┴────────────────────────┘\n"
+)
+
+
+def _extract_fallback_pipeline(body: str) -> str:
+    # The list-parse fallback pipeline: from `grep -F 'pending'` to the closing `)"`.
+    i = body.find("grep -F 'pending'")
+    assert i != -1, "no `grep -F 'pending'` fallback pipeline found"
+    j = body.find(')"', i)
+    return body[i:j].strip()
+
+
+def _run_pipeline(pipeline: str, ansi: str) -> str:
+    r = subprocess.run(["bash", "-c", f"set -uo pipefail; {pipeline}"], input=ansi, capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+@given(parsers.parse('the footing script has created exactly one pending CLAUDE_OAUTH proposal whose identity number is "1"'))
+def given_one_pending_proposal(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    context["footing"] = render_ops_template("footing", "dummyco")
+    context["approve"] = render_ops_template("agent-vault-approve-claude", "dummyco")
+
+
+@given(parsers.parse('the broker\'s "proposal create --json" output reports that proposal\'s number as "1"'))
+def given_create_json_reports_1(context: dict) -> None:
+    pass
+
+
+@given(parsers.parse('the broker\'s "proposal list --status pending" output is an ANSI table whose data row shows "1" in the leading "#" column and a CREATED timestamp of "2026-06-26 16:58" whose trailing minutes are "58"'))
+def given_ansi_row(context: dict) -> None:
+    context["ansi"] = _ANSI_PROPOSAL_LIST
+
+
+@when(parsers.parse("footing records the created proposal's identity number"))
+def when_footing_records_number(context: dict) -> None:
+    pass
+
+
+@when(parsers.parse('the operator runs "bin/agent-vault-approve-claude" with the Claude OAuth secret'))
+def when_operator_runs_approve(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('footing persists the create-time identity number "1" into ".env" as "CLAUDE_OAUTH_PROPOSAL_NUM"'))
+def then_footing_persists_num(context: dict) -> None:
+    f = context["footing"]
+    assert '_env_upsert CLAUDE_OAUTH_PROPOSAL_NUM "$PROPOSAL_NUM"' in f, "footing must persist CLAUDE_OAUTH_PROPOSAL_NUM"
+    # The persisted value comes from the robust create-json head-parse (the "id").
+    assert 'grep -oE \'"(number|id)"[[:space:]]*:[[:space:]]*[0-9]+\'' in f
+
+
+@then(parsers.parse('approve-claude resolves the proposal number to "1" by reading the persisted "CLAUDE_OAUTH_PROPOSAL_NUM" from ".env"'))
+def then_approve_reads_env(context: dict) -> None:
+    import tempfile, os as _os
+    body = context["approve"]
+    line = next(l for l in body.splitlines() if l.strip().startswith("PROPOSAL_NUM=") and "CLAUDE_OAUTH_PROPOSAL_NUM" in l)
+    d = tempfile.mkdtemp()
+    envf = _os.path.join(d, ".env")
+    with open(envf, "w") as fh:
+        fh.write("BC_BASE_IMAGE_RESOLVED=x\nCLAUDE_OAUTH_PROPOSAL_NUM=1\n")
+    r = subprocess.run(["bash", "-c", f'set -uo pipefail\nENV_FILE="{envf}"\n{line}\necho "NUM=$PROPOSAL_NUM"'], capture_output=True, text=True)
+    assert "NUM=1" in r.stdout, f"approve-claude must read CLAUDE_OAUTH_PROPOSAL_NUM=1 from .env: {r.stdout+r.stderr!r}"
+
+
+@then(parsers.parse('when approve-claude instead falls back to parsing "proposal list" it takes the leading "#" column value "1" and never the CREATED-timestamp trailing digits "58"'))
+def then_approve_fallback_hash(context: dict) -> None:
+    out = _run_pipeline(_extract_fallback_pipeline(context["approve"]), context["ansi"])
+    assert out == "1", f"approve-claude fallback must resolve the '#' column '1', got {out!r}"
+    assert out != "58"
+
+
+@then(parsers.parse('footing\'s own "proposal list" fallback likewise resolves "1" and never "58"'))
+def then_footing_fallback_hash(context: dict) -> None:
+    out = _run_pipeline(_extract_fallback_pipeline(context["footing"]), context["ansi"])
+    assert out == "1", f"footing fallback must resolve the '#' column '1', got {out!r}"
+    assert out != "58"
+
+
+@then(parsers.parse('approve-claude runs "proposal approve 1" and reports success approving the CLAUDE_OAUTH credential'))
+def then_approve_runs_1(context: dict) -> None:
+    body = context["approve"]
+    # The approve invocation uses the resolved $PROPOSAL_NUM.
+    assert 'agent-vault vault proposal approve "$PROPOSAL_NUM"' in body
+
+
+@then(parsers.parse('approve-claude never runs "proposal approve 58" and never reports "Proposal #58 not found"'))
+def then_approve_never_58(context: dict) -> None:
+    # Both resolution paths yield '1' for this row; '58' (the timestamp tail) is
+    # never the RESOLVED number. (The string '58' may appear in an explanatory
+    # comment; what matters is no parse path produces it.)
+    assert _run_pipeline(_extract_fallback_pipeline(context["approve"]), context["ansi"]) == "1"
+    assert _run_pipeline(_extract_fallback_pipeline(context["footing"]), context["ansi"]) == "1"
+    # The OLD buggy `tail -n1` parse must be gone from the approve invocation path.
+    assert "| grep -oE '[0-9]+' | tail -n1" not in context["approve"]

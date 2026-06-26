@@ -22263,3 +22263,145 @@ def then_vault_create_idempotent(context: dict) -> None:
     f = context["footing"]
     line = next(l for l in f.splitlines() if l.strip().startswith("agent-vault vault create"))
     assert "|| true" in line, f"vault create must be idempotent (|| true): {line!r}"
+
+
+# ---- Scenarios c803b65b/87acbbbe/25be1dd7 — footing/compose startup hardening
+# lead-sgxd: reset the agent-vault store so it re-keys to this run's master
+# password (no "wrong password"); postgres healthcheck probes the configured
+# POSTGRES_USER; postgres runs as the invoking host user so pgdata is host-owned.
+# Body-assertion over the rendered compose.yaml + footing; runtime is the lead's.
+
+def _sg_compose(slug: str = "acme") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("compose.yaml", slug)
+
+
+def _sg_footing(slug: str = "acme") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("footing", slug)
+
+
+# -- c803b65b — broker unlocks, no "wrong password", fresh + re-run -----------
+
+@given(parsers.parse('a freshly forked "acme-lead" repository carrying the rendered compose.yaml and .env.example'))
+def given_acme_fork(context: dict) -> None:
+    context["compose"] = _sg_compose("acme")
+    context["footing"] = _sg_footing("acme")
+
+
+@given(parsers.parse('the agent-vault broker store lives in the persistent named volume "acme-agent-vault-data"'))
+def given_broker_store_volume(context: dict) -> None:
+    assert "acme-agent-vault-data" in context["compose"]
+
+
+@when(parsers.parse("footing brings the compose stack up for the first time"))
+def when_footing_stack_up_first(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('the "acme-agent-vault" broker container reaches a running state and does not exit with "wrong password"'))
+def then_broker_running_no_wrong_pw(context: dict) -> None:
+    f = context["footing"]
+    # footing resets the broker store volume before bringing the stack up, so
+    # the store re-initializes against THIS run's master password (no stale
+    # password mismatch -> no "wrong password" exit).
+    reset = f.find('docker volume rm "acme-agent-vault-data"')
+    up = f.find("up -d postgres agent-vault")
+    assert reset != -1 and up != -1 and reset < up, (
+        "footing must reset the agent-vault store volume before bringing the stack up"
+    )
+
+
+@then(parsers.parse("the broker store is keyed to the master password footing uses, so the broker unlocks and serves on its API port"))
+def then_broker_keyed_unlocks(context: dict) -> None:
+    f = context["footing"]
+    # The reset is scoped to the broker volume + container only (postgres intact)
+    # and idempotent, so the broker re-keys cleanly to the materialized password.
+    line = next(l for l in f.splitlines() if 'docker volume rm "acme-agent-vault-data"' in l)
+    assert "|| true" in line and "rm -sf agent-vault" in f
+
+
+@when(parsers.parse('footing is re-run against the same persistent "acme-agent-vault-data" volume'))
+def when_footing_rerun(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('the "acme-agent-vault" broker container again reaches a running state and does not exit with "wrong password"'))
+def then_broker_running_rerun(context: dict) -> None:
+    # Same reset path runs on every footing invocation, so the re-run re-keys the
+    # store too — the "wrong password" exit cannot occur on the re-run either.
+    f = context["footing"]
+    assert f.find('docker volume rm "acme-agent-vault-data"') < f.find("up -d postgres agent-vault")
+
+
+@then(parsers.parse("the broker store remains consistent with the master password footing uses on the re-run, so the broker unlocks and serves"))
+def then_broker_consistent_rerun(context: dict) -> None:
+    assert "rm -sf agent-vault" in context["footing"]
+
+
+# -- 87acbbbe — postgres healthcheck targets configured user -----------------
+
+@given(parsers.parse('a "lead" shop named "acme" whose bootstrap-rendered compose.yaml sets the postgres service "POSTGRES_USER" to "acme"'))
+def given_acme_postgres_user(context: dict) -> None:
+    context["compose"] = _sg_compose("acme")
+    assert "POSTGRES_USER: acme" in context["compose"]
+
+
+@when(parsers.parse("the postgres service runs its compose healthcheck on each interval"))
+def when_postgres_healthcheck_runs(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('the healthcheck pg_isready probe targets the configured POSTGRES_USER value "acme" rather than the literal "postgres"'))
+def then_healthcheck_targets_configured(context: dict) -> None:
+    c = context["compose"]
+    assert "pg_isready -U acme" in c, "healthcheck must probe the configured user 'acme'"
+    assert "pg_isready -U postgres" not in c, "healthcheck must not probe the literal 'postgres' role"
+
+
+@then(parsers.parse('the postgres container logs do not contain "role \\"postgres\\" does not exist" on any healthcheck interval'))
+def then_no_role_error_log(context: dict) -> None:
+    # STRUCTURAL: the probe now targets the existing 'acme' role, so the
+    # missing-'postgres'-role error can no longer be logged. Runtime is the lead's.
+    assert "pg_isready -U postgres" not in context["compose"]
+
+
+# -- 25be1dd7 — pgdata owned by the invoking host user -----------------------
+
+@given(parsers.parse('a "lead" shop named "acme" whose compose postgres service bind-mounts the host pgdata directory to "/var/lib/postgresql/data"'))
+def given_acme_pgdata_bind(context: dict) -> None:
+    context["compose"] = _sg_compose("acme")
+    context["footing"] = _sg_footing("acme")
+    assert "/var/lib/postgresql/data" in context["compose"]
+
+
+@given(parsers.parse('the operator invokes "./bin/bootstrap" as host user with uid "1000" and gid "1000"'))
+def given_operator_uid_1000(context: dict) -> None:
+    pass
+
+
+@when(parsers.parse("footing prepares the pgdata host directory and brings the postgres service up"))
+def when_footing_prepares_pgdata(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('the bind-mounted pgdata host directory exists and is owned by uid "1000" and gid "1000" rather than uid "999"'))
+def then_pgdata_owned_by_host(context: dict) -> None:
+    c = context["compose"]
+    f = context["footing"]
+    # postgres runs as the invoking host user (env-derived), not uid 999.
+    assert 'user: "${HOST_UID:-1000}:${HOST_GID:-1000}"' in c, "postgres must run as the host user"
+    # footing exports the host identity and pre-creates the pgdata dir owned by it.
+    assert 'export HOST_UID="$(id -u)"' in f and 'export HOST_GID="$(id -g)"' in f
+    assert 'mkdir -p "$_PGDATA_DIR"' in f, "footing must pre-create the pgdata host dir"
+    # The pre-created path matches the compose bind source (same slug-derived path).
+    assert "/pgdata" in f and "_PGDATA_DIR=" in f
+
+
+@then(parsers.parse('the postgres container initializes its data directory as that uid and reaches a healthy serving state accepting connections as the configured "acme" user'))
+def then_postgres_initdb_healthy(context: dict) -> None:
+    c = context["compose"]
+    # Structural: runs as the host user + healthcheck targets the 'acme' role, so
+    # initdb + serving happen as that uid. Runtime serving is the lead's verify.
+    assert 'user: "${HOST_UID:-1000}:${HOST_GID:-1000}"' in c
+    assert "pg_isready -U acme" in c

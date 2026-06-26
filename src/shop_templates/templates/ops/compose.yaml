@@ -27,6 +27,12 @@ services:
   postgres:
     image: postgres:16
     container_name: {{OPS_SLUG}}-postgres
+    # Run as the INVOKING HOST USER (lead-sgxd 25be1dd7) so the bind-mounted
+    # pgdata is owned by the host user, not postgres's in-image uid 999 (which
+    # the host user then cannot manage). footing exports HOST_UID/HOST_GID
+    # (id -u / id -g) and pre-creates the pgdata dir owned by that user; the
+    # :-1000 fallbacks keep a bare `docker compose up` working.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     networks:
       - {{OPS_SLUG}}
     environment:
@@ -40,7 +46,10 @@ services:
     ports:
       - "${{{OPS_SLUG_UPPER}}_POSTGRES_PORT:-{{OPS_POSTGRES_PORT}}}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      # Probe the CONFIGURED POSTGRES_USER ({{OPS_SLUG}}), not the literal
+      # "postgres" role, which does not exist here and logs
+      # 'role "postgres" does not exist' every interval (lead-sgxd 87acbbbe).
+      test: ["CMD-SHELL", "pg_isready -U {{OPS_SLUG}}"]
       interval: 10s
       timeout: 5s
       retries: 5

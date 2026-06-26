@@ -330,7 +330,10 @@ def test_compose_has_pg_isready_healthcheck_and_password_default(tmp_path):
     hc = pg["healthcheck"]
     test = hc["test"]
     assert test[0] == "CMD-SHELL"
-    assert "pg_isready -U postgres" in test[1]
+    # lead-sgxd 87acbbbe: the healthcheck targets the configured POSTGRES_USER
+    # (the slug "dummyco"), not the nonexistent literal "postgres" role.
+    assert "pg_isready -U dummyco" in test[1]
+    assert "pg_isready -U postgres" not in test[1]
     assert hc["interval"] == "10s"
     assert hc["timeout"] == "5s"
     assert hc["retries"] == 5

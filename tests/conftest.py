@@ -24031,3 +24031,55 @@ def then_no_blank_credential(context: dict) -> None:
     assert context["guard_rc"] != 0
     f = context["footing"]
     assert f.find("the GitHub PAT is EMPTY after the auth gate") < f.find('x-access-token:${GITHUB_TOKEN}@github.com')
+
+
+# ---- Scenario 01edf894 — lead-beads initial branch/commit (lead-j9u3) -------
+# A bare `gh repo create --private` makes an empty repo with no branch, so the
+# dolt-over-git `bd dolt push` fails 'git remote has no branches'. footing seeds
+# an initial commit (--add-readme) so the push succeeds. Body-assertion; the live
+# push is the lead's verify.
+
+def _j9_footing(slug: str = "acme") -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("footing", slug)
+
+
+@given(parsers.parse('footing is reaching solid footing for product slug "<product>" and the "<product>-lead-beads" repository does not yet exist'))
+def given_beads_repo_absent(context: dict) -> None:
+    context["footing"] = _j9_footing()
+
+
+@when(parsers.parse('footing creates the "<product>-lead-beads" repository via "gh repo create" and then runs "bd dolt push" against the wired dolt-over-git remote'))
+def when_footing_creates_and_pushes(context: dict) -> None:
+    f = context["footing"]
+    context["gh_create_line"] = next(l for l in f.splitlines() if l.strip().startswith("gh repo create"))
+
+
+@then(parsers.parse('footing creates the "<product>-lead-beads" repository with an initial branch and commit so the remote is not an empty repository with no branches'))
+def then_repo_initial_branch(context: dict) -> None:
+    line = context["gh_create_line"]
+    # An initial branch/commit is seeded — --add-readme (the recommended minimal
+    # mechanism) or a --template clone both make the repo non-empty.
+    assert "--add-readme" in line or "--template" in line, (
+        f"gh repo create must seed an initial branch/commit (--add-readme or --template): {line!r}"
+    )
+    assert '"$GITHUB_ORG/$BEADS_REPO"' in line and "--private" in line
+
+
+@then(parsers.parse('the subsequent "bd dolt push" to the "<product>-lead-beads" remote completes successfully and exits zero'))
+def then_dolt_push_succeeds(context: dict) -> None:
+    f = context["footing"]
+    # STRUCTURAL: the repo is seeded non-empty (above) BEFORE the dolt push, so
+    # the push has a branch to push to. Live exit-zero is the lead's verify.
+    assert f.find("--add-readme") < f.find("bd dolt push origin"), (
+        "the repo must be seeded with an initial commit BEFORE the bd dolt push"
+    )
+
+
+@then(parsers.parse('it does not fail with "git remote has no branches: cannot push" or "initialize the repository with an initial branch/commit first"'))
+def then_no_empty_remote_error(context: dict) -> None:
+    # The seeded initial branch (above) means the dolt-over-git remote is not the
+    # empty no-branches repo that produced the error; structurally the repo is
+    # non-empty before the push.
+    line = context["gh_create_line"]
+    assert "--add-readme" in line or "--template" in line

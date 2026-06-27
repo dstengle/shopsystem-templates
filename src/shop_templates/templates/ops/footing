@@ -447,7 +447,14 @@ if ! gh repo view "$GITHUB_ORG/$BEADS_REPO" >/dev/null 2>&1; then
   # gh 2.95.0 REMOVED `--confirm`; passing it aborts under `set -e` on an
   # unknown-flag error (lead-n7dq S2). `gh repo create <name>` with no prompt
   # flags creates non-interactively given the name + --private.
-  gh repo create "$GITHUB_ORG/$BEADS_REPO" --private
+  #
+  # --add-readme seeds an INITIAL branch + commit (lead-j9u3): a bare
+  # `gh repo create --private` makes an EMPTY repo with no branch, and the
+  # dolt-over-git `bd dolt push` below then fails 'git remote has no branches:
+  # ... initialize the repository with an initial branch/commit first'. The
+  # README seeds the default branch (lead-verified: it makes `bd dolt push`
+  # succeed and does NOT conflict with the dolt push).
+  gh repo create "$GITHUB_ORG/$BEADS_REPO" --private --add-readme
 fi
 
 # -----------------------------------------------------------------------

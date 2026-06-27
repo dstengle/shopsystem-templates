@@ -255,6 +255,7 @@ def _docker_run_image(block_tokens):
         "--network",
         "--env-file",
         "--group-add",
+        "-e",
         "-v",
         "-w",
     }

@@ -503,51 +503,103 @@ def _pour_skills(target: Path, iterator=iter_skill_files) -> None:
         dest.write_bytes(body)
 
 
+_PROVENANCE_FILE = ".provenance"
+
+
+def _read_provenance(skill_dir: Path) -> str | None:
+    """Return "CANONICAL" or "LOCAL" from <skill_dir>/.provenance, or None when
+    no (recognized) marker is present (PDR-023, lead-vme1).
+
+    The marker is a bare-token file: its content declares the skill's provenance.
+    Matching is case-insensitive and substring-tolerant so a bare token line or a
+    `provenance: LOCAL` style line both classify; LOCAL is checked first so an
+    explicit LOCAL is never misread."""
+    marker = skill_dir / _PROVENANCE_FILE
+    if not marker.exists():
+        return None
+    try:
+        token = marker.read_text(errors="replace").strip().upper()
+    except OSError:
+        return None
+    if "LOCAL" in token:
+        return "LOCAL"
+    if "CANONICAL" in token:
+        return "CANONICAL"
+    return None
+
+
+def _skill_is_canonical(
+    skills_root: Path, name: str, canonical_members: set
+) -> bool:
+    """Decide whether the pour OWNS the top-level skill directory <name>/ — i.e.
+    whether update may re-pour it from package data and prune stale files under
+    it (PDR-023, lead-vme1).
+
+    The decision is MARKER-DRIVEN, NOT by directory name: read
+    .claude/skills/<name>/.provenance. An explicit marker ALWAYS wins — CANONICAL
+    => owned, LOCAL => never touched (this closes the by-name hole where a local
+    skill sharing a canonical member's name was clobbered). BACKWARD-COMPAT
+    TRANSITION: a directory with NO marker is classified by the legacy by-name
+    rule for one transition — a canonical-member name is treated CANONICAL (and
+    the pour installs its marker from package data on this run), a non-member
+    name is treated LOCAL and preserved."""
+    prov = _read_provenance(skills_root / name)
+    if prov == "LOCAL":
+        return False
+    if prov == "CANONICAL":
+        return True
+    return name in canonical_members
+
+
 def _mirror_skills(target: Path, iterator=iter_skill_files) -> None:
     """Mirror a skills package-data tree into <target>/.claude/skills/: re-pour
     drifted/missing (idempotent on byte-equality), remove managed files no
     longer shipped, prune empty dirs.
 
-    Pruning is scoped to CANONICAL-MANAGED MEMBERS ONLY (lead-1e8d, supersedes
-    scenario 159 / hash d29c551ef3f58dc9): a top-level skill directory
-    "<name>/" is subject to pruning IFF "<name>" is a member of the canonical
-    skill-group this mirror manages. Files and empty dirs under an unmanaged
-    (e.g. experimentally-adopted) member-name directory are NEVER pruned, so
-    such directories survive a mirror byte-for-byte.
+    Classification is MARKER-DRIVEN (PDR-023, lead-vme1, supersedes the by-name
+    scenario 159 / 9a064e8f6ed915e3): a top-level skill directory "<name>/" is
+    OWNED by the pour — eligible to be re-poured AND pruned — IFF its
+    ".provenance" marker declares it CANONICAL (or, with no marker, its name is a
+    canonical member, the backward-compat transition). A directory whose marker
+    declares it LOCAL is NEVER poured or pruned, EVEN when its name collides with
+    a canonical member; the local body + marker survive byte-for-byte.
 
     `iterator` selects the canonical skill set (BC tree or LEAD group) so update
     mirrors the set that matches the shop type."""
     skills_root = target / ".claude" / "skills"
     shipped = dict(iterator())
+    canonical_members = {rel.split("/", 1)[0] for rel in shipped}
+    # Re-pour shipped files for OWNED (canonical) dirs only; a LOCAL-marked dir
+    # (incl. a canonical-named one) is skipped so its content is never clobbered.
     for rel, body in shipped.items():
+        name = rel.split("/", 1)[0]
+        if not _skill_is_canonical(skills_root, name, canonical_members):
+            continue
         dest = skills_root / rel
         if dest.exists() and dest.read_bytes() == body:
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(body)
     if skills_root.exists():
-        # Canonical-managed member names: the top-level skill dirs this mirror
-        # owns. Only paths under one of these are eligible for pruning; a
-        # directory whose name is not a managed member (unmanaged/experimental)
-        # is left untouched.
-        managed_members = {rel.split("/", 1)[0] for rel in shipped}
         shipped_abs = {skills_root / rel for rel in shipped}
 
-        def _is_under_managed_member(path: Path) -> bool:
+        def _is_under_owned_member(path: Path) -> bool:
             rel_parts = path.relative_to(skills_root).parts
-            return bool(rel_parts) and rel_parts[0] in managed_members
+            return bool(rel_parts) and _skill_is_canonical(
+                skills_root, rel_parts[0], canonical_members
+            )
 
         for path in sorted(skills_root.rglob("*")):
             if (
                 path.is_file()
                 and path not in shipped_abs
-                and _is_under_managed_member(path)
+                and _is_under_owned_member(path)
             ):
                 path.unlink()
         for path in sorted(skills_root.rglob("*"), reverse=True):
             if (
                 path.is_dir()
-                and _is_under_managed_member(path)
+                and _is_under_owned_member(path)
                 and not any(path.iterdir())
             ):
                 path.rmdir()

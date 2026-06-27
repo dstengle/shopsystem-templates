@@ -117,8 +117,13 @@ docker run --rm -it \
 
 # (4) Drop the operator into the brokered session via the bc-lead launcher
 # (attach takes no --image; it reattaches to the already-running leaf-BC).
+# --group-add "$SOCKET_GID" MUST mirror the launcher run (3): the attach
+# container ALSO mounts the docker socket, so without the socket-owning group
+# the non-root user hits EACCES 'permission denied ... unix:///var/run/docker.sock'
+# (lead-ddb2). Every socket-mounting docker run must grant that group — symmetry.
 exec docker run --rm -it \
   --network "$OPS_NETWORK" \
+  --group-add "$SOCKET_GID" \
   -v "$REPO_ROOT:$REPO_ROOT" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -w "$REPO_ROOT" \

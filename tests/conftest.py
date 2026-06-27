@@ -24276,3 +24276,111 @@ def then_target_contains_skill_md(skill: str, context: dict) -> None:
 @then(parsers.parse('the target contains a provenance marker at ".claude/skills/{skill}/.provenance" that declares the skill CANONICAL'))
 def then_target_contains_canonical_marker(skill: str, context: dict) -> None:
     assert _vme1_marker_token(_vme1_skills(context) / skill) == "CANONICAL"
+
+
+# ---- Scenarios 84a32b05/72245934 — shop-shell socket-group symmetry +
+# bootstrap entry instruction (lead-ddb2).
+
+import re as _ddb2_re
+
+
+def _ddb2_shop_shell_body(context: dict) -> str:
+    real = context["last_invocation_target"]
+    return (real / "bin" / "shop-shell").read_text()
+
+
+def _ddb2_docker_run_blocks(body: str):
+    """Split the shop-shell body into individual `docker run`/`exec docker run`
+    invocation blocks (each block = the run command plus its `\\`-continued
+    lines, up to the next top-level docker run or a blank line)."""
+    blocks = []
+    lines = body.splitlines()
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].lstrip()
+        if stripped.startswith("docker run ") or stripped.startswith("exec docker run "):
+            block = [lines[i]]
+            i += 1
+            while i < len(lines) and lines[i - 1].rstrip().endswith("\\"):
+                block.append(lines[i])
+                i += 1
+            blocks.append("\n".join(block))
+        else:
+            i += 1
+    return blocks
+
+
+@then(parsers.parse('the body of "bin/shop-shell" resolves the docker socket\'s owning group id by the literal substring "stat -L -c \'%g\' /var/run/docker.sock"'))
+def then_shop_shell_resolves_socket_gid(context: dict) -> None:
+    assert "stat -L -c '%g' /var/run/docker.sock" in _ddb2_shop_shell_body(context)
+
+
+@then(parsers.parse('every "docker run" invocation in the body of "bin/shop-shell" that mounts the host docker socket by the literal substring "/var/run/docker.sock:/var/run/docker.sock" also carries the literal substring "--group-add" granting that resolved socket-owning group id'))
+def then_every_socket_run_group_add(context: dict) -> None:
+    body = _ddb2_shop_shell_body(context)
+    socket_blocks = [
+        b for b in _ddb2_docker_run_blocks(body)
+        if "/var/run/docker.sock:/var/run/docker.sock" in b
+    ]
+    assert socket_blocks, "no socket-mounting docker run found in shop-shell"
+    for b in socket_blocks:
+        assert "--group-add" in b, (
+            f"a socket-mounting docker run lacks --group-add (EACCES risk):\n{b}"
+        )
+
+
+@then(parsers.parse('the "docker run" invocation in the body of "bin/shop-shell" that invokes "bc-container launch" carries the literal substring "--group-add"'))
+def then_launch_run_group_add(context: dict) -> None:
+    body = _ddb2_shop_shell_body(context)
+    launch = [b for b in _ddb2_docker_run_blocks(body) if "bc-container launch" in b]
+    assert launch and all("--group-add" in b for b in launch), "bc-container launch run lacks --group-add"
+
+
+@then(parsers.parse('the "docker run" invocation in the body of "bin/shop-shell" that invokes "bc-container attach" carries the literal substring "--group-add", so the operator\'s attach is granted the socket\'s owning group rather than failing with "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"'))
+def then_attach_run_group_add(context: dict) -> None:
+    body = _ddb2_shop_shell_body(context)
+    attach = [b for b in _ddb2_docker_run_blocks(body) if "bc-container attach" in b]
+    assert attach and all("--group-add" in b for b in attach), (
+        "bc-container attach run lacks --group-add (the EACCES defect)"
+    )
+
+
+# -- 72245934 — bootstrap completion entry instruction ----------------------
+
+@given(parsers.parse('an adopter fork whose "bin/bootstrap" has run the footing sequence to solid footing, demonstrated by a successful "git push" and a successful "bd dolt push"'))
+def given_adopter_fork_footing(context: dict) -> None:
+    from shop_templates.cli import read_starter_file
+    context["bootstrap_body"] = read_starter_file("bin/bootstrap")
+
+
+@when(parsers.parse("bootstrap reaches completion and returns control to the host shell"))
+def when_bootstrap_completes(context: dict) -> None:
+    # The completion message is the static tail of the starter bin/bootstrap body.
+    body = context["bootstrap_body"]
+    # The completion segment: from the "solid footing reached" echo onward.
+    idx = body.find("solid footing reached")
+    assert idx != -1, "bootstrap has no 'solid footing reached' completion echo"
+    context["bootstrap_completion"] = body[idx:]
+
+
+@then(parsers.parse("bootstrap prints a completion message that names the documented command the operator runs to enter the brokered lead session"))
+def then_completion_names_entry_command(context: dict) -> None:
+    assert "bin/shop-shell" in context["bootstrap_completion"], (
+        "completion message does not name the lead-session entry command bin/shop-shell"
+    )
+
+
+@then(parsers.parse('that completion message contains the literal command "bin/shop-shell" as the next step the operator runs to enter the lead session'))
+def then_completion_literal_shop_shell(context: dict) -> None:
+    assert "bin/shop-shell" in context["bootstrap_completion"]
+
+
+@then(parsers.parse('the completion message does not stop at a generic "start prompting" instruction that omits how to enter the lead session'))
+def then_completion_not_generic(context: dict) -> None:
+    completion = context["bootstrap_completion"]
+    # It must not END on a generic "start prompting" with no shop-shell entry; the
+    # presence of the named entry command is the guarantee it does not stop there.
+    assert "bin/shop-shell" in completion
+    assert "start prompting" not in completion.lower(), (
+        "completion stops at a generic 'start prompting' instruction"
+    )

@@ -216,4 +216,9 @@ docker run --rm -it \
 # of this bootstrap.
 # =======================================================================
 echo "bootstrap: solid footing reached for ${PRODUCT}-lead." >&2
-echo "bootstrap: NEXT STEP — product Discovery is an explicit, agent-driven step you start AFTER confirming this footing. It is NOT part of bootstrap." >&2
+# Name the documented entry command (lead-ddb2): bootstrap returns control to the
+# HOST shell, so it must tell the operator EXACTLY how to re-enter the brokered
+# lead session — './bin/shop-shell' — rather than stopping at a generic "start
+# prompting" that omits the entry step.
+echo "bootstrap: ENTER THE LEAD SESSION — run './bin/shop-shell' from this repository to drop into the brokered lead session (it launches the bc-lead container against the product broker). This is how you re-enter the lead session." >&2
+echo "bootstrap: NEXT STEP — once inside the lead session via './bin/shop-shell', product Discovery is an explicit, agent-driven step you start AFTER confirming this footing. It is NOT part of bootstrap." >&2

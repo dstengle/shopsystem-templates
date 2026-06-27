@@ -24384,3 +24384,92 @@ def then_completion_not_generic(context: dict) -> None:
     assert "start prompting" not in completion.lower(), (
         "completion stops at a generic 'start prompting' instruction"
     )
+
+
+# ---- Scenario 7ce09202 — shop-shell delivers the broker CA as inline PEM
+# content (ADR-045, lead-lu91). Body-assertion + a GENUINE run of shop-shell's
+# CA-assembly block proving the delivered value is the cert content, not a path.
+
+def _lu91_shop_shell() -> str:
+    from shop_templates.cli import render_ops_template
+    return render_ops_template("shop-shell", "acme")
+
+
+def _lu91_ca_env_value() -> str:
+    """Extract shop-shell's ACTUAL env-assembly block (the --env-file grep +
+    the CA-content read) and RUN it against a .env recording the CA file PATH +
+    a real multi-line CA file; return the resulting AGENT_VAULT_CA_PEM value the
+    launcher would pass to the leaf (so we prove it is the CONTENT, not the path)."""
+    import subprocess as _sp, tempfile as _tf, os as _os
+    lines = _lu91_shop_shell().splitlines()
+    s = next(i for i, l in enumerate(lines) if l.startswith("AGENT_VAULT_ENV_FILE="))
+    ci = next(i for i in range(s, len(lines)) if "export AGENT_VAULT_CA_PEM=" in lines[i])
+    e = next(i for i in range(ci, len(lines)) if lines[i] == "fi")
+    block = "\n".join(l for l in lines[s:e + 1] if not l.startswith("AGENT_VAULT_ENV_FILE="))
+    d = _tf.mkdtemp()
+    with open(_os.path.join(d, "agent-vault-ca.pem"), "w") as fh:
+        fh.write("-----BEGIN CERTIFICATE-----\nMIIBmockCAcontent\nLINE2\n-----END CERTIFICATE-----")
+    with open(_os.path.join(d, ".env"), "w") as fh:
+        fh.write("AGENT_VAULT_ADDR=http://acme-agent-vault:14321\n"
+                 "AGENT_VAULT_TOKEN=av_tok\nAGENT_VAULT_VAULT=acme\n"
+                 "AGENT_VAULT_CA_PEM=agent-vault-ca.pem\n")
+    h = (f'set -uo pipefail\nREPO_ROOT="{d}"\nAGENT_VAULT_ENV_FILE="{d}/ef"\n'
+         + block + '\nprintf "%s" "$AGENT_VAULT_CA_PEM"')
+    return _sp.run(["bash", "-c", h], capture_output=True, text=True).stdout
+
+
+@given(parsers.parse('a "lead" shop bootstrapped by "shop-templates" with the rendered ops scripts "bin/agent-vault-provision" and "bin/shop-shell"'))
+def given_lead_shop_with_ops_scripts(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    context["shop_shell"] = render_ops_template("shop-shell", "acme")
+    context["provision"] = render_ops_template("agent-vault-provision", "acme")
+
+
+@given(parsers.parse('a broker whose "agent-vault ca fetch" emits a multi-line root-CA certificate beginning with the literal "-----BEGIN CERTIFICATE-----"'))
+def given_broker_emits_multiline_ca(context: dict) -> None:
+    # provision sources the CA via `agent-vault ca fetch > <file>` into a file.
+    assert "agent-vault ca fetch" in context["provision"]
+
+
+@when(parsers.parse('the operator runs the rendered "bin/agent-vault-provision" to source the broker root CA'))
+def when_provision_sources_ca(context: dict) -> None:
+    pass
+
+
+@when(parsers.parse('then the rendered "bin/shop-shell" transports the broker credentials into the launched leaf-BC session'))
+def when_shop_shell_transports(context: dict) -> None:
+    pass
+
+
+@then(parsers.parse('the rendered "bin/shop-shell" delivers "AGENT_VAULT_CA_PEM" to the launcher by reading the CA file CONTENT — its body contains the literal substring "$(cat" applied to the broker-CA file — rather than carrying the path string'))
+def then_shop_shell_cats_ca(context: dict) -> None:
+    body = context["shop_shell"]
+    assert '"$(cat "$_CA_PEM_FILE")"' in body, "shop-shell must read the CA file CONTENT via $(cat ...)"
+
+
+@then(parsers.parse('the rendered "bin/shop-shell" passes "AGENT_VAULT_CA_PEM" into the launched session as a process-environment value that can hold real newlines — its body contains the literal substring "-e AGENT_VAULT_CA_PEM" — rather than carrying the "AGENT_VAULT_CA_PEM=" line from ".env" through "grep" into a file-based "--env-file" (which cannot carry a multi-line value)'))
+def then_shop_shell_passes_e_flag(context: dict) -> None:
+    body = context["shop_shell"]
+    assert "-e AGENT_VAULT_CA_PEM" in body, "shop-shell must pass -e AGENT_VAULT_CA_PEM"
+    # The CA path line must NOT travel through the file-based --env-file: it is
+    # excluded from the env-file grep.
+    assert "grep -v '^AGENT_VAULT_CA_PEM='" in body
+    # Other single-line vars still travel via --env-file (172 preserved).
+    assert "--env-file" in body
+
+
+@then(parsers.parse('the value of "AGENT_VAULT_CA_PEM" reaching the launched leaf-BC session begins with the literal "-----BEGIN CERTIFICATE-----" — it is the certificate content, not the filename string "agent-vault-ca.pem"'))
+def then_ca_value_is_content(context: dict) -> None:
+    value = _lu91_ca_env_value()
+    assert value.startswith("-----BEGIN CERTIFICATE-----"), (
+        f"the AGENT_VAULT_CA_PEM value the launcher delivers must be the cert content, got {value[:60]!r}"
+    )
+    assert value.strip() != "agent-vault-ca.pem", "the value is the filename string, not the cert"
+
+
+@then(parsers.parse('the trust file the launched leaf agent materializes from "AGENT_VAULT_CA_PEM" therefore contains a valid "-----BEGIN CERTIFICATE-----" block (the broker root CA), not a path/filename string'))
+def then_leaf_trust_file_valid(context: dict) -> None:
+    # The leaf materializes the value verbatim (bc-base consumer, already pinned).
+    # The precondition shop-shell guarantees: the delivered value IS a PEM block.
+    value = _lu91_ca_env_value()
+    assert "-----BEGIN CERTIFICATE-----" in value and "-----END CERTIFICATE-----" in value

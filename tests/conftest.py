@@ -23965,3 +23965,69 @@ def then_no_changeme(context: dict) -> None:
 def then_each_key_once(context: dict) -> None:
     for key in ("AGENT_VAULT_ADDR", "AGENT_VAULT_TOKEN", "AGENT_VAULT_VAULT", "AGENT_VAULT_CA_PEM"):
         assert len(_qswi_val(context["env_after"], key)) == 1, f"{key} must appear exactly once"
+
+
+# ---- Scenario 5b8a8149 — PAT-only empty-credential guard (lead-bk5g) --------
+# The surviving arm of the retired S4 (422f9f82): an empty GITHUB_TOKEN after the
+# gate aborts footing with the exact PAT-EMPTY diagnostic. GENUINE: extract
+# footing's actual PAT gate + guard and run it with an empty PAT.
+
+_BK5G_DIAGNOSTIC = "footing: the GitHub PAT is EMPTY after the auth gate — aborting (set GITHUB_TOKEN or supply it at the gate)."
+
+
+def _bk5g_run_empty_pat():
+    import os as _os
+    from shop_templates.cli import render_ops_template
+    f = render_ops_template("footing", "acme").splitlines()
+    s = next(i for i, l in enumerate(f) if l.startswith('GITHUB_TOKEN="${GITHUB_TOKEN:-}"'))
+    echo_i = next(i for i in range(s, len(f)) if "GitHub PAT is EMPTY after the auth gate" in f[i])
+    block = "\n".join(f[s:echo_i + 3])  # gate + guard (echo, exit 1, fi)
+    env = dict(_os.environ); env.pop("GITHUB_TOKEN", None)
+    # Empty PAT entered at the gate (stdin '\n') -> GITHUB_TOKEN stays empty.
+    r = subprocess.run(["bash", "-c", "set -euo pipefail\n" + block], input="\n", capture_output=True, text=True, env=env)
+    return r.returncode, r.stderr
+
+
+@given(parsers.parse("footing has passed its single up-front auth gate"))
+def given_footing_passed_gate(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+    context["footing"] = render_ops_template("footing", "acme")
+
+
+@given(parsers.parse("the owner password was generated (never prompted) so it is not part of this guard"))
+def given_owner_pw_generated(context: dict) -> None:
+    f = context["footing"]
+    # The owner password is generated (openssl), never prompted.
+    assert 'OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-$(openssl rand -hex 32)}"' in f
+    assert "agent-vault owner password:" not in f, "footing must not prompt for the owner password"
+    # …and the owner pw is NOT part of the empty-credential guard.
+    assert "owner password is EMPTY" not in f
+
+
+@when(parsers.parse("the GitHub PAT credential (GITHUB_TOKEN) is empty after the gate"))
+def when_pat_empty(context: dict) -> None:
+    rc, stderr = _bk5g_run_empty_pat()
+    context["guard_rc"], context["guard_stderr"] = rc, stderr
+
+
+@then(parsers.parse("footing aborts before the authenticated git push with a non-zero exit"))
+def then_footing_aborts_nonzero(context: dict) -> None:
+    assert context["guard_rc"] != 0, "footing must abort non-zero on an empty PAT"
+    # …and the guard is BEFORE the authenticated push.
+    f = context["footing"]
+    assert f.find("the GitHub PAT is EMPTY after the auth gate") < f.find("git push -u origin HEAD")
+
+
+@then(parsers.parse('footing emits the diagnostic "footing: the GitHub PAT is EMPTY after the auth gate — aborting (set GITHUB_TOKEN or supply it at the gate)." on stderr'))
+def then_footing_emits_diagnostic(context: dict) -> None:
+    assert _BK5G_DIAGNOSTIC in context["guard_stderr"], (
+        f"footing must emit the exact PAT-EMPTY diagnostic on stderr: {context['guard_stderr']!r}"
+    )
+
+
+@then(parsers.parse("no blank credential propagates into the authenticated push"))
+def then_no_blank_credential(context: dict) -> None:
+    # The abort (exit 1) happens BEFORE the push, so the blank PAT never reaches it.
+    assert context["guard_rc"] != 0
+    f = context["footing"]
+    assert f.find("the GitHub PAT is EMPTY after the auth gate") < f.find('x-access-token:${GITHUB_TOKEN}@github.com')

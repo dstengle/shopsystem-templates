@@ -24083,3 +24083,196 @@ def then_no_empty_remote_error(context: dict) -> None:
     # non-empty before the push.
     line = context["gh_create_line"]
     assert "--add-readme" in line or "--template" in line
+
+
+# ---- Scenarios 4eb7078d/2763eff7/e6bb8f68/5abc2257/9dd2f8b5 — skills
+# provenance marker (PDR-023, lead-vme1). Marker-driven pour classification.
+
+import shutil as _vme1_shutil
+
+
+def _vme1_skills(context: dict) -> Path:
+    real = context.get("last_invocation_target") or _resolve_single_target(context)
+    return real / ".claude" / "skills"
+
+
+def _vme1_marker_token(skill_dir: Path):
+    marker = skill_dir / ".provenance"
+    if not marker.exists():
+        return None
+    t = marker.read_text().strip().upper()
+    if "LOCAL" in t:
+        return "LOCAL"
+    if "CANONICAL" in t:
+        return "CANONICAL"
+    return None
+
+
+@given(parsers.parse('an existing git repository at a target directory "{alias}" previously bootstrapped as a "lead" shop'))
+def given_prebootstrapped_lead_quoted(alias: str, context: dict, tmp_path: Path) -> None:
+    context["bootstrap_workspace"] = tmp_path
+    _do_bootstrap_for_test(alias, "lead", "shopsystem-product", context, tmp_path)
+
+
+@given(parsers.parse('the target contains a skill directory ".claude/skills/{name}/" whose ".provenance" marker declares the skill CANONICAL and whose "SKILL.md" holds an older version of the canonical "{name2}" body that differs from current package data'))
+def given_skill_canonical_older(name: str, name2: str, context: dict) -> None:
+    assert name == name2
+    sk = _resolve_single_target(context) / ".claude" / "skills" / name
+    sk.mkdir(parents=True, exist_ok=True)
+    older = b"OLDER CANONICAL BODY not in package data\n"
+    (sk / "SKILL.md").write_bytes(older)
+    (sk / ".provenance").write_text("CANONICAL\n")
+    canonical = dict(_iter_lead_skill_files())[f"{name}/SKILL.md"]
+    assert older != canonical, "premise violated: older equals canonical"
+
+
+@given(parsers.parse('the target contains a skill directory ".claude/skills/{name}/" whose ".provenance" marker declares the skill LOCAL and whose "SKILL.md" is not present in canonical package data'))
+def given_skill_local_not_in_pkgdata(name: str, context: dict) -> None:
+    sk = _resolve_single_target(context) / ".claude" / "skills" / name
+    sk.mkdir(parents=True, exist_ok=True)
+    body = f"# {name}\nLOCAL operator skill body.\n".encode()
+    (sk / "SKILL.md").write_bytes(body)
+    (sk / ".provenance").write_text("LOCAL\n")
+    context.setdefault("vme1_pre", {})[name] = (body, "LOCAL")
+    assert f"{name}/SKILL.md" not in dict(_iter_lead_skill_files())
+
+
+@given(parsers.parse('"{name}" is a canonical lead skill-group member shipped in package data'))
+def given_canonical_member_shipped(name: str, context: dict) -> None:
+    assert f"{name}/SKILL.md" in dict(_iter_lead_skill_files()), f"{name} is not a shipped canonical member"
+
+
+@given(parsers.parse('the target contains a skill directory ".claude/skills/{name}/" whose ".provenance" marker declares the skill LOCAL and whose "SKILL.md" holds operator-localized content that differs from the canonical "{name2}" package-data body'))
+def given_skill_local_collision(name: str, name2: str, context: dict) -> None:
+    assert name == name2
+    sk = _resolve_single_target(context) / ".claude" / "skills" / name
+    sk.mkdir(parents=True, exist_ok=True)
+    local = b"OPERATOR-LOCALIZED bring-up-bc content\n"
+    (sk / "SKILL.md").write_bytes(local)
+    (sk / ".provenance").write_text("LOCAL\n")
+    context.setdefault("vme1_pre", {})[name] = (local, "LOCAL")
+    assert local != dict(_iter_lead_skill_files())[f"{name}/SKILL.md"]
+
+
+@given(parsers.parse('the target contains a skill directory ".claude/skills/{name}/" whose ".provenance" marker declares the skill LOCAL'))
+def given_skill_local_only(name: str, context: dict) -> None:
+    sk = _resolve_single_target(context) / ".claude" / "skills" / name
+    sk.mkdir(parents=True, exist_ok=True)
+    body = f"# {name}\nEXPERIMENT local skill.\n".encode()
+    (sk / "SKILL.md").write_bytes(body)
+    (sk / ".provenance").write_text("LOCAL\n")
+    context.setdefault("vme1_pre", {})[name] = (body, "LOCAL")
+
+
+@given(parsers.parse('no skill named "{name}" exists in canonical lead skill-group package data'))
+def given_no_such_canonical_skill(name: str, context: dict) -> None:
+    assert f"{name}/SKILL.md" not in dict(_iter_lead_skill_files())
+
+
+@given(parsers.parse('the skill "{name}" has been added to the canonical lead skill-group package data with a canonical "SKILL.md" body'))
+def given_skill_added_to_pkgdata(name: str, context: dict, request) -> None:
+    # The update subprocess reads package data from the source tree (PYTHONPATH=src),
+    # so materialize the graduated skill there + remove it after the scenario.
+    import shop_templates as _st
+    pkg_root = Path(_st.__file__).parent / "templates" / "lead_skills"
+    sk = pkg_root / name
+    sk.mkdir(parents=True, exist_ok=True)
+    body = f"# {name}\nCANONICAL graduated body.\n".encode()
+    (sk / "SKILL.md").write_bytes(body)
+    (sk / ".provenance").write_text("CANONICAL\n")
+    context["vme1_migrated_body"] = body
+    request.addfinalizer(lambda: _vme1_shutil.rmtree(sk, ignore_errors=True))
+
+
+@given(parsers.parse('the target contains a skill directory ".claude/skills/{name}/" whose ".provenance" marker has been flipped to declare the skill CANONICAL and whose "SKILL.md" holds an older body that differs from the canonical package-data body'))
+def given_skill_flipped_canonical_older(name: str, context: dict) -> None:
+    sk = _resolve_single_target(context) / ".claude" / "skills" / name
+    sk.mkdir(parents=True, exist_ok=True)
+    older = b"OLDER work-splitting body before graduation\n"
+    (sk / "SKILL.md").write_bytes(older)
+    (sk / ".provenance").write_text("CANONICAL\n")
+    assert older != context["vme1_migrated_body"]
+
+
+# -- Then steps -------------------------------------------------------------
+
+@then(parsers.parse('after the invocation ".claude/skills/{name}/SKILL.md" equals the current canonical "{name2}" lead-skill package-data contents byte-for-byte'))
+def then_skill_equals_canonical(name: str, name2: str, context: dict) -> None:
+    assert name == name2
+    if name == "work-splitting":
+        expected = context["vme1_migrated_body"]
+    else:
+        expected = dict(_iter_lead_skill_files())[f"{name}/SKILL.md"]
+    assert (_vme1_skills(context) / name / "SKILL.md").read_bytes() == expected
+
+
+@then(parsers.parse('after the invocation ".claude/skills/{name}/.provenance" declares the skill CANONICAL'))
+def then_marker_canonical(name: str, context: dict) -> None:
+    assert _vme1_marker_token(_vme1_skills(context) / name) == "CANONICAL"
+
+
+@then(parsers.parse('after the invocation ".claude/skills/{name}/.provenance" still declares the skill LOCAL'))
+def then_marker_still_local(name: str, context: dict) -> None:
+    assert _vme1_marker_token(_vme1_skills(context) / name) == "LOCAL"
+
+
+@then(parsers.parse('after the invocation ".claude/skills/{name}/SKILL.md" and its ".provenance" marker are still present with their pre-invocation contents preserved byte-for-byte'))
+def then_skill_and_marker_preserved(name: str, context: dict) -> None:
+    sk = _vme1_skills(context) / name
+    body, prov = context["vme1_pre"][name]
+    assert (sk / "SKILL.md").read_bytes() == body, f"{name}/SKILL.md was modified"
+    assert _vme1_marker_token(sk) == prov, f"{name}/.provenance changed"
+
+
+@then(parsers.parse('after the invocation ".claude/skills/{name}/SKILL.md" still holds the operator-localized content preserved byte-for-byte'))
+def then_skill_local_preserved(name: str, context: dict) -> None:
+    body, _ = context["vme1_pre"][name]
+    assert (_vme1_skills(context) / name / "SKILL.md").read_bytes() == body
+
+
+@then(parsers.parse('the invocation does not overwrite the directory ".claude/skills/{name}/" from canonical package data despite its name matching a canonical member'))
+def then_not_overwritten_despite_name(name: str, context: dict) -> None:
+    body, _ = context["vme1_pre"][name]
+    canonical = dict(_iter_lead_skill_files())[f"{name}/SKILL.md"]
+    actual = (_vme1_skills(context) / name / "SKILL.md").read_bytes()
+    assert actual == body and actual != canonical, "LOCAL collision was clobbered by canonical"
+
+
+@then(parsers.parse('after the invocation ".claude/skills/{name}/" and its "SKILL.md" and its ".provenance" marker are all still present with their pre-invocation contents preserved byte-for-byte'))
+def then_dir_skill_marker_preserved(name: str, context: dict) -> None:
+    sk = _vme1_skills(context) / name
+    body, prov = context["vme1_pre"][name]
+    assert sk.is_dir() and (sk / "SKILL.md").read_bytes() == body
+    assert _vme1_marker_token(sk) == prov
+
+
+@then(parsers.parse('the invocation does not prune or modify any skill directory whose ".provenance" marker declares it LOCAL'))
+def then_no_prune_local(context: dict) -> None:
+    skills = _vme1_skills(context)
+    for name, (body, prov) in context.get("vme1_pre", {}).items():
+        if prov != "LOCAL":
+            continue
+        sk = skills / name
+        assert sk.is_dir(), f"LOCAL skill {name} pruned"
+        assert (sk / "SKILL.md").read_bytes() == body, f"LOCAL skill {name} modified"
+
+
+@then(parsers.parse('a subsequent update invocation against the same target leaves ".claude/skills/{name}/" equal to canonical package data byte-for-byte'))
+def then_subsequent_update_idempotent(name: str, context: dict, tmp_path: Path) -> None:
+    real = context["last_invocation_target"]
+    result = _run_shop_templates_with_bd_shim(
+        ["update", "--shop-type", "lead", "--target", str(real)], context, tmp_path
+    )
+    assert result.returncode == 0, f"2nd update failed: {result.stderr}"
+    assert (real / ".claude" / "skills" / name / "SKILL.md").read_bytes() == context["vme1_migrated_body"]
+    assert _vme1_marker_token(real / ".claude" / "skills" / name) == "CANONICAL"
+
+
+@then(parsers.parse('the target contains a file at ".claude/skills/{skill}/SKILL.md"'))
+def then_target_contains_skill_md(skill: str, context: dict) -> None:
+    assert (_vme1_skills(context) / skill / "SKILL.md").is_file()
+
+
+@then(parsers.parse('the target contains a provenance marker at ".claude/skills/{skill}/.provenance" that declares the skill CANONICAL'))
+def then_target_contains_canonical_marker(skill: str, context: dict) -> None:
+    assert _vme1_marker_token(_vme1_skills(context) / skill) == "CANONICAL"

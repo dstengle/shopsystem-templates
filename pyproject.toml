@@ -60,6 +60,11 @@ shop_templates = [
     # it. Must ship in the sdist+wheel or lead shops pour an empty group
     # (lead-5mr5).
     "templates/lead_skills/**/*",
+    # The per-skill `.provenance` marker (PDR-023, lead-vme1) is a leading-dot
+    # file that `templates/lead_skills/**/*` does not match (same caveat as
+    # templates/ops/.env.example); ship it explicitly so the canonical CANONICAL
+    # markers for bring-up-bc + create-bc resolve from package data.
+    "templates/lead_skills/**/.provenance",
     # The shopsystem-starter forkable-repo body — slimmed to README.md +
     # bin/bootstrap (lead-rs0i): compose.yaml / .env.example are no longer
     # carried by the starter; bin/bootstrap renders them in-container via

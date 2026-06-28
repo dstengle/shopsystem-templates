@@ -122,3 +122,47 @@ def test_all_closed_but_no_red_blocks(tmp_path: Path) -> None:
             tmp_path, "lead-x", "tmpl-x",
             children_provider=lambda repo, umbrella: subissues,
         )
+
+
+# --------------------------------------------------------------------------
+# 209 (7bcfc89161c0b2ee) — bd-decomposition durability/reachability
+# --------------------------------------------------------------------------
+
+def test_non_durable_decomposition_blocks_naming_precondition_and_work_id(
+    tmp_path: Path,
+) -> None:
+    """When the closures exist only in a local .beads registry NOT reachable
+    from the pushed tracker remote, the emit is refused, naming the
+    bd-decomposition-durability precondition specifically (not a generic
+    dirty-working-tree cause) and naming the work_id."""
+    with pytest.raises(bc_emit.PreconditionRefusal) as exc:
+        bc_emit.check_plan_decomposition_durable(
+            tmp_path, "lead-x",
+            durability_probe=lambda repo: False,  # not reachable from remote
+        )
+    msg = str(exc.value)
+    assert "lead-x" in msg, msg
+    assert "bd-decomposition-durability precondition" in msg, msg
+    assert "reachable from the pushed tracker remote" in msg, msg
+    # The durability refusal is named SPECIFICALLY, not as a generic dirty tree.
+    assert "NOT a generic" in msg or "not a generic" in msg.lower(), msg
+
+
+def test_durability_is_not_satisfied_by_clean_beads_tree(tmp_path: Path) -> None:
+    """The refusal must make clear that a clean .beads/issues.jsonl working
+    tree cannot by itself establish durability (it is a carved-out
+    non-idempotent ambient artifact)."""
+    with pytest.raises(bc_emit.PreconditionRefusal) as exc:
+        bc_emit.check_plan_decomposition_durable(
+            tmp_path, "lead-x", durability_probe=lambda repo: False,
+        )
+    msg = str(exc.value)
+    assert ".beads/issues.jsonl" in msg and "carved-out" in msg, msg
+
+
+def test_durable_decomposition_passes(tmp_path: Path) -> None:
+    """When the decomposition-and-closure state IS reachable from the pushed
+    tracker remote, the check passes (no refusal)."""
+    bc_emit.check_plan_decomposition_durable(
+        tmp_path, "lead-x", durability_probe=lambda repo: True,
+    )

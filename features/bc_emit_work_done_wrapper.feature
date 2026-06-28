@@ -1,13 +1,5 @@
 Feature: bc-emit work-done wrapper — executable pre-emit preconditions over the work-done-gate
 
-  @scenario_hash:242c4de927d64339 @bc:shopsystem-templates
-  Scenario: bc-emit work-done refuses the emit when the BC working tree carries a non-carved-out modified or untracked path, naming the offending path, and does not invoke shop-msg respond
-    Given a BC repository whose "git status --porcelain" output reports at least one modified or untracked path that is NOT one of the ambient carve-outs ".specstory", ".claude/scheduled_tasks.lock", or ".beads/issues.jsonl"
-    When the BC invokes the "bc-emit work-done" wrapper for its dispatched work_id
-    Then the wrapper exits non-zero and does not invoke "shop-msg respond work_done"
-    And the wrapper's error names the clean-working-tree precondition as the cause and lists each offending path verbatim as "git status --porcelain" reported it
-    And a working tree whose ONLY non-empty "git status --porcelain" entries are the carved-out ambient artifacts ".specstory", ".claude/scheduled_tasks.lock", and ".beads/issues.jsonl" is treated as clean, so the wrapper does NOT refuse on those paths alone and proceeds to the remaining preconditions
-
   @scenario_hash:461d6066ef7dca0a @bc:shopsystem-templates
   Scenario: bc-emit work-done refuses the emit when the COMMIT deliverable for the work_id is not reachable from the BC's origin/main HEAD, naming the work_id and the current origin/main HEAD
     Given a dispatched work_id whose deliverable is a COMMIT attributable to that work_id

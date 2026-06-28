@@ -185,9 +185,14 @@ def test_bc_emit_wrapper_pointer_replaces_retired_precondition_prose():
 def test_retired_prose_precondition_scenarios_absent_wrapper_scenarios_present():
     """lead-62sy: the 12 retired prose-precondition scenarios (105-116) must be
     gone from features/ (no scenario block recomputes to their canonical
-    block-only hash), while the 6 surviving bc-emit wrapper scenarios (176-181)
-    remain. Uses the same block-only recompute the wrapper itself applies, so a
-    stale on-disk tag cannot mask a still-present block."""
+    block-only hash), while the surviving bc-emit wrapper scenarios remain.
+    Uses the same block-only recompute the wrapper itself applies, so a stale
+    on-disk tag cannot mask a still-present block.
+
+    lead-3rda: scenario 176 (242c4de927d64339) — the narrow carve-out
+    ALLOWLIST clean-tree assertion — is RETIRED and superseded by scenario 212
+    (cba037e97c6a8325), the DELIVERABLE-SCOPE clean-tree assertion; 176 must now
+    be ABSENT and 212 PRESENT among the surviving set."""
     import pathlib
     from shop_templates.bc_emit import _scenario_blocks
     from scenarios.hash import compute_scenario_hash
@@ -205,11 +210,16 @@ def test_retired_prose_precondition_scenarios_absent_wrapper_scenarios_present()
         "3c4a039dc12f9e72", "d1a890b937181543", "e98d72015796afbe", "bb41b17b6ebd0c81",
         # 113-116 lead-83l scenario-hash-match (bc-reviewer)
         "418f41d9a7789ca1", "a176ea1af49b5fa0", "f312990bd1d5ca44", "83614a2765bd73ab",
+        # 176 lead-3rda: narrow carve-out ALLOWLIST clean-tree assertion,
+        # superseded by 212's DELIVERABLE-SCOPE clean-tree assertion.
+        "242c4de927d64339",
     }
     surviving = {
-        # 176-181 bc-emit work-done wrapper (the durable coverage)
-        "242c4de927d64339", "461d6066ef7dca0a", "12c98d2f7e5259a9",
+        # 177-181 bc-emit work-done wrapper (the durable coverage)
+        "461d6066ef7dca0a", "12c98d2f7e5259a9",
         "ea9c1bbd9be87d72", "4a6133f7b5f061a2", "f81ee56bc163934b",
+        # 212 lead-3rda: DELIVERABLE-SCOPE clean-tree (supersedes 176)
+        "cba037e97c6a8325",
     }
     leaked = retired & recomputed
     assert not leaked, f"retired prose-precondition scenarios still present: {sorted(leaked)}"

@@ -15179,29 +15179,9 @@ def _respond_was_invoked(log: Path) -> bool:
     return log.exists() and bool(log.read_text().strip())
 
 
-# ---- Scenario 242c4de927d64339 — clean working tree + carve-outs ----------
-
-@given(
-    parsers.parse(
-        'a BC repository whose "git status --porcelain" output reports at '
-        "least one modified or untracked path that is NOT one of the ambient "
-        'carve-outs ".specstory", ".claude/scheduled_tasks.lock", or '
-        '".beads/issues.jsonl"'
-    )
-)
-def given_dirty_non_carved_out_tree(context: dict, tmp_path: Path) -> None:
-    clone, origin = _init_bare_origin_and_clone(tmp_path)
-    # A non-carved-out untracked path AND a carved-out one, to prove the
-    # carve-outs are discounted but the real path still refuses.
-    (clone / "src_change.py").write_text("x = 1\n")
-    (clone / ".specstory").mkdir(exist_ok=True)
-    (clone / ".specstory" / "log.md").write_text("noise\n")
-    context["bc_repo"] = clone
-    context["bc_origin"] = origin
-    recorder, log = _make_recorder(tmp_path)
-    context["respond_recorder"] = recorder
-    context["respond_log"] = log
-
+# ---- Shared bc-emit wrapper invocation + refusal steps --------------------
+# The dispatched-work_id invocation and the "exits non-zero / no respond"
+# refusal assertion are shared by multiple wrapper scenarios.
 
 @when(
     parsers.parse(
@@ -15233,70 +15213,6 @@ def then_wrapper_nonzero_no_respond(context: dict) -> None:
     assert not _respond_was_invoked(context["respond_log"]), (
         "shop-msg respond was invoked on a refusal path; recorder log: "
         f"{context['respond_log'].read_text()!r}"
-    )
-
-
-@then(
-    parsers.parse(
-        "the wrapper's error names the clean-working-tree precondition as the "
-        'cause and lists each offending path verbatim as "git status '
-        '--porcelain" reported it'
-    )
-)
-def then_clean_tree_cause_and_paths(context: dict) -> None:
-    err = context["bc_emit_result"].stderr
-    assert "clean-working-tree precondition" in err, err
-    # The non-carved-out path must be named verbatim from porcelain output.
-    assert "src_change.py" in err, err
-
-
-@then(
-    parsers.parse(
-        'a working tree whose ONLY non-empty "git status --porcelain" entries '
-        'are the carved-out ambient artifacts ".specstory", '
-        '".claude/scheduled_tasks.lock", and ".beads/issues.jsonl" is treated '
-        "as clean, so the wrapper does NOT refuse on those paths alone and "
-        "proceeds to the remaining preconditions"
-    )
-)
-def then_carve_outs_treated_clean(context: dict, tmp_path: Path) -> None:
-    # Build a fresh repo whose ONLY porcelain entries are the carve-outs, and
-    # whose work_id IS reachable on origin/main, so the clean-tree check must
-    # NOT be what refuses (it should proceed to reachability and pass).
-    sub = tmp_path / "carveout-clean"
-    sub.mkdir()
-    clone, origin = _init_bare_origin_and_clone(sub)
-    # Land a work_id commit on origin/main.
-    (clone / "feature.txt").write_text("done\n")
-    _git_in(clone, "add", "feature.txt")
-    _git_in(clone, "commit", "-q", "-m", "feat: deliver (work_id: lead-carve)")
-    _git_in(clone, "push", "-q", "origin", "main")
-    # Now create ONLY carve-out porcelain noise.
-    (clone / ".specstory").mkdir(exist_ok=True)
-    (clone / ".specstory" / "x.md").write_text("noise\n")
-    (clone / ".claude").mkdir(exist_ok=True)
-    (clone / ".claude" / "scheduled_tasks.lock").write_text("lock\n")
-    (clone / ".beads").mkdir(exist_ok=True)
-    (clone / ".beads" / "issues.jsonl").write_text("{}\n")
-    recorder, log = _make_recorder(sub)
-    # No --scenario-hash payload and no features/ dir => hash check is a no-op
-    # pass; clean-tree must NOT refuse on the carve-outs.
-    result = _run_bc_emit(
-        clone, recorder,
-        "--work-id", "lead-carve",
-        "--status", "complete",
-    )
-    # The clean-tree precondition did not refuse: either it passed all checks
-    # (respond invoked) or it refused for a DIFFERENT, non-clean-tree cause.
-    assert "clean-working-tree precondition" not in result.stderr, (
-        "carve-out-only tree was wrongly refused by the clean-tree check: "
-        f"{result.stderr!r}"
-    )
-    # And concretely: with the work_id on origin/main and no scenario hashes,
-    # the wrapper proceeds all the way and invokes respond.
-    assert _respond_was_invoked(log), (
-        "expected the wrapper to proceed past clean-tree (carve-outs only) "
-        f"and invoke respond; stderr={result.stderr!r} rc={result.returncode}"
     )
 
 

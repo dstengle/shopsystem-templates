@@ -10,12 +10,20 @@ invoke `shop-msg respond`.
 
 Preconditions (lead-m56e):
 
-  Check 1 — clean working tree (hash 242c4de927d64339)
-      `git status --porcelain` must be empty AFTER discounting the ambient
-      carve-outs `.specstory`, `.claude/scheduled_tasks.lock`, and
-      `.beads/issues.jsonl`. A tree whose only porcelain entries are those
-      carve-outs is treated as clean. Any other modified or untracked path
-      refuses the emit, naming each offending path verbatim.
+  Check 1 — clean working tree, DELIVERABLE-SCOPED (hash cba037e97c6a8325)
+      `git status --porcelain` is evaluated against the work-done-gate Check 1
+      DELIVERABLE-SCOPE model: the emit is refused ONLY when a path under a
+      deliverable directory (`features/`, `src/`, `tests/`) is dirty. A tree
+      whose only modified, staged, or untracked paths are non-deliverable
+      harness/config paths — e.g. `.claude/canonical/bc-primer.md`,
+      `.claude/settings.json`, or the ambient carve-outs `.specstory`,
+      `.claude/scheduled_tasks.lock`, `.beads/issues.jsonl` — is treated as
+      clean and proceeds to the remaining preconditions. The ambient
+      carve-out set is just a subset of non-deliverable scope; this replaces
+      the earlier narrow carve-out allowlist (which false-refused clean
+      deliverable emits on harness churn). On refusal the error names the
+      clean-working-tree precondition and lists each offending DELIVERABLE
+      path verbatim as `git status --porcelain` reported it.
 
   Check 2 — reachability (hashes 461d6066ef7dca0a, 12c98d2f7e5259a9)
       Two deliverable modes:
@@ -83,10 +91,27 @@ from pathlib import Path
 # tmpl-20n: a module-top-level import here made the console-script
 # dead-on-arrival in launched BCs.)
 
-# Ambient artifacts that are NOT BC work product: a working tree whose only
-# `git status --porcelain` entries are these is treated as clean. Matched
-# against the porcelain PATH (the bytes after the 2-char status + space, with
-# any rename "old -> new" reduced to the new path).
+# DELIVERABLE directories: the clean-working-tree precondition is scoped to
+# these. Only a dirty path UNDER one of these blocks the emit; everything else
+# (harness/config such as `.claude/...`, repository-root config files, and the
+# ambient carve-outs below) is non-deliverable and does NOT block. This matches
+# the work-done-gate Check 1 DELIVERABLE-SCOPE model and replaces the earlier
+# narrow carve-out ALLOWLIST, which false-refused clean deliverable emits on
+# `.claude` harness churn (router session-start bc-primer.md / settings.json
+# rewrites — another role's in-flight work, neither safe to commit under this
+# work_id nor revert). Matched against the porcelain PATH (the bytes after the
+# 2-char status + space, with any rename "old -> new" reduced to the new path).
+_DELIVERABLE_DIRS = (
+    "features",
+    "src",
+    "tests",
+)
+
+# The ambient carve-outs are now simply a NAMED SUBSET of non-deliverable
+# scope: none lives under a deliverable directory, so the deliverable-scope
+# check already treats them as clean. Retained as documentation of the
+# non-idempotent ambient artifacts the durability precondition reasons about
+# (e.g. `.beads/issues.jsonl`).
 _CARVE_OUTS = (
     ".specstory",
     ".claude/scheduled_tasks.lock",
@@ -149,19 +174,19 @@ def _work_id_attribution_grep(work_id: str) -> list[str]:
     return ["-E", f"--grep=\\b{re.escape(work_id)}\\b"]
 
 
-def _is_carved_out(path: str) -> bool:
-    """Return True iff a porcelain path is an ambient carve-out.
+def _is_deliverable_path(path: str) -> bool:
+    """Return True iff a porcelain path lives under a deliverable directory.
 
-    A path is carved out when it equals a carve-out entry exactly, OR when it
-    lives under a carve-out treated as a directory prefix (e.g. an untracked
-    file ".specstory/2026/log.md" under the ".specstory" carve-out). The two
-    file-specific carve-outs (".claude/scheduled_tasks.lock",
-    ".beads/issues.jsonl") match exactly; ".specstory" additionally covers its
-    whole subtree.
+    Deliverable directories are `features/`, `src/`, `tests/`. A path is
+    deliverable when it lives UNDER one of them (e.g. "features/foo.feature",
+    "src/pkg/mod.py", "tests/test_x.py") or is the directory itself. Anything
+    else — `.claude/...` harness/config, repository-root config files, and the
+    ambient carve-outs (`.specstory`, `.claude/scheduled_tasks.lock`,
+    `.beads/issues.jsonl`) — is non-deliverable and does NOT block the emit.
     """
     normalized = path.rstrip("/")
-    for carve in _CARVE_OUTS:
-        if normalized == carve or normalized.startswith(carve + "/"):
+    for d in _DELIVERABLE_DIRS:
+        if normalized == d or normalized.startswith(d + "/"):
             return True
     return False
 
@@ -181,23 +206,29 @@ def _porcelain_path(line: str) -> str:
 
 
 def check_clean_working_tree(repo: Path) -> None:
-    """Check 1 — clean working tree, discounting the ambient carve-outs.
+    """Check 1 — clean working tree, DELIVERABLE-SCOPED.
 
-    Refuses (raising PreconditionRefusal) when any porcelain entry names a
-    path that is NOT one of the carve-outs, listing each offending path
-    verbatim. A tree whose only entries are carve-outs proceeds.
+    Refuses (raising PreconditionRefusal) ONLY when a porcelain entry names a
+    path under a deliverable directory (`features/`, `src/`, `tests/`), listing
+    each offending DELIVERABLE path verbatim. A tree whose only modified,
+    staged, or untracked paths are non-deliverable harness/config paths (e.g.
+    `.claude/canonical/bc-primer.md`, `.claude/settings.json`) or the ambient
+    carve-outs (`.specstory`, `.claude/scheduled_tasks.lock`,
+    `.beads/issues.jsonl`) is treated as clean and proceeds, because no
+    deliverable path is dirty.
     """
     # `-uall` lists untracked files individually rather than collapsing them
-    # to a parent directory entry (e.g. "?? .beads/"), so a carved-out path
-    # like ".beads/issues.jsonl" appears verbatim and is matched as a
-    # carve-out rather than refusing the whole ".beads/" directory.
+    # to a parent directory entry (e.g. "?? src/"), so a deliverable path like
+    # "src/pkg/mod.py" appears verbatim and is scoped individually rather than
+    # the whole directory being summarized.
     result = _git(repo, "status", "--porcelain", "-uall")
     offending: list[str] = []
     for line in result.stdout.splitlines():
         if not line.strip():
             continue
         path = _porcelain_path(line)
-        if _is_carved_out(path):
+        if not _is_deliverable_path(path):
+            # Non-deliverable harness/config/ambient path — does NOT block.
             continue
         # The full porcelain line is the verbatim evidence the scenario
         # asks for ("as git status --porcelain reported it").
@@ -206,10 +237,13 @@ def check_clean_working_tree(repo: Path) -> None:
         paths = "\n".join(offending)
         raise PreconditionRefusal(
             "refused: the clean-working-tree precondition failed. The BC "
-            "working tree carries modified or untracked paths that are not "
-            "the ambient carve-outs (.specstory, .claude/scheduled_tasks.lock, "
-            ".beads/issues.jsonl). Offending paths, verbatim from "
-            f"`git status --porcelain`:\n{paths}\n{_SELF_RESOLVE}"
+            "working tree carries modified, staged, or untracked paths under a "
+            "deliverable directory (features/, src/, tests/). Only deliverable "
+            "paths block the emit; non-deliverable harness/config paths (e.g. "
+            ".claude/canonical/bc-primer.md, .claude/settings.json) and the "
+            "ambient carve-outs (.specstory, .claude/scheduled_tasks.lock, "
+            ".beads/issues.jsonl) do not. Offending deliverable paths, verbatim "
+            f"from `git status --porcelain`:\n{paths}\n{_SELF_RESOLVE}"
         )
 
 

@@ -1,7 +1,7 @@
-Feature: converged ops scaffolding (lead shop, PDR-020) — bin/shop-shell is a thin bc-container-delegating wrapper, the ops set is exactly six shop-owned files with no dedicated shell Dockerfile, and a non-default render carries zero cross-product literals
+Feature: converged ops scaffolding (lead shop, PDR-020) — bin/shop-shell is a thin bc-container-delegating wrapper, the ops set is exactly seven shop-owned files (the six converged ops tools plus the single shell-sourceable bin/ops-coordinates artifact) with no dedicated shell Dockerfile, and a non-default render carries zero cross-product literals
 
-@scenario_hash:b764caa1dea99fcb @bc:shopsystem-templates
-  Scenario Outline: the ops scaffolding file-set written by bootstrap for a "lead" shop named "<slug>" enumerates exactly six shop-owned files additively — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", and "bin/agent-vault-approve-claude" — each at a shop-owned path outside any ".claude/" subdirectory, and writes NO dedicated shell Dockerfile, because per PDR-020 the shell image is retired and "bin/shop-shell" launches an ephemeral bc-lead launcher (which stands up the leaf-BC on bc-base) instead, and per lead-9s46 the lead-only "bin/agent-vault-approve-claude" Claude-OAuth proposal approval tool joined the converged ops-tool set as its sixth member
+@scenario_hash:0a7e4c29fc7db52b @bc:shopsystem-templates
+  Scenario Outline: the ops scaffolding file-set written by bootstrap for a "lead" shop named "<slug>" enumerates exactly seven shop-owned files additively — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", "bin/agent-vault-approve-claude", and "bin/ops-coordinates" — each at a shop-owned path outside any ".claude/" subdirectory, and writes NO dedicated shell Dockerfile, because per PDR-020 the shell image is retired and "bin/shop-shell" launches an ephemeral bc-lead launcher (which stands up the leaf-BC on bc-base) instead, per lead-9s46 the lead-only "bin/agent-vault-approve-claude" Claude-OAuth proposal approval tool joined the converged ops-tool set, and per ADR-043 Phase 1 (lead-ow4d) the single shell-sourceable "bin/ops-coordinates" coordinate artifact joined the set as its seventh member
     Given an existing git repository at a target directory "/tmp/example-lead-shop"
     When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"
     Then the exit code is 0
@@ -11,10 +11,11 @@ Feature: converged ops scaffolding (lead shop, PDR-020) — bin/shop-shell is a 
     And after the invocation the target directory contains a file at "bin/agent-vault-provision" not under any ".claude/" subdirectory
     And after the invocation the target directory contains a file at "bin/agent-vault-check" not under any ".claude/" subdirectory
     And after the invocation the target directory contains a file at "bin/agent-vault-approve-claude" not under any ".claude/" subdirectory
+    And after the invocation the target directory contains a file at "bin/ops-coordinates" not under any ".claude/" subdirectory
     And after the invocation the target directory contains no top-level file named "Dockerfile.<slug>-shell"
     And after the invocation the target directory contains no top-level file named "Dockerfile.shopsystem-shell"
     And the directory at "/tmp/example-lead-shop/.claude/canonical/" does not contain a file named "compose.yaml", "shop-shell", "shop-scenario-completion", "agent-vault-provision", "agent-vault-check", or "agent-vault-approve-claude"
-    And the bootstrap-enumerated converged ops-tool set for a "lead" shop contains exactly six shop-owned entries — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", and "bin/agent-vault-approve-claude" — and no seventh shop-owned ops file beyond those six
+    And the bootstrap-enumerated converged ops-tool set for a "lead" shop contains exactly seven shop-owned entries — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", "bin/agent-vault-approve-claude", and "bin/ops-coordinates" — and no eighth shop-owned ops file beyond those seven
 
     Examples:
       | slug       |

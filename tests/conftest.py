@@ -20981,18 +20981,23 @@ def then_reports_success_and_exits_zero(context: dict) -> None:
     assert "exit 0" in body, "the script does not exit 0 on success"
 
 
-# -- Scenario b764caa1dea99fcb — exclusivity (lead-a115) ---------------------
+# -- Scenario b764caa1dea99fcb — exclusivity (lead-a115; grown lead-ow4d) -----
 # Supersedes the retired five-file ops Scenario Outline. The bootstrap-ENUMERATED
-# converged ops-tool set (the _LEAD_OPS_FILES enumeration, NOT a bin/ listing —
-# bin/footing renders OUTSIDE it) must be exactly the six shop-owned entries and
-# no seventh.
+# converged ops-tool set is the six _LEAD_OPS_FILES tool entries PLUS the single
+# shell-sourceable bin/ops-coordinates coordinate artifact rendered alongside them
+# (ADR-043 Phase 1 / lead-ow4d) — seven shop-owned ops files, no eighth. The
+# _LEAD_OPS_FILES enumeration itself stays exactly six (bin/ops-coordinates is a
+# sourced DATA artifact rendered OUTSIDE it, like bin/footing and .env.example);
+# the seventh member is that artifact path.
 
 @then(
-    'the bootstrap-enumerated converged ops-tool set for a "lead" shop contains exactly six shop-owned entries — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", and "bin/agent-vault-approve-claude" — and no seventh shop-owned ops file beyond those six'
+    'the bootstrap-enumerated converged ops-tool set for a "lead" shop contains exactly seven shop-owned entries — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", "bin/agent-vault-approve-claude", and "bin/ops-coordinates" — and no eighth shop-owned ops file beyond those seven'
 )
-def then_enumerated_ops_set_is_exactly_six(context: dict) -> None:
+def then_enumerated_ops_set_is_exactly_seven(context: dict) -> None:
     from shop_templates.cli import _LEAD_OPS_FILES
-    rels = [rel for _tn, rel, _exe in _LEAD_OPS_FILES]
+    # The six converged ops TOOLS, plus the single shell-sourceable coordinate
+    # artifact rendered alongside them (lead-ow4d). _LEAD_OPS_FILES stays six.
+    rels = [rel for _tn, rel, _exe in _LEAD_OPS_FILES] + ["bin/ops-coordinates"]
     expected = [
         "compose.yaml",
         "bin/shop-shell",
@@ -21000,10 +21005,11 @@ def then_enumerated_ops_set_is_exactly_six(context: dict) -> None:
         "bin/agent-vault-provision",
         "bin/agent-vault-check",
         "bin/agent-vault-approve-claude",
+        "bin/ops-coordinates",
     ]
     assert rels == expected, (
         "the bootstrap-enumerated converged ops-tool set must be exactly these "
-        f"six shop-owned entries with no seventh; got {rels!r}"
+        f"seven shop-owned entries with no eighth; got {rels!r}"
     )
 
 
@@ -23463,11 +23469,23 @@ def _rendered_bin(context: dict) -> dict:
 
 
 def _assign_count(text: str, literal: str) -> int:
-    # Count DEFINING assignments to an exact literal value: lines of the form
-    # KEY="<literal>" (the literal as a complete double-quoted assignment value).
+    # Count DEFINING assignments to an exact literal value. A defining assignment
+    # is a line of the form KEY="<literal>" OR — since lead-ow4d made every OPS_*
+    # coordinate env-overridable — KEY="${<OVERRIDE>:-<literal>}", where the
+    # literal is the rendered default of an env-overridable parameter expansion.
+    # Either form carries the literal exactly once, so both count as one defining
+    # assignment for the "carried exactly once" invariant (ffb602e6 / b499c9ba).
     import re
-    return len(re.findall(r'^[A-Za-z_][A-Za-z0-9_]*="' + re.escape(literal) + r'"\s*$',
-                          text, flags=re.MULTILINE))
+    lit = re.escape(literal)
+    pat = re.compile(
+        r'^[A-Za-z_][A-Za-z0-9_]*="(?:'
+        + lit
+        + r'|\$\{[A-Za-z_][A-Za-z0-9_]*:-'
+        + lit
+        + r'\})"\s*$',
+        flags=re.MULTILINE,
+    )
+    return len(pat.findall(text))
 
 
 # -- 38c7cc83 (D1) — manifest is the single identity root -------------------
@@ -23540,7 +23558,13 @@ def then_one_artifact(context: dict) -> None:
     binf = _rendered_bin(context)
     assert "ops-coordinates" in binf, "bin/ops-coordinates not rendered"
     art = binf["ops-coordinates"]
-    assert 'OPS_SLUG="acme"' in art and 'OPS_AGENT_VAULT_CONTAINER=' in art
+    # lead-ow4d: every OPS_* coordinate is now env-overridable, so OPS_SLUG is
+    # OPS_SLUG="${<OVERRIDE>:-acme}" rather than the plain OPS_SLUG="acme" — the
+    # slug is still carried (as the rendered default) exactly once.
+    import re as _re
+    assert _re.search(r'(?m)^OPS_SLUG=', art), "artifact must define OPS_SLUG"
+    assert _assign_count(art, "acme") >= 1, "artifact must carry the slug default"
+    assert 'OPS_AGENT_VAULT_CONTAINER=' in art
     context["artifact"] = art
 
 
@@ -23668,7 +23692,7 @@ def then_dummyco_slug_clean(context: dict) -> None:
     art = render_ops_template("ops-coordinates", "dummyco").lower()
     # The Gherkin exempts "a product-neutral framework image reference": ADR-046
     # (lead-ml51) parks the framework launcher/leaf image default in this single
-    # artifact as OPS_LAUNCHER_IMAGE, so the product-neutral image ref
+    # artifact as OPS_FRAMEWORK_IMAGE, so the product-neutral image ref
     # ghcr.io/dstengle/shopsystem-bc-lead may legitimately carry "shopsystem".
     # Strip every occurrence of that ref before the cross-product-literal check.
     residual = art.replace("ghcr.io/dstengle/shopsystem-bc-lead", "")
@@ -25537,14 +25561,17 @@ def then_ss_references_env_overridable_from_artifact(context: dict) -> None:
         "OPS_AGENT_VAULT_CONTAINER",
         "OPS_DATA_ROOT",
         "OPS_BEADS_REPO",
-        "OPS_LAUNCHER_IMAGE",
+        # lead-ow4d: the framework launcher/leaf image key was renamed
+        # OPS_FRAMEWORK_IMAGE -> OPS_FRAMEWORK_IMAGE (ADR-046 / scenario
+        # d5d65b9cfedc24c1); shop-shell references $OPS_FRAMEWORK_IMAGE.
+        "OPS_FRAMEWORK_IMAGE",
     ):
         assert re.search(rf"(?m)^\s*{var}=", coords), (
             f"{var} must be defined in the ops-coordinates artifact"
         )
     # ... and the env-overridable coordinates resolve their default through the
     # `${VAR:-...}` parameter-default form so an exported value takes precedence.
-    for var in ("OPS_DATA_ROOT", "OPS_LAUNCHER_IMAGE"):
+    for var in ("OPS_DATA_ROOT", "OPS_FRAMEWORK_IMAGE"):
         assert re.search(rf'{var}="?\$\{{[A-Za-z_]', coords), (
             f"{var} must be env-overridable (`${{...:-default}}`) in the artifact"
         )
@@ -25719,3 +25746,195 @@ def then_force_path_is_escape_valve_only(forced: str, context: dict) -> None:
             f"the bare {forced!r} path is not scoped as escape-valve-ONLY "
             f"(missing 'only'/'never') near: ...{window!r}..."
         )
+
+
+# ---------------------------------------------------------------------------
+# Scenario d5d65b9cfedc24c1 (lead-ow4d, ADR-043 Phase 1 keystone) — bootstrap
+# renders the single shell-sourceable bin/ops-coordinates artifact whose OPS_*
+# keys are env-overridable ${OVERRIDE:-default} assignments; sourcing it defines
+# the load-bearing coordinate variables non-empty for bin/shop-shell and the
+# other bin/ ops scripts.
+# ---------------------------------------------------------------------------
+
+_OPS_211_REQUIRED_VARS = (
+    "OPS_SLUG",
+    "OPS_NETWORK",
+    "OPS_POSTGRES_CONTAINER",
+    "OPS_VAULT_CONTAINER",
+    "OPS_VAULT_NAME",
+    "OPS_BROKER_ADDR",
+    "OPS_POSTGRES_PORT",
+    "OPS_VAULT_API_PORT",
+    "OPS_VAULT_PROXY_PORT",
+    "OPS_DATA_ROOT",
+    "OPS_LEAD_BEADS_REPO",
+    "OPS_BC_BEADS_REPO_FMT",
+    "OPS_ORG",
+    "OPS_FRAMEWORK_IMAGE",
+)
+
+_OPS_211_UNSET = "__UNSET__"
+
+
+def _ops_coordinates_file(context: dict) -> Path:
+    return context["last_invocation_target"] / "bin" / "ops-coordinates"
+
+
+def _source_ops_coordinates(coords: Path, env_overrides: dict | None = None) -> tuple[int, dict]:
+    """Source the rendered bin/ops-coordinates artifact in a real bash shell and
+    return (source_rc, {OPS_VAR: resolved_value}). A value of ``__UNSET__`` means
+    the variable was not defined by sourcing. Overrides exported via
+    ``env_overrides`` exercise the env-overridable parameter-default precedence."""
+    import os
+    import subprocess
+
+    env = {k: v for k, v in os.environ.items() if not k.startswith("OPS_")}
+    # Strip any slug-parametric override vars from the ambient env so "no override
+    # environment set" genuinely means none leak in.
+    for k in list(env):
+        if k.endswith(("_POSTGRES_PORT", "_VAULT_API_PORT", "_VAULT_PROXY_PORT", "_DATA",
+                       "_SLUG", "_NETWORK", "_VAULT_CONTAINER")):
+            env.pop(k, None)
+    if env_overrides:
+        env.update(env_overrides)
+    echos = "\n".join(
+        f'printf "%s=%s\\n" "{n}" "${{{n}-{_OPS_211_UNSET}}}"' for n in _OPS_211_REQUIRED_VARS
+    )
+    script = f'source "{coords}" >/dev/null 2>&1; printf "__SRC_RC__=%s\\n" "$?"\n{echos}'
+    p = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+    values: dict[str, str] = {}
+    src_rc = 1
+    for line in p.stdout.splitlines():
+        if line.startswith("__SRC_RC__="):
+            src_rc = int(line.split("=", 1)[1])
+        elif "=" in line:
+            k, v = line.split("=", 1)
+            values[k] = v
+    return src_rc, values
+
+
+@then(
+    parsers.parse(
+        'sourcing "bin/ops-coordinates" in a bash shell succeeds with exit code 0 '
+        "and defines the shell variables OPS_SLUG, OPS_NETWORK, OPS_POSTGRES_CONTAINER, "
+        "OPS_VAULT_CONTAINER, OPS_VAULT_NAME, OPS_BROKER_ADDR, OPS_POSTGRES_PORT, "
+        "OPS_VAULT_API_PORT, OPS_VAULT_PROXY_PORT, OPS_DATA_ROOT, OPS_LEAD_BEADS_REPO, "
+        "OPS_BC_BEADS_REPO_FMT, OPS_ORG, and OPS_FRAMEWORK_IMAGE"
+    )
+)
+def then_sourcing_defines_vars(context: dict) -> None:
+    coords = _ops_coordinates_file(context)
+    assert coords.is_file(), f"bin/ops-coordinates not rendered at {coords!s}"
+    src_rc, values = _source_ops_coordinates(coords)
+    assert src_rc == 0, f"sourcing bin/ops-coordinates exited {src_rc}, not 0"
+    for var in _OPS_211_REQUIRED_VARS:
+        assert values.get(var, _OPS_211_UNSET) != _OPS_211_UNSET, (
+            f"sourcing bin/ops-coordinates did not define {var}"
+        )
+
+
+@then(
+    parsers.parse(
+        'each OPS_* assignment in "bin/ops-coordinates" is written as an '
+        "environment-overridable parameter expansion of the form "
+        'OPS_X="${<OVERRIDE>:-<rendered-default>}", so that an override value '
+        "exported before sourcing takes precedence over the rendered default"
+    )
+)
+def then_each_ops_assignment_is_override_form(context: dict) -> None:
+    import re
+
+    coords = _ops_coordinates_file(context)
+    body = coords.read_text()
+    override_form = re.compile(
+        r'^OPS_[A-Za-z0-9_]+="\$\{[A-Za-z_][A-Za-z0-9_]*:-.*\}"\s*$'
+    )
+    assign = re.compile(r"^OPS_[A-Za-z0-9_]+=")
+    offenders = [
+        line
+        for line in body.splitlines()
+        if assign.match(line) and not override_form.match(line)
+    ]
+    assert not offenders, (
+        "every OPS_* assignment must be env-overridable "
+        'OPS_X="${<OVERRIDE>:-<default>}" form; offenders: ' + repr(offenders)
+    )
+
+
+@then(
+    parsers.parse(
+        "after sourcing with no override environment set, OPS_SLUG resolves to "
+        '"{slug}", OPS_NETWORK resolves to "{net}", OPS_POSTGRES_CONTAINER resolves '
+        'to "{pg}", and OPS_VAULT_CONTAINER resolves to "{vc}"'
+    )
+)
+def then_no_override_defaults(slug: str, net: str, pg: str, vc: str, context: dict) -> None:
+    coords = _ops_coordinates_file(context)
+    _rc, values = _source_ops_coordinates(coords)
+    assert values["OPS_SLUG"] == slug, f"OPS_SLUG={values['OPS_SLUG']!r}, expected {slug!r}"
+    assert values["OPS_NETWORK"] == net, f"OPS_NETWORK={values['OPS_NETWORK']!r}, expected {net!r}"
+    assert values["OPS_POSTGRES_CONTAINER"] == pg, (
+        f"OPS_POSTGRES_CONTAINER={values['OPS_POSTGRES_CONTAINER']!r}, expected {pg!r}"
+    )
+    assert values["OPS_VAULT_CONTAINER"] == vc, (
+        f"OPS_VAULT_CONTAINER={values['OPS_VAULT_CONTAINER']!r}, expected {vc!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "after sourcing with no override environment set, OPS_FRAMEWORK_IMAGE "
+        'resolves to the canonical product-neutral default "{image}" regardless '
+        'of "{slug}"'
+    )
+)
+def then_framework_image_default(image: str, slug: str, context: dict) -> None:
+    coords = _ops_coordinates_file(context)
+    _rc, values = _source_ops_coordinates(coords)
+    assert values["OPS_FRAMEWORK_IMAGE"] == image, (
+        f"OPS_FRAMEWORK_IMAGE={values['OPS_FRAMEWORK_IMAGE']!r}, expected the "
+        f"product-neutral default {image!r} regardless of slug {slug!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "after sourcing, each of the load-bearing consumer keys OPS_NETWORK, "
+        "OPS_POSTGRES_CONTAINER, OPS_VAULT_CONTAINER, and OPS_FRAMEWORK_IMAGE "
+        'resolves to a non-empty value, so the rendered "bin/shop-shell" never '
+        "resolves an empty docker network, an empty container reference, or an "
+        "empty launch image"
+    )
+)
+def then_consumer_keys_nonempty(context: dict) -> None:
+    coords = _ops_coordinates_file(context)
+    _rc, values = _source_ops_coordinates(coords)
+    for var in ("OPS_NETWORK", "OPS_POSTGRES_CONTAINER", "OPS_VAULT_CONTAINER", "OPS_FRAMEWORK_IMAGE"):
+        val = values.get(var, _OPS_211_UNSET)
+        assert val not in ("", _OPS_211_UNSET), (
+            f"load-bearing consumer key {var} resolved empty/unset ({val!r}); "
+            f"bin/shop-shell would resolve an empty launch reference"
+        )
+
+
+@then(
+    parsers.parse(
+        'exporting "{ovar}" with value "{oval}" before sourcing makes '
+        'OPS_POSTGRES_PORT resolve to "{expected}" rather than its rendered '
+        "default, demonstrating the env-overridable precedence end-to-end"
+    )
+)
+def then_override_precedence(ovar: str, oval: str, expected: str, context: dict) -> None:
+    coords = _ops_coordinates_file(context)
+    # First confirm the rendered default differs from the override so the test is
+    # not vacuous.
+    _rc0, default_values = _source_ops_coordinates(coords)
+    assert default_values["OPS_POSTGRES_PORT"] != oval, (
+        f"override value {oval!r} coincides with the rendered default; "
+        f"precedence test would be vacuous"
+    )
+    _rc, values = _source_ops_coordinates(coords, env_overrides={ovar: oval})
+    assert values["OPS_POSTGRES_PORT"] == expected, (
+        f"after exporting {ovar}={oval}, OPS_POSTGRES_PORT={values['OPS_POSTGRES_PORT']!r}, "
+        f"expected {expected!r} (env override must win over the rendered default)"
+    )

@@ -52,8 +52,8 @@ _REQUIRED_SUBSTRINGS = (
     "-it",
     # ADR-046 (lead-ml51): the framework launcher/leaf image is no longer baked
     # as the shopsystem-bc-lead literal — shop-shell references the single-sourced,
-    # env-overridable $OPS_LAUNCHER_IMAGE whose default lives in ops-coordinates.
-    "$OPS_LAUNCHER_IMAGE",
+    # env-overridable $OPS_FRAMEWORK_IMAGE whose default lives in ops-coordinates.
+    "$OPS_FRAMEWORK_IMAGE",
     "/var/run/docker.sock:/var/run/docker.sock",
     "bc-container launch",
     "--workspace-mount",
@@ -220,12 +220,12 @@ def test_dummyco_render_has_zero_cross_product_slug_literals(tmp_path):
 
     # bin/shop-shell: ADR-046 (lead-ml51) — the framework image is no longer a
     # baked product literal; shop-shell references the single-sourced
-    # $OPS_LAUNCHER_IMAGE and carries no ghcr.io/dstengle/shopsystem-bc-lead
+    # $OPS_FRAMEWORK_IMAGE and carries no ghcr.io/dstengle/shopsystem-bc-lead
     # literal. (The full zero-shopsystem byte contract is pinned by scenario
     # 827dec9656d97a38.)
     shell = (target / "bin" / "shop-shell").read_text()
-    assert "$OPS_LAUNCHER_IMAGE" in shell, (
-        "bin/shop-shell must reference the single-sourced $OPS_LAUNCHER_IMAGE"
+    assert "$OPS_FRAMEWORK_IMAGE" in shell, (
+        "bin/shop-shell must reference the single-sourced $OPS_FRAMEWORK_IMAGE"
     )
     assert "ghcr.io/dstengle/shopsystem-bc-lead" not in shell, (
         "bin/shop-shell must not bake the framework image as a product literal"
@@ -415,9 +415,9 @@ def test_both_docker_run_blocks_use_full_pullable_launcher_image_ref():
     assert len(images) == 2, f"expected two docker run blocks; got {images}"
     for img in images:
         # ADR-046 (lead-ml51): the launcher image is the single-sourced,
-        # env-overridable $OPS_LAUNCHER_IMAGE reference, not the baked literal.
-        assert img == "$OPS_LAUNCHER_IMAGE", (
-            f"docker run LAUNCHER image must be the $OPS_LAUNCHER_IMAGE reference "
+        # env-overridable $OPS_FRAMEWORK_IMAGE reference, not the baked literal.
+        assert img == "$OPS_FRAMEWORK_IMAGE", (
+            f"docker run LAUNCHER image must be the $OPS_FRAMEWORK_IMAGE reference "
             f"(default sourced from ops-coordinates), not {img!r}"
         )
 
@@ -431,9 +431,9 @@ def test_launch_hands_leaf_bc_its_runtime_image_via_image_flag():
     for slug in ("shopsystem", "dummyco"):
         parsed = _parse_shop_shell(slug)
         # ADR-046 (lead-ml51): the leaf-BC runtime image is handed in as the
-        # single-sourced $OPS_LAUNCHER_IMAGE reference, not a baked literal.
-        assert parsed["launch_image_flag"] == "$OPS_LAUNCHER_IMAGE", (
-            f"bc-container launch must carry --image \"$OPS_LAUNCHER_IMAGE\" for "
+        # single-sourced $OPS_FRAMEWORK_IMAGE reference, not a baked literal.
+        assert parsed["launch_image_flag"] == "$OPS_FRAMEWORK_IMAGE", (
+            f"bc-container launch must carry --image \"$OPS_FRAMEWORK_IMAGE\" for "
             f"slug {slug!r} (leaf-BC runtime image sourced from ops-coordinates); "
             f"got {parsed['launch_image_flag']!r}"
         )
@@ -459,14 +459,14 @@ def test_launch_attaches_leaf_to_slug_scoped_network_via_network_flag():
 def test_framework_image_is_env_overridable_reference_not_baked_literal():
     """ADR-046 (lead-ml51, scenario 1885dea2b4550fde supersedes 172/175): the
     rendered shop-shell references the framework launcher/leaf image as the
-    single-sourced, env-overridable `$OPS_LAUNCHER_IMAGE` variable — it carries
+    single-sourced, env-overridable `$OPS_FRAMEWORK_IMAGE` variable — it carries
     neither the fixed `ghcr.io/dstengle/shopsystem-bc-lead:latest` literal nor
     the `shopsystem-bc-base` literal; the defining literal lives only in the
     ops-coordinates artifact."""
     for slug in ("shopsystem", "dummyco"):
         body = _render_shop_shell(slug)
-        assert "$OPS_LAUNCHER_IMAGE" in body, (
-            f"slug {slug!r} render must reference the $OPS_LAUNCHER_IMAGE variable"
+        assert "$OPS_FRAMEWORK_IMAGE" in body, (
+            f"slug {slug!r} render must reference the $OPS_FRAMEWORK_IMAGE variable"
         )
         assert _FULL_BC_LEAD_REF not in body, (
             f"slug {slug!r} render must NOT bake the fixed launcher image literal "
@@ -499,8 +499,8 @@ def test_framework_image_default_lives_only_in_ops_coordinates():
     """ADR-046 (lead-ml51, supersedes 172/175): the framework launcher/leaf
     image default `ghcr.io/dstengle/shopsystem-bc-lead:latest` lives ONLY in the
     bootstrap-rendered ops-coordinates artifact (as an env-overridable
-    `OPS_LAUNCHER_IMAGE` assignment); bin/shop-shell carries only the
-    `$OPS_LAUNCHER_IMAGE` reference, and the dummyco render keeps the
+    `OPS_FRAMEWORK_IMAGE` assignment); bin/shop-shell carries only the
+    `$OPS_FRAMEWORK_IMAGE` reference, and the dummyco render keeps the
     `dummyco-lead` bc_name positional."""
     # The defining literal lives in the ops-coordinates artifact, env-overridable.
     import os as _os
@@ -520,13 +520,13 @@ def test_framework_image_default_lives_only_in_ops_coordinates():
     assert _FULL_BC_LEAD_REF in coords, (
         "the framework image default must live in the ops-coordinates artifact"
     )
-    assert 'OPS_LAUNCHER_IMAGE="${OPS_LAUNCHER_IMAGE:-' in coords, (
-        "OPS_LAUNCHER_IMAGE must be defined env-overridably in ops-coordinates"
+    assert 'OPS_FRAMEWORK_IMAGE="${OPS_FRAMEWORK_IMAGE:-' in coords, (
+        "OPS_FRAMEWORK_IMAGE must be defined env-overridably in ops-coordinates"
     )
 
     # bin/shop-shell carries only the reference, not the literal.
     dummyco = _render_shop_shell("dummyco")
-    assert "$OPS_LAUNCHER_IMAGE" in dummyco
+    assert "$OPS_FRAMEWORK_IMAGE" in dummyco
     assert _FULL_BC_LEAD_REF not in dummyco, (
         "bin/shop-shell must not bake the fixed launcher image literal"
     )

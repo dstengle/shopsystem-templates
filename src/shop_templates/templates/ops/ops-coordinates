@@ -55,7 +55,16 @@ OPS_ORG="${OPS_ORG:-dstengle}"
 # the per-BC beads repository format (the "{bc}" placeholder a consumer fills with
 # a bounded-context name).
 OPS_LEAD_BEADS_REPO="${OPS_LEAD_BEADS_REPO:-{{OPS_SLUG}}-lead-beads}"
-OPS_BC_BEADS_REPO_FMT="${OPS_BC_BEADS_REPO_FMT:-{{OPS_SLUG}}-{bc}-beads}"
+# PLACEHOLDER-SAFE (ADR-043 D1/D5/D6, lead-0act / scenario 0a3a8267109b5792): the
+# rule's literal "{bc}" placeholder MUST survive sourcing. The naive
+# OPS_BC_BEADS_REPO_FMT="${OPS_BC_BEADS_REPO_FMT:-{{OPS_SLUG}}-{bc}-beads}" form
+# is CORRUPT — bash closes the ${:-} default at the FIRST "}" after "{bc",
+# collapsing it to "{{OPS_SLUG}}-{bc" then appending the literal "-beads}", so the
+# placeholder becomes "{bc-beads}" and a consumer's later "{bc}" substitution
+# silently no-ops. Keep the literal OUTSIDE any ${...} expansion via a conditional
+# default: a non-empty exported override is honored and skips the assignment;
+# otherwise the single-quoted literal — which preserves "{bc}" verbatim — is used.
+OPS_BC_BEADS_REPO_FMT="${OPS_BC_BEADS_REPO_FMT-}"; [ -n "$OPS_BC_BEADS_REPO_FMT" ] || OPS_BC_BEADS_REPO_FMT='{{OPS_SLUG}}-{bc}-beads'
 # Back-compat ALIAS (lead-ow4d) for the older single OPS_BEADS_REPO name (the lead
 # repo); resolves to OPS_LEAD_BEADS_REPO so the literal stays defined exactly once.
 OPS_BEADS_REPO="${OPS_BEADS_REPO:-$OPS_LEAD_BEADS_REPO}"

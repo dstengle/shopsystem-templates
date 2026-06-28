@@ -24755,3 +24755,193 @@ def then_aborts_on_empty_no_blank_writeback_dui6(context: dict) -> None:
         "the abort diagnostic must name the CLAUDE_OAUTH credential it refused "
         f"to blank-write; got stderr: {stderr!r}"
     )
+
+
+# =======================================================================
+# Scenario @0789db8bb7f3bc73 (lead-b6f2 / tmpl-tte) — the rendered shop-owned
+# bringup path bin/shop-shell seeds a NON-EMPTY PLACEHOLDER GH_TOKEN into the
+# launched leaf-BC session, so a freshly-launched leaf agent can invoke `gh`
+# against the agent-vault broker OUT OF THE BOX without the operator first
+# running `export GH_TOKEN=...` by hand. The seeded value is a PLACEHOLDER
+# literal, NEVER the real GitHub PAT — the agent-vault broker substitutes the
+# real GitHub credential on the wire (agent-vault-broker/04).
+#
+# Additive to scenario 172 (725562869d9df919, shop-shell broker-wired,
+# no-host-cred-mounts): a placeholder GH_TOKEN env value is NOT a host
+# credential mount, so 172's prohibitions (host cred mounts, proxy-URL
+# construction, CA fetch) are not weakened.
+#
+# Acceptance combines a render-fidelity body assertion (the body carries a
+# literal GH_TOKEN= assigned a non-empty value) with a BEHAVIORAL bash-slice:
+# the GH_TOKEN-seeding lines are executed with GH_TOKEN UNSET in the
+# environment, and the GH_TOKEN value that lands in the launch env-file (the
+# value a leaf inheriting the launch env would see) is recorded and asserted
+# non-empty + placeholder, never a real-PAT-prefixed token.
+# =======================================================================
+
+import os as _os_b6f2
+import subprocess as _sp_b6f2
+import tempfile as _tf_b6f2
+
+
+def _b6f2_shop_shell(slug: str = "acme") -> str:
+    from shop_templates.cli import render_ops_template
+
+    return render_ops_template("shop-shell", slug)
+
+
+def _b6f2_seeded_gh_token(body: str) -> str:
+    """Execute the GH_TOKEN-seeding lines of the rendered shop-shell in
+    isolation — with GH_TOKEN UNSET in the environment and a fresh, empty launch
+    env-file — and return the GH_TOKEN value that lands in that launch env-file
+    (the value a leaf inheriting the launch env would see). Returns '' when the
+    body seeds no GH_TOKEN.
+
+    Only the GH_TOKEN-seeding lines are run (assignment + the env-file write),
+    not the `docker run` launch blocks: lines that mention `docker` or a
+    `-e`/`--env-file` docker flag are skipped so the slice stays a pure
+    env-assembly fragment."""
+    seeding = []
+    for raw in body.splitlines():
+        line = raw.strip()
+        if "GH_TOKEN" not in line or line.startswith("#"):
+            continue
+        if "docker" in line or "-e GH_TOKEN" in line or "--env-file" in line:
+            continue
+        seeding.append(raw)
+    if not seeding:
+        return ""
+    d = _tf_b6f2.mkdtemp()
+    ef = _os_b6f2.path.join(d, "shop-shell.env-file")
+    open(ef, "w").close()
+    harness = (
+        "set -uo pipefail\n"
+        "unset GH_TOKEN\n"
+        f'AGENT_VAULT_ENV_FILE="{ef}"\n'
+        + "\n".join(seeding)
+        + "\n"
+        + f'grep -E "^GH_TOKEN=" "{ef}" | tail -n1 | cut -d= -f2-'
+    )
+    proc = _sp_b6f2.run(["bash", "-c", harness], capture_output=True, text=True)
+    return proc.stdout.strip()
+
+
+@given(
+    parsers.parse(
+        'a "lead" shop bootstrapped by "shop-templates" with the rendered ops '
+        'script "bin/shop-shell"'
+    )
+)
+def given_lead_shop_with_shop_shell_b6f2(context: dict) -> None:
+    context["shop_shell_b6f2"] = _b6f2_shop_shell("acme")
+
+
+@given(
+    parsers.parse(
+        "an agent-vault broker that injects the REAL GitHub credential on the "
+        "wire for github.com / api.github.com requests, so a leaf agent never "
+        "needs the real PAT in its own environment"
+    )
+)
+def given_broker_injects_github_credential_b6f2(context: dict) -> None:
+    # Premise: the broker substitutes the real GitHub credential on the wire, so
+    # the leaf needs only a NON-EMPTY PLACEHOLDER GH_TOKEN — never the real PAT.
+    assert context["shop_shell_b6f2"]
+
+
+@when(
+    parsers.parse(
+        'the operator runs the rendered "bin/shop-shell" to launch the leaf-BC '
+        "session"
+    )
+)
+def when_operator_runs_shop_shell_to_launch_b6f2(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'the rendered "bin/shop-shell" delivers a non-empty "GH_TOKEN" into the '
+        "launched leaf-BC session environment — its body passes \"GH_TOKEN\" set "
+        "to a non-empty placeholder literal into the launch (the body contains "
+        'the literal substring "GH_TOKEN=" assigned a non-empty value) rather '
+        'than leaving "GH_TOKEN" unset'
+    )
+)
+def then_body_seeds_nonempty_gh_token_b6f2(context: dict) -> None:
+    body = context["shop_shell_b6f2"]
+    assert "GH_TOKEN=" in body, (
+        "the rendered bin/shop-shell body must carry the literal substring "
+        "'GH_TOKEN=' assigned a value, not leave GH_TOKEN unset"
+    )
+    value = _b6f2_seeded_gh_token(body)
+    context["gh_token_value_b6f2"] = value
+    assert value != "", (
+        "the GH_TOKEN value the rendered bin/shop-shell seeds into the launch "
+        "env must be NON-EMPTY (a leaf inheriting the launch env must see a "
+        "non-empty GH_TOKEN), not an empty/unset value"
+    )
+
+
+@then(
+    parsers.parse(
+        'the "GH_TOKEN" value reaching the launched leaf-BC session is a '
+        "non-empty placeholder token, NOT the real GitHub PAT — the broker "
+        "substitutes the real credential on the wire"
+    )
+)
+def then_gh_token_is_placeholder_not_real_pat_b6f2(context: dict) -> None:
+    value = context["gh_token_value_b6f2"]
+    assert value != "", "the seeded GH_TOKEN placeholder must be non-empty"
+    # Real GitHub credentials carry the ghp_/github_pat_/gho_/ghs_/ghu_/ghr_
+    # prefixes; the seeded value is a PLACEHOLDER literal and must NOT look like
+    # one (the broker injects the real credential on the wire — the script never
+    # embeds the real PAT).
+    for pfx in ("ghp_", "github_pat_", "gho_", "ghs_", "ghu_", "ghr_"):
+        assert not value.startswith(pfx), (
+            f"the seeded GH_TOKEN must be a placeholder, not a real GitHub PAT "
+            f"(it begins with the real-credential prefix {pfx!r}: {value!r})"
+        )
+    # And the body must NOT source GH_TOKEN's value from a real secret (the .env
+    # broker coordinates, the vault, or an `agent-vault` read) — the placeholder
+    # is a literal default, so the real PAT never touches the script.
+    seeding = [
+        l
+        for l in context["shop_shell_b6f2"].splitlines()
+        if "GH_TOKEN" in l and not l.strip().startswith("#") and "docker" not in l
+    ]
+    joined = "\n".join(seeding)
+    assert "agent-vault" not in joined, (
+        "GH_TOKEN must be a literal placeholder, not read from the agent-vault "
+        "broker (the broker substitutes the real credential on the wire)"
+    )
+    assert "$(" not in joined, (
+        "GH_TOKEN's value must be a literal placeholder, not a command "
+        "substitution that could pull a real secret"
+    )
+
+
+@then(
+    parsers.parse(
+        'a freshly-launched leaf agent can therefore invoke "gh" against the '
+        'broker without the operator first running "export GH_TOKEN=..." by hand'
+    )
+)
+def then_leaf_invokes_gh_without_manual_export_b6f2(context: dict) -> None:
+    body = context["shop_shell_b6f2"]
+    # The launch env-file the launcher run consumes carries a non-empty GH_TOKEN
+    # out of the box: a leaf inheriting the launch env has GH_TOKEN set, so `gh`
+    # has a (broker-substituted) credential without a manual `export GH_TOKEN=`.
+    value = context["gh_token_value_b6f2"]
+    assert value != "", (
+        "a freshly-launched leaf must inherit a non-empty GH_TOKEN from the "
+        "launch env without a manual operator export"
+    )
+    # The body DEFAULTS GH_TOKEN when the operator has not exported one — that is
+    # what makes the brokered `gh` call work out of the box without a manual
+    # `export GH_TOKEN=...`.
+    assert "${GH_TOKEN:-" in body, (
+        "bin/shop-shell must DEFAULT GH_TOKEN to the placeholder when the "
+        "operator has not exported one (so no manual `export GH_TOKEN=...` is "
+        "required), e.g. GH_TOKEN=\"${GH_TOKEN:-<placeholder>}\""
+    )

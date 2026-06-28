@@ -85,6 +85,24 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
     | grep -v '^AGENT_VAULT_CA_PEM=' > "$AGENT_VAULT_ENV_FILE" || true
 fi
 
+# Seed a NON-EMPTY PLACEHOLDER GH_TOKEN into the leaf launch env (lead-b6f2).
+# A freshly-launched leaf agent must be able to invoke `gh` against the broker
+# OUT OF THE BOX, without the operator first running `export GH_TOKEN=...` by
+# hand: `gh` refuses to act with no token in its environment. The value seeded
+# here is a PLACEHOLDER literal, NEVER the real GitHub PAT — the agent-vault
+# broker substitutes the real GitHub credential on the wire for github.com /
+# api.github.com requests, so the leaf never needs the real PAT in its own
+# environment (and the real secret never touches this script). gh honors
+# GH_TOKEN first. If the operator has already exported a (non-real) GH_TOKEN we
+# honor it via the parameter-default; otherwise it defaults to the broker
+# placeholder so the value reaching the launch is always non-empty. A single-
+# line placeholder value travels fine through the file-based --env-file. NOTE: a
+# non-empty placeholder env value is NOT a host credential mount, so this seeding
+# does not weaken scenario 172 (725562869d9df919) — no host dotfiles are mounted,
+# no proxy URL is constructed, and no CA is fetched here.
+GH_TOKEN="${GH_TOKEN:-gh-broker-placeholder-token}"
+printf 'GH_TOKEN=%s\n' "$GH_TOKEN" >> "$AGENT_VAULT_ENV_FILE"
+
 # Deliver the broker root CA to the launched leaf as INLINE PEM CONTENT (ADR-045).
 # .env records AGENT_VAULT_CA_PEM as the PATH to the CA file bin/agent-vault-provision
 # already sourced from the broker; READ that file's CONTENT (real internal newlines)

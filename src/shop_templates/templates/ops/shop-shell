@@ -153,9 +153,9 @@ docker run --rm -it \
   -v "$REPO_ROOT:$REPO_ROOT" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -w "$REPO_ROOT" \
-  ghcr.io/dstengle/shopsystem-bc-lead:latest \
+  "$OPS_LAUNCHER_IMAGE" \
   bc-container launch {{OPS_SLUG}}-lead \
-    --image ghcr.io/dstengle/shopsystem-bc-lead:latest \
+    --image "$OPS_LAUNCHER_IMAGE" \
     --network "$OPS_NETWORK" \
     --workspace-mount "$REPO_ROOT" \
     --mount-docker-socket \
@@ -174,5 +174,5 @@ exec docker run --rm -it \
   -v "$REPO_ROOT:$REPO_ROOT" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -w "$REPO_ROOT" \
-  ghcr.io/dstengle/shopsystem-bc-lead:latest \
+  "$OPS_LAUNCHER_IMAGE" \
   bc-container attach {{OPS_SLUG}}-lead

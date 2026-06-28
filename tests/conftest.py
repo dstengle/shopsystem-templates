@@ -23415,7 +23415,16 @@ def then_beads_one_file(context: dict) -> None:
 def then_dummyco_slug_clean(context: dict) -> None:
     from shop_templates.cli import render_ops_template
     art = render_ops_template("ops-coordinates", "dummyco").lower()
-    assert "shopsystem" not in art and "fleet" not in art, "ops-coordinates artifact leaks shopsystem/fleet"
+    # The Gherkin exempts "a product-neutral framework image reference": ADR-046
+    # (lead-ml51) parks the framework launcher/leaf image default in this single
+    # artifact as OPS_LAUNCHER_IMAGE, so the product-neutral image ref
+    # ghcr.io/dstengle/shopsystem-bc-lead may legitimately carry "shopsystem".
+    # Strip every occurrence of that ref before the cross-product-literal check.
+    residual = art.replace("ghcr.io/dstengle/shopsystem-bc-lead", "")
+    assert "shopsystem" not in residual and "fleet" not in residual, (
+        "ops-coordinates artifact leaks shopsystem/fleet outside the exempt "
+        "product-neutral framework image reference"
+    )
 
 
 # ---- Scenarios cb8fca2c / 104df5a6 — single-sourced beads remote (lead-clyf)

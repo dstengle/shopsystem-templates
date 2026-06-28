@@ -50,7 +50,10 @@ _REQUIRED_SUBSTRINGS = (
     "--env-file",
     "docker run --rm",
     "-it",
-    "shopsystem-bc-lead",
+    # ADR-046 (lead-ml51): the framework launcher/leaf image is no longer baked
+    # as the shopsystem-bc-lead literal — shop-shell references the single-sourced,
+    # env-overridable $OPS_LAUNCHER_IMAGE whose default lives in ops-coordinates.
+    "$OPS_LAUNCHER_IMAGE",
     "/var/run/docker.sock:/var/run/docker.sock",
     "bc-container launch",
     "--workspace-mount",
@@ -212,21 +215,19 @@ def test_dummyco_render_has_zero_cross_product_slug_literals(tmp_path):
     assert "shopsystem" not in compose, "compose.yaml leaked a 'shopsystem' literal"
     assert "fleet" not in compose, "compose.yaml leaked a 'fleet' literal"
 
-    # bin/shop-shell: the ONLY permitted shopsystem literals are within the
-    # product-neutral image ref shopsystem-bc-lead (launcher AND leaf-BC).
-    # Strip every occurrence of that ref (case-insensitively) and assert
-    # nothing else remains.
+    # bin/shop-shell: ADR-046 (lead-ml51) — the framework image is no longer a
+    # baked product literal; shop-shell references the single-sourced
+    # $OPS_LAUNCHER_IMAGE and carries no ghcr.io/dstengle/shopsystem-bc-lead
+    # literal. (The full zero-shopsystem byte contract is pinned by scenario
+    # 827dec9656d97a38.)
     shell = (target / "bin" / "shop-shell").read_text()
-    assert "shopsystem-bc-lead" in shell, (
-        "bin/shop-shell must preserve the product-neutral framework image "
-        "reference shopsystem-bc-lead (not slug-rewritten to dummyco-bc-lead)"
+    assert "$OPS_LAUNCHER_IMAGE" in shell, (
+        "bin/shop-shell must reference the single-sourced $OPS_LAUNCHER_IMAGE"
     )
-    shell_lower = shell.lower()
-    residual = shell_lower.replace("shopsystem-bc-lead", "")
-    assert "shopsystem" not in residual, (
-        "bin/shop-shell leaked a 'shopsystem' literal outside the framework ref"
+    assert "ghcr.io/dstengle/shopsystem-bc-lead" not in shell, (
+        "bin/shop-shell must not bake the framework image as a product literal"
     )
-    assert "fleet" not in residual, "bin/shop-shell leaked a 'fleet' literal"
+    assert "fleet" not in shell.lower(), "bin/shop-shell leaked a 'fleet' literal"
 
     assert not (target / "Dockerfile.dummyco-shell").exists()
     assert not (target / "Dockerfile.shopsystem-shell").exists()
@@ -410,9 +411,11 @@ def test_both_docker_run_blocks_use_full_pullable_launcher_image_ref():
     images = parsed["docker_run_images"]
     assert len(images) == 2, f"expected two docker run blocks; got {images}"
     for img in images:
-        assert img == _FULL_BC_LEAD_REF, (
-            f"docker run LAUNCHER image ref must be the full pullable bc-lead ref "
-            f"{_FULL_BC_LEAD_REF!r}, not {img!r}"
+        # ADR-046 (lead-ml51): the launcher image is the single-sourced,
+        # env-overridable $OPS_LAUNCHER_IMAGE reference, not the baked literal.
+        assert img == "$OPS_LAUNCHER_IMAGE", (
+            f"docker run LAUNCHER image must be the $OPS_LAUNCHER_IMAGE reference "
+            f"(default sourced from ops-coordinates), not {img!r}"
         )
 
 
@@ -424,10 +427,12 @@ def test_launch_hands_leaf_bc_its_runtime_image_via_image_flag():
     run `bc-container launch` itself, and bc-base carries no docker CLI."""
     for slug in ("shopsystem", "dummyco"):
         parsed = _parse_shop_shell(slug)
-        assert parsed["launch_image_flag"] == _FULL_BC_LEAD_REF, (
-            f"bc-container launch must carry --image {_FULL_BC_LEAD_REF!r} for "
-            f"slug {slug!r} (leaf-BC runtime image — bc-lead, not bc-base); got "
-            f"{parsed['launch_image_flag']!r}"
+        # ADR-046 (lead-ml51): the leaf-BC runtime image is handed in as the
+        # single-sourced $OPS_LAUNCHER_IMAGE reference, not a baked literal.
+        assert parsed["launch_image_flag"] == "$OPS_LAUNCHER_IMAGE", (
+            f"bc-container launch must carry --image \"$OPS_LAUNCHER_IMAGE\" for "
+            f"slug {slug!r} (leaf-BC runtime image sourced from ops-coordinates); "
+            f"got {parsed['launch_image_flag']!r}"
         )
 
 
@@ -448,19 +453,24 @@ def test_launch_attaches_leaf_to_slug_scoped_network_via_network_flag():
         )
 
 
-def test_framework_image_literal_present_in_render():
-    """lead-ss6k (172 superseded): the rendered shop-shell carries the
-    `shopsystem-bc-lead` framework image literal — now BOTH the launcher image
-    ref AND the inner --image leaf-BC runtime ref — and no longer carries
-    `shopsystem-bc-base` (the leaf collapsed onto bc-lead)."""
+def test_framework_image_is_env_overridable_reference_not_baked_literal():
+    """ADR-046 (lead-ml51, scenario 1885dea2b4550fde supersedes 172/175): the
+    rendered shop-shell references the framework launcher/leaf image as the
+    single-sourced, env-overridable `$OPS_LAUNCHER_IMAGE` variable — it carries
+    neither the fixed `ghcr.io/dstengle/shopsystem-bc-lead:latest` literal nor
+    the `shopsystem-bc-base` literal; the defining literal lives only in the
+    ops-coordinates artifact."""
     for slug in ("shopsystem", "dummyco"):
         body = _render_shop_shell(slug)
-        assert "shopsystem-bc-lead" in body, (
-            f"slug {slug!r} render must carry the bc-lead framework image literal"
+        assert "$OPS_LAUNCHER_IMAGE" in body, (
+            f"slug {slug!r} render must reference the $OPS_LAUNCHER_IMAGE variable"
+        )
+        assert _FULL_BC_LEAD_REF not in body, (
+            f"slug {slug!r} render must NOT bake the fixed launcher image literal "
+            f"{_FULL_BC_LEAD_REF!r}"
         )
         assert "shopsystem-bc-base" not in body, (
-            f"slug {slug!r} render must NOT carry shopsystem-bc-base — the leaf-BC "
-            f"now runs on bc-lead (it needs the docker CLI too)"
+            f"slug {slug!r} render must NOT carry shopsystem-bc-base"
         )
 
 
@@ -482,30 +492,44 @@ def test_launch_and_attach_carry_slug_lead_positional():
         )
 
 
-def test_full_image_ref_preserves_172_and_175_constraints():
-    """lead-ss6k keeps scenario 172 (substring) and 175 (dummyco
-    cross-product-literal) green: the bc-lead framework ref still CONTAINS its
-    `shopsystem-bc-lead` substring; the dummyco render, after stripping every
-    `shopsystem-bc-lead` occurrence, retains NO `shopsystem`/`fleet`; and the
-    `<slug>-lead` positional introduces no forbidden literal."""
-    # 172: the bc-lead ref still carries the framework-image substring.
-    assert "shopsystem-bc-lead" in _FULL_BC_LEAD_REF
+def test_framework_image_default_lives_only_in_ops_coordinates():
+    """ADR-046 (lead-ml51, supersedes 172/175): the framework launcher/leaf
+    image default `ghcr.io/dstengle/shopsystem-bc-lead:latest` lives ONLY in the
+    bootstrap-rendered ops-coordinates artifact (as an env-overridable
+    `OPS_LAUNCHER_IMAGE` assignment); bin/shop-shell carries only the
+    `$OPS_LAUNCHER_IMAGE` reference, and the dummyco render keeps the
+    `dummyco-lead` bc_name positional."""
+    # The defining literal lives in the ops-coordinates artifact, env-overridable.
+    import os as _os
+    import subprocess as _sp
+    import sys as _sys
 
-    # 175 on the dummyco render: no shopsystem/fleet residue outside the single
-    # exempt framework image ref, and the bc_name positional is dummyco-lead.
-    dummyco = _render_shop_shell("dummyco")
-    assert "shopsystem-bc-lead" in dummyco
-    residual = dummyco.lower().replace("shopsystem-bc-lead", "")
-    assert "shopsystem" not in residual, (
-        "dummyco shop-shell leaked a 'shopsystem' literal outside the framework "
-        "image ref after the lead-ss6k edits"
+    env = dict(_os.environ)
+    env["PYTHONPATH"] = _SRC + _os.pathsep + env.get("PYTHONPATH", "")
+    probe = (
+        "import sys;"
+        "from shop_templates.cli import render_ops_template;"
+        "sys.stdout.write(render_ops_template('ops-coordinates', 'dummyco'))"
     )
-    assert "fleet" not in residual, "dummyco shop-shell leaked a 'fleet' literal"
+    proc = _sp.run([_sys.executable, "-c", probe], capture_output=True, text=True, env=env)
+    assert proc.returncode == 0, f"ops-coordinates render failed: {proc.stderr}"
+    coords = proc.stdout
+    assert _FULL_BC_LEAD_REF in coords, (
+        "the framework image default must live in the ops-coordinates artifact"
+    )
+    assert 'OPS_LAUNCHER_IMAGE="${OPS_LAUNCHER_IMAGE:-' in coords, (
+        "OPS_LAUNCHER_IMAGE must be defined env-overridably in ops-coordinates"
+    )
+
+    # bin/shop-shell carries only the reference, not the literal.
+    dummyco = _render_shop_shell("dummyco")
+    assert "$OPS_LAUNCHER_IMAGE" in dummyco
+    assert _FULL_BC_LEAD_REF not in dummyco, (
+        "bin/shop-shell must not bake the fixed launcher image literal"
+    )
     assert "dummyco-lead" in dummyco, (
         "dummyco render must carry the dummyco-lead bc_name positional"
     )
-    # And the full ghcr ref minus the framework substring leaves no shopsystem.
-    assert "shopsystem" not in _FULL_BC_LEAD_REF.replace("shopsystem-bc-lead", "")
 
 
 def test_dockerfile_template_is_removed_from_package_data():

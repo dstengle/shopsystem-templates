@@ -25314,3 +25314,37 @@ def then_ss_no_default_carries_product_literal(context: dict) -> None:
             f"a variable default in bin/shop-shell carries a product literal: "
             f"{default!r}"
         )
+
+
+# -- 203: the rendered dummyco bin/shop-shell carries ZERO product-specific
+#    literals (no shopsystem/fleet/dstengle/framework-image ref) ---------------
+
+
+@then(
+    parsers.re(
+        r'the byte contents of "(?P<rel>[^"]+)" in the target directory '
+        r'contain no case-insensitive occurrence of the literal substring '
+        r'"(?P<needle>[^"]+)"'
+    )
+)
+def then_byte_contents_no_ci_single(rel: str, needle: str, context: dict) -> None:
+    raw = (_ops_target(context) / rel).read_bytes().decode("utf-8", errors="replace")
+    assert needle.lower() not in raw.lower(), (
+        f"{rel} contains a case-insensitive occurrence of {needle!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the byte contents of "(?P<rel>[^"]+)" in the target directory '
+        r'contain no occurrence of the literal substring "(?P<needle>[^"]+)"'
+        r'(?:,.*)?'
+    )
+)
+def then_byte_contents_no_occurrence_single(
+    rel: str, needle: str, context: dict
+) -> None:
+    raw = (_ops_target(context) / rel).read_bytes().decode("utf-8", errors="replace")
+    assert needle not in raw, (
+        f"{rel} contains an occurrence of the literal substring {needle!r}"
+    )

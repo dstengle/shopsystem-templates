@@ -28,3 +28,15 @@ Scenario: the rendered "bin/shop-shell" obtains every slug-derived coordinate an
   And every such variable reference is environment-overridable — its default value resolves from the sourced ops-coordinates artifact and an explicit environment assignment takes precedence
   And no default value of any such variable as it appears in "bin/shop-shell" contains a case-insensitive occurrence of the literal substring "shopsystem" or the literal substring "dstengle", confirming the literal lives only in the single ops-coordinates artifact and shop-shell carries only references
 
+
+@scenario_hash:827dec9656d97a38 @bc:shopsystem-templates
+Scenario: bootstrap of a "lead" shop with a non-default slug renders "bin/shop-shell" with ZERO product-specific literals — for shop name "dummyco" the rendered "bin/shop-shell" contains no case-insensitive occurrence of the default-product slug "shopsystem" (INCLUDING inside the framework launcher/leaf image references, which are no longer exempt under the ADR-028 amendment), no case-insensitive occurrence of "fleet", and no occurrence of the hardcoded org literal "dstengle"
+  Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
+  When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "dummyco", and target directory "/tmp/example-lead-shop"
+  Then the exit code is 0
+  And after the invocation the target directory contains a file at "bin/shop-shell"
+  And the byte contents of "bin/shop-shell" in the target directory contain no case-insensitive occurrence of the literal substring "shopsystem"
+  And the byte contents of "bin/shop-shell" in the target directory contain no case-insensitive occurrence of the literal substring "fleet"
+  And the byte contents of "bin/shop-shell" in the target directory contain no occurrence of the literal substring "dstengle"
+  And the byte contents of "bin/shop-shell" in the target directory contain no occurrence of the literal substring "ghcr.io/dstengle/shopsystem-bc-lead", confirming the framework launcher/leaf image reference previously exempt under ADR-028 is no longer baked as a product literal
+

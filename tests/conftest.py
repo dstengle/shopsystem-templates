@@ -20981,18 +20981,23 @@ def then_reports_success_and_exits_zero(context: dict) -> None:
     assert "exit 0" in body, "the script does not exit 0 on success"
 
 
-# -- Scenario b764caa1dea99fcb — exclusivity (lead-a115) ---------------------
+# -- Scenario b764caa1dea99fcb — exclusivity (lead-a115; grown lead-ow4d) -----
 # Supersedes the retired five-file ops Scenario Outline. The bootstrap-ENUMERATED
-# converged ops-tool set (the _LEAD_OPS_FILES enumeration, NOT a bin/ listing —
-# bin/footing renders OUTSIDE it) must be exactly the six shop-owned entries and
-# no seventh.
+# converged ops-tool set is the six _LEAD_OPS_FILES tool entries PLUS the single
+# shell-sourceable bin/ops-coordinates coordinate artifact rendered alongside them
+# (ADR-043 Phase 1 / lead-ow4d) — seven shop-owned ops files, no eighth. The
+# _LEAD_OPS_FILES enumeration itself stays exactly six (bin/ops-coordinates is a
+# sourced DATA artifact rendered OUTSIDE it, like bin/footing and .env.example);
+# the seventh member is that artifact path.
 
 @then(
-    'the bootstrap-enumerated converged ops-tool set for a "lead" shop contains exactly six shop-owned entries — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", and "bin/agent-vault-approve-claude" — and no seventh shop-owned ops file beyond those six'
+    'the bootstrap-enumerated converged ops-tool set for a "lead" shop contains exactly seven shop-owned entries — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", "bin/agent-vault-approve-claude", and "bin/ops-coordinates" — and no eighth shop-owned ops file beyond those seven'
 )
-def then_enumerated_ops_set_is_exactly_six(context: dict) -> None:
+def then_enumerated_ops_set_is_exactly_seven(context: dict) -> None:
     from shop_templates.cli import _LEAD_OPS_FILES
-    rels = [rel for _tn, rel, _exe in _LEAD_OPS_FILES]
+    # The six converged ops TOOLS, plus the single shell-sourceable coordinate
+    # artifact rendered alongside them (lead-ow4d). _LEAD_OPS_FILES stays six.
+    rels = [rel for _tn, rel, _exe in _LEAD_OPS_FILES] + ["bin/ops-coordinates"]
     expected = [
         "compose.yaml",
         "bin/shop-shell",
@@ -21000,10 +21005,11 @@ def then_enumerated_ops_set_is_exactly_six(context: dict) -> None:
         "bin/agent-vault-provision",
         "bin/agent-vault-check",
         "bin/agent-vault-approve-claude",
+        "bin/ops-coordinates",
     ]
     assert rels == expected, (
         "the bootstrap-enumerated converged ops-tool set must be exactly these "
-        f"six shop-owned entries with no seventh; got {rels!r}"
+        f"seven shop-owned entries with no eighth; got {rels!r}"
     )
 
 

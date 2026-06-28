@@ -25918,6 +25918,96 @@ def then_each_ops_assignment_is_override_form(context: dict) -> None:
     )
 
 
+# Corrected scenario 0a3a8267109b5792 (lead-0act, ADR-043 D1/D5/D6) supersedes
+# the prior 211 d5d65b9cfedc24c1: a key whose rendered default carries a literal
+# placeholder brace (OPS_BC_BEADS_REPO_FMT, value "<slug>-{bc}-beads") must be
+# rendered PLACEHOLDER-SAFE — outside the "${:-}" default — so the literal "{bc}"
+# survives sourcing. The corrupt "${OPS_BC_BEADS_REPO_FMT:-<slug>-{bc}-beads}"
+# form closes the ${:-} default at the first "}" after "{bc", collapsing the
+# placeholder to "{bc-beads}" and silently no-op'ing a consumer's "{bc}" fill.
+@then(
+    parsers.re(
+        r'each OPS_\* key in "bin/ops-coordinates" is rendered so that .*'
+    )
+)
+def then_each_ops_key_override_or_placeholder_safe(context: dict) -> None:
+    import re
+
+    coords = _ops_coordinates_file(context)
+    body = coords.read_text()
+    override_form = re.compile(
+        r'^OPS_[A-Za-z0-9_]+="\$\{[A-Za-z_][A-Za-z0-9_]*:-.*\}"\s*$'
+    )
+    assign = re.compile(r"^(OPS_[A-Za-z0-9_]+)=")
+    # A key whose rendered default carries a literal placeholder brace is rendered
+    # in a placeholder-safe form (outside the ${:-} default); it is exempt from the
+    # strict override-form regex but must still be env-overridable and brace-safe.
+    placeholder_safe_keys = {"OPS_BC_BEADS_REPO_FMT"}
+    offenders = [
+        line
+        for line in body.splitlines()
+        if (m := assign.match(line))
+        and m.group(1) not in placeholder_safe_keys
+        and not override_form.match(line)
+    ]
+    assert not offenders, (
+        "every non-placeholder OPS_* assignment must use the env-overridable "
+        'OPS_X="${<OVERRIDE>:-<default>}" form; offenders: ' + repr(offenders)
+    )
+
+    fmt_lines = [
+        ln for ln in body.splitlines() if ln.lstrip().startswith("OPS_BC_BEADS_REPO_FMT")
+    ]
+    assert fmt_lines, "OPS_BC_BEADS_REPO_FMT assignment not found in bin/ops-coordinates"
+    fmt_blob = "\n".join(fmt_lines)
+    assert "{bc}" in fmt_blob, (
+        "OPS_BC_BEADS_REPO_FMT must carry the literal '{bc}' placeholder; got: "
+        + repr(fmt_blob)
+    )
+    # The corrupt form embeds "{bc}" inside a ${...:-...} default; bash closes the
+    # default at the first "}" after "{bc", destroying the placeholder.
+    corrupt = re.search(r"\$\{[^{}]*:-[^{}]*\{bc\}", fmt_blob)
+    assert corrupt is None, (
+        "OPS_BC_BEADS_REPO_FMT renders its '{bc}' inside a ${...:-...} default — "
+        "bash closes the default at the first '}' after '{bc', corrupting the "
+        "placeholder. Render it placeholder-safe (literal outside the ${:-}). "
+        "Got: " + repr(fmt_blob)
+    )
+    # The placeholder-safe form must still honor an external override.
+    _rc, ov = _source_ops_coordinates(
+        coords, env_overrides={"OPS_BC_BEADS_REPO_FMT": "override-fmt-value"}
+    )
+    assert ov["OPS_BC_BEADS_REPO_FMT"] == "override-fmt-value", (
+        "an exported OPS_BC_BEADS_REPO_FMT override must take precedence over the "
+        "rendered default; got " + repr(ov["OPS_BC_BEADS_REPO_FMT"])
+    )
+
+
+@then(
+    parsers.re(
+        r'after sourcing with no override environment set, OPS_BC_BEADS_REPO_FMT '
+        r'resolves to "(?P<fmt>[^"]+)" with the literal .*'
+    )
+)
+def then_fmt_resolves_with_placeholder_intact(fmt: str, context: dict) -> None:
+    assert "{bc}" in fmt, (
+        "scenario's expected OPS_BC_BEADS_REPO_FMT value must carry literal "
+        "'{bc}'; got " + repr(fmt)
+    )
+    coords = _ops_coordinates_file(context)
+    _rc, values = _source_ops_coordinates(coords)
+    actual = values.get("OPS_BC_BEADS_REPO_FMT", _OPS_211_UNSET)
+    assert actual == fmt, (
+        "after sourcing with no override, OPS_BC_BEADS_REPO_FMT=" + repr(actual)
+        + ", expected " + repr(fmt) + " with the literal '{bc}' placeholder intact"
+    )
+    assert "{bc}" in actual, (
+        "OPS_BC_BEADS_REPO_FMT=" + repr(actual) + " lost its literal '{bc}' "
+        "placeholder during sourcing; a consumer's later '{bc}' substitution "
+        "would silently no-op"
+    )
+
+
 @then(
     parsers.parse(
         "after sourcing with no override environment set, OPS_SLUG resolves to "

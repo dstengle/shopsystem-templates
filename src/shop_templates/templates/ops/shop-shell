@@ -5,7 +5,7 @@
 # does NOT build or run a dedicated shell image and does NOT re-derive the
 # broker proxy URL or fetch the MITM CA itself. It DELEGATES the brokered
 # Claude launch to `bc-container`, run inside an ephemeral framework LAUNCHER
-# image (shopsystem-bc-lead = bc-base + docker CLI). bc-base itself carries NO
+# image ($OPS_LAUNCHER_IMAGE = bc-base + docker CLI). bc-base itself carries NO
 # docker CLI and so cannot run `bc-container launch`; the launcher must run on
 # bc-lead. The leaf-BC session the launcher stands up ALSO runs on the bc-lead
 # image, handed in via `bc-container launch --image` — because the launched
@@ -34,10 +34,11 @@
 # --network and the inner `bc-container launch --network`), env-file path, and
 # the compose container-name greps all derive from the bootstrap product slug
 # ({{OPS_SLUG}}) so this script never collides with a second product running
-# alongside it. The framework image reference shopsystem-bc-lead (the launcher
-# AND the leaf-BC runtime — both need the docker CLI) is the SAME product-neutral
-# image for every product slug (the same exemption the agent-vault broker image
-# carries in compose.yaml) — it is NOT slug-rewritten.
+# alongside it. The framework launcher/leaf-BC runtime image (the launcher AND
+# the leaf-BC runtime both need the docker CLI) is referenced via the
+# env-overridable $OPS_LAUNCHER_IMAGE whose default is sourced from the single
+# ops-coordinates artifact (ADR-046) — its product-neutral reference is no longer
+# baked as a literal here, and it is NOT slug-rewritten.
 set -euo pipefail
 
 # Resolve the repo root (this script lives at <repo>/bin/shop-shell).
@@ -143,9 +144,9 @@ SOCKET_GID="$(stat -L -c '%g' /var/run/docker.sock)"
 # launched session at the live lead working tree; --mount-docker-socket grants
 # the launched lead session the lead-only docker-daemon access; --startup-prompt
 # overrides the BC-default session-start with the lead router session-start. The
-# framework image reference shopsystem-bc-lead (launcher AND leaf-BC runtime) is
-# product-neutral — the SAME tag for every product slug, not slug-rewritten to
-# {{OPS_SLUG}}-bc-lead.
+# framework launcher/leaf-BC runtime image is the env-overridable
+# $OPS_LAUNCHER_IMAGE (default sourced from ops-coordinates, ADR-046) —
+# product-neutral, the SAME default for every product slug, not slug-rewritten.
 docker run --rm -it \
   --network "$OPS_NETWORK" \
   --env-file "$AGENT_VAULT_ENV_FILE" \

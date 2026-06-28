@@ -88,31 +88,68 @@ Evidence on failure: name the mismatched or missing hash, the path searched, and
 blocked: scenario_hash <hash> not found in features/ (searched: features/; origin/main: <sha>). Scenario may not be pinned.
 ```
 
-### Check 4: BD Plan Sub-Issues Present and Closed
+### Check 4: BD Plan Sub-Issues Present, Closed, and Durable
 
-Verify that bd sub-issues exist for the work_id and that they are all closed.
-Specifically, at least one sub-issue must be an explicit failing-test (RED)
-sub-issue (title contains "write the failing test for" or similar RED
-nomenclature).
+Verify that bd sub-issues exist for the work_id and that **every** sub-issue
+reachable under the work_id umbrella bead is closed. At least one sub-issue
+must be an explicit failing-test (RED) sub-issue (title contains "write the
+failing test for" or similar RED nomenclature).
 
 ```bash
-bd show <work_id>   # inspect sub-issues: status and titles
+bd children <umbrella> --json   # enumerate EVERY sub-issue: status + title
+bd dolt push                    # durability: closures reachable on the remote
 ```
 
-**Pass:** at least one RED sub-issue exists and all sub-issues are closed.
+**Enumerate EVERY reachable sub-issue, not the self-reported set.** The
+precondition is evaluated by independently enumerating every sub-issue
+reachable under the work_id umbrella bead from the BC's own bd registry — NOT
+only the set the implementer reports or itself closed. An **orphaned OPEN
+sub-issue** left behind by an abandoned earlier decomposition that the
+implementer never created or closed therefore **still blocks** the emit. The
+prior "at least one RED exists and all sub-issues the implementer closed are
+closed" check alone does NOT pass the gate; an OPEN sub-issue the implementer
+did not create still blocks it (scenario 0b48508e40fdde18).
 
-**Fail:** no sub-issues exist for the work_id, or sub-issues are not all
-closed, or no RED (failing-test) sub-issue is present.
+**Durability — the decomposition-and-closure state must be reachable from the
+pushed tracker remote.** bd is dolt-backed and `.beads/issues.jsonl` is a
+carved-out **non-idempotent ambient artifact** under Check 1 (its working-tree
+bytes cannot be made clean by a commit), so a clean working tree cannot by
+itself establish that the sub-issue creations and closures are durable. The
+durability precondition is satisfied by the decomposition-and-closure state
+being reachable from the **pushed tracker remote** — the configured bd-dolt
+remote — verified by a successful `bd dolt push` (the same unpushable-tracker
+signal the session-start work-tracker health step uses). A non-durable
+decomposition is named **specifically** as a bd-decomposition-durability
+failure, NOT as a generic dirty-working-tree cause (scenario 7bcfc89161c0b2ee).
 
-Evidence on failure: list the open sub-issues and note the missing RED
-sub-issue. Block with message:
+**Pass:** at least one RED sub-issue exists, every sub-issue reachable under
+the work_id umbrella bead is closed, and the decomposition-and-closure state is
+reachable from the pushed tracker remote.
+
+**Fail:** no sub-issues exist for the work_id; any sub-issue reachable under
+the umbrella (including an orphan the implementer never closed) is OPEN; no RED
+(failing-test) sub-issue is present; or the decomposition-and-closure state is
+not reachable from the pushed tracker remote.
+
+Evidence on failure: list the open sub-issues by bd id (including orphans) and
+note the missing RED sub-issue, or name the bd-decomposition-durability
+precondition and the work_id. Block with message:
 ```
 blocked: no bd plan sub-issues for <work_id>
 ```
 or:
 ```
-blocked: bd sub-issue(s) not closed for <work_id>: <list>
+blocked: bd sub-issue(s) not closed for <work_id>: <list, incl. orphaned OPEN ids>
 ```
+or:
+```
+blocked: bd decomposition+closures for <work_id> not reachable from the pushed tracker remote (configured bd-dolt remote)
+```
+
+> The executable `bc-emit work-done` wrapper enforces this check when invoked
+> with `--plan-umbrella <umbrella>`: it runs `bd children <umbrella>` to
+> enumerate every reachable sub-issue (catching orphans) and a `bd dolt push`
+> reachability probe for durability — both against the BC's own bd registry.
 
 ### Check 5: Test-First Artifact in Work-Branch History
 

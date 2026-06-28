@@ -620,6 +620,66 @@ def check_plan_subissues_closed(
         )
 
 
+def _default_durability_probe(
+    bd_cmd: tuple[str, ...],
+):
+    """Build the default bd-dolt reachability probe.
+
+    Durability is established by the decomposition-and-closure STATE being
+    reachable from the pushed tracker remote — the configured bd-dolt remote —
+    NOT by the `.beads/issues.jsonl` working-tree bytes being clean (that path
+    is a carved-out non-idempotent ambient artifact under Check 1, so a clean
+    tree cannot by itself establish durability). bd is dolt-backed (ADR-036
+    implementation guidance), so the concrete surface is the bd-dolt push: a
+    `bd dolt push` that exits zero means the closure state is reachable from
+    the configured remote — the same unpushable-tracker durability signal the
+    BC session-start work-tracker health step uses (beads-health
+    43a05feaefc1d046).
+    """
+    def probe(repo: Path) -> bool:
+        result = _bd(repo, "dolt", "push", bd_cmd=bd_cmd)
+        return result.returncode == 0
+    return probe
+
+
+def check_plan_decomposition_durable(
+    repo: Path,
+    work_id: str,
+    *,
+    bd_cmd: tuple[str, ...] = ("bd",),
+    durability_probe=None,
+) -> None:
+    """Durability precondition (hash 7bcfc89161c0b2ee) — the work_id's
+    sub-issue decomposition-and-closure STATE must be reachable from the pushed
+    tracker remote.
+
+    Refuses when the decomposition and closures exist only in an uncommitted or
+    locally-staged `.beads` registry that is NOT reachable from the BC's pushed
+    tracker remote (the configured bd-dolt remote). The refusal names the
+    bd-decomposition-durability precondition SPECIFICALLY and names the work_id
+    — it does NOT report a generic dirty-working-tree cause, because
+    `.beads/issues.jsonl` is a carved-out non-idempotent ambient artifact whose
+    clean-tree state cannot by itself establish that the closures are durable.
+    """
+    if durability_probe is None:
+        durability_probe = _default_durability_probe(bd_cmd)
+    if not durability_probe(repo):
+        raise PreconditionRefusal(
+            "refused: the bd-decomposition-durability precondition failed for "
+            f"work_id {work_id}. The work_id's sub-issue decomposition and "
+            "closures are NOT reachable from the pushed tracker remote — the "
+            "configured bd-dolt remote — so they exist only in an uncommitted "
+            "or locally-staged .beads registry. This is NOT a generic "
+            "dirty-working-tree cause: the durability precondition is satisfied "
+            "by the decomposition-and-closure state being reachable from the "
+            "pushed tracker remote, NOT by the .beads/issues.jsonl working-tree "
+            "bytes being clean (that path is a carved-out non-idempotent "
+            "ambient artifact under the clean-working-tree precondition, so the "
+            "carve-out cannot by itself establish that the closures are "
+            f"durable). {_SELF_RESOLVE}"
+        )
+
+
 def _invoke_respond(
     respond_cmd: list[str],
     work_id: str,
@@ -675,6 +735,9 @@ def _cmd_work_done(args: argparse.Namespace) -> int:
             check_plan_subissues_closed(
                 repo, args.work_id, args.plan_umbrella, bd_cmd=bd_cmd
             )
+            # Durability — the decomposition-and-closure state is reachable
+            # from the pushed tracker remote (hash 7bcfc89161c0b2ee).
+            check_plan_decomposition_durable(repo, args.work_id, bd_cmd=bd_cmd)
     except PreconditionRefusal as refusal:
         # On ANY precondition refusal: do NOT invoke shop-msg respond; exit
         # non-zero with the named-cause + self-resolve error.

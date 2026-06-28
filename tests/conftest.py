@@ -16309,6 +16309,101 @@ def then_enumeration_catches_orphan_over_prior_check(context: dict) -> None:
             )
 
 
+# ---- Scenario 7bcfc89161c0b2ee — bd-decomposition durability/reachability ----
+
+@given(
+    parsers.parse(
+        "a dispatched work_id whose umbrella bead's TDD sub-issues are all "
+        "closed in the BC's local bd state"
+    )
+)
+def given_umbrella_subissues_all_closed_locally(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    _land_work_id_on_origin(clone, "lead-durable")
+    recorder, log = _make_recorder(tmp_path)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+    context["bc_work_id"] = "lead-durable"
+    context["plan_umbrella"] = "tmpl-durable"
+    # All sub-issues closed in local bd state, including a RED — so Check 4
+    # (closure) passes and the durability check is what must refuse.
+    context["plan_children"] = [
+        {"id": "tmpl-durable.1", "status": "closed",
+         "title": "write the failing test (RED) for the behavior"},
+        {"id": "tmpl-durable.2", "status": "closed",
+         "title": "implement (GREEN) the behavior"},
+    ]
+
+
+@given(
+    parsers.parse(
+        "those sub-issue creations and closures exist only in an uncommitted "
+        'or locally-staged ".beads" registry that is NOT yet committed and '
+        "reachable from the BC's pushed tracker remote — the configured "
+        'bd-dolt remote / "origin/main"'
+    )
+)
+def given_closures_not_reachable_from_pushed_remote(
+    context: dict, tmp_path: Path
+) -> None:
+    # The fake bd reports all sub-issues closed (children), but its `dolt push`
+    # exits NON-ZERO — i.e. the decomposition-and-closure state is NOT reachable
+    # from the configured bd-dolt remote. The git working tree itself is clean
+    # (Check 1 passes) and the work_id commit is on origin/main (Check 2
+    # passes), so the ONLY refusal cause is the durability precondition.
+    script = _make_fake_bd(tmp_path, context["plan_children"], push_rc=1)
+    context["bd_cmd"] = _fake_bd_cmd(script)
+
+
+@then(
+    parsers.parse(
+        "the wrapper's error names the bd-decomposition-durability "
+        "precondition specifically — that the work_id's sub-issue "
+        "decomposition and closures are not reachable from the pushed tracker "
+        "remote — and names the work_id, rather than reporting a generic "
+        "dirty-working-tree cause"
+    )
+)
+def then_names_durability_precondition_specifically(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    assert "bd-decomposition-durability precondition" in err, err
+    assert "reachable from the pushed tracker remote" in err, err
+    assert context["bc_work_id"] in err, err
+    # It must NOT be reported as a generic dirty-working-tree refusal: the
+    # clean-working-tree precondition is NOT the named cause here.
+    assert "the clean-working-tree precondition failed" not in err, (
+        "durability refusal was mis-reported as a generic dirty working tree: "
+        f"{err!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "the durability precondition is satisfied by the "
+        "decomposition-and-closure state being reachable from the pushed "
+        'tracker remote, NOT by the ".beads/issues.jsonl" working-tree bytes '
+        "being clean — consistent with that path being a carved-out "
+        "non-idempotent ambient artifact under the clean-working-tree "
+        "precondition, so the carve-out cannot by itself establish that the "
+        "closures are durable"
+    )
+)
+def then_durability_not_satisfiable_by_clean_beads_tree(context: dict) -> None:
+    result = context["bc_emit_result"]
+    err = result.stderr
+    # The wrapper refused (durability), proving a clean .beads tree alone does
+    # not establish durability — and respond was NOT invoked.
+    assert result.returncode != 0, (
+        f"expected a durability refusal; rc={result.returncode} stderr={err!r}"
+    )
+    assert not _respond_was_invoked(context["respond_log"]), (
+        "respond was invoked despite a non-durable bd decomposition"
+    )
+    assert ".beads/issues.jsonl" in err and "carved-out" in err, err
+
+
 # =======================================================================
 # lead-llc1 — P0 agent-vault broker render fix: the rendered compose.yaml
 # agent-vault service names the real broker image (infisical/agent-vault),

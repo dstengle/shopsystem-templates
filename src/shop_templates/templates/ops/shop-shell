@@ -48,9 +48,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"
 
 # Persistent data root lives OUTSIDE the repo so the shop tree stays clean.
-{{OPS_SLUG_UPPER}}_DATA="${{{OPS_SLUG_UPPER}}_DATA:-$HOME/.local/share/{{OPS_SLUG}}}"
-export {{OPS_SLUG_UPPER}}_DATA
-mkdir -p "${{OPS_SLUG_UPPER}}_DATA/pgdata"
+# OPS_DATA_ROOT is defined (env-overridable via {{OPS_SLUG_UPPER}}_DATA) in the
+# sourced ops-coordinates artifact — its default is the SINGLE source and is NOT
+# re-spelled here (ADR-043 single-source / scenario b7ea0de32ef49854).
+mkdir -p "$OPS_DATA_ROOT/pgdata"
 
 # (1) Bring up postgres AND the agent-vault broker via compose (ADR-028 D1).
 docker compose -f "$REPO_ROOT/compose.yaml" up -d postgres agent-vault
@@ -71,7 +72,7 @@ fi
 # touches the repo tree. The launcher (`bc-container launch`) is responsible for
 # deriving the proxy URL and sourcing the MITM CA from these coordinates — the
 # wrapper does NOT re-derive the proxy URL or fetch the CA itself.
-AGENT_VAULT_ENV_FILE="${{OPS_SLUG_UPPER}}_DATA/shop-shell.env-file"
+AGENT_VAULT_ENV_FILE="$OPS_DATA_ROOT/shop-shell.env-file"
 install -m 0600 /dev/null "$AGENT_VAULT_ENV_FILE"
 if [[ -f "$REPO_ROOT/.env" ]]; then
   # The single-line broker coordinates (ADDR / TOKEN / VAULT) travel fine via the

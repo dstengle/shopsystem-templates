@@ -1,17 +1,5 @@
 Feature: converged ops scaffolding (lead shop, PDR-020) — bin/shop-shell is a thin bc-container-delegating wrapper, the ops set is exactly six shop-owned files with no dedicated shell Dockerfile, and a non-default render carries zero cross-product literals
 
-  @scenario_hash:a3b723341d9f2872 @bc:shopsystem-templates
-  Scenario: bootstrap of a "lead" shop writes "bin/shop-shell" as an executable bash script whose body brings up the compose-defined postgres if not already running, so a fresh operator can run "./bin/shop-shell" with no further configuration
-    Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
-    When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "shopsystem-product", and target directory "/tmp/example-lead-shop"
-    Then the exit code is 0
-    And after the invocation the target directory contains a file at "bin/shop-shell"
-    And the file at "bin/shop-shell" in the target directory has its owner-execute permission bit set
-    And the first line of the file at "bin/shop-shell" is exactly "#!/usr/bin/env bash"
-    And the body of "bin/shop-shell" contains the literal substring "docker compose" followed somewhere later in the file by the literal substring "up -d postgres"
-    And the body of "bin/shop-shell" references the environment variable "SHOPSYSTEM_DATA" with a default of "$HOME/.local/share/shopsystem"
-    And the body of "bin/shop-shell" does not contain the literal substring "SHOPSYSTEM_SHELL_IMAGE", because the dedicated shell image is retired and the wrapper launches an ephemeral bc-lead launcher (which stands up the leaf-BC on bc-base) instead of a separately-built shell image
-
 @scenario_hash:b764caa1dea99fcb @bc:shopsystem-templates
   Scenario Outline: the ops scaffolding file-set written by bootstrap for a "lead" shop named "<slug>" enumerates exactly six shop-owned files additively — "compose.yaml", "bin/shop-shell", "bin/shop-scenario-completion", "bin/agent-vault-provision", "bin/agent-vault-check", and "bin/agent-vault-approve-claude" — each at a shop-owned path outside any ".claude/" subdirectory, and writes NO dedicated shell Dockerfile, because per PDR-020 the shell image is retired and "bin/shop-shell" launches an ephemeral bc-lead launcher (which stands up the leaf-BC on bc-base) instead, and per lead-9s46 the lead-only "bin/agent-vault-approve-claude" Claude-OAuth proposal approval tool joined the converged ops-tool set as its sixth member
     Given an existing git repository at a target directory "/tmp/example-lead-shop"

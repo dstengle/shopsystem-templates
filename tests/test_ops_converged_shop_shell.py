@@ -94,9 +94,12 @@ def test_shopsystem_shop_shell_is_thin_bc_container_wrapper(tmp_path):
 
     assert shell.stat().st_mode & _stat.S_IXUSR, "shop-shell must be owner-executable"
 
-    # SHOPSYSTEM_DATA env default (134)
-    assert "SHOPSYSTEM_DATA" in body
-    assert "$HOME/.local/share/shopsystem" in body
+    # ADR-043 single-source (lead-ml51, scenario b7ea0de32ef49854 supersedes the
+    # 134 data-literal leg): the persistent data root is referenced via
+    # $OPS_DATA_ROOT (defined env-overridably in ops-coordinates) — shop-shell
+    # re-spells neither SHOPSYSTEM_DATA nor the $HOME/.local/share default.
+    assert "$OPS_DATA_ROOT" in body
+    assert "$HOME/.local/share/" not in body
 
     for needle in _REQUIRED_SUBSTRINGS:
         assert needle in body, f"thin shop-shell missing required substring {needle!r}"

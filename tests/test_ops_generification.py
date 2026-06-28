@@ -251,9 +251,12 @@ def test_dummyco_shop_shell_is_slug_scoped_thin_wrapper(tmp_path):
     target = _bootstrap(tmp_path, "dummyco-product")
     body = (target / "bin" / "shop-shell").read_text()
 
-    # data env + network derive from slug
-    assert "DUMMYCO_DATA" in body
-    assert "--network dummyco" in body
+    # ADR-043 single-source (lead-ml51): the data root and docker network are
+    # referenced from the ops-coordinates artifact ($OPS_DATA_ROOT / $OPS_NETWORK),
+    # not re-spelled as slug literals in the wrapper.
+    assert "$OPS_DATA_ROOT" in body
+    assert "$OPS_NETWORK" in body
+    assert "$HOME/.local/share/" not in body
 
     # ADR-046 (lead-ml51): the framework image is no longer a baked product
     # literal — the wrapper references the single-sourced $OPS_LAUNCHER_IMAGE and

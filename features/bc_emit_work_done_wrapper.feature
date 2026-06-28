@@ -58,3 +58,10 @@ Feature: bc-emit work-done wrapper — executable pre-emit preconditions over th
     When the BC invokes the bare messaging primitive "shop-msg respond work_done --force" directly rather than the "bc-emit work-done" wrapper
     Then the work_done message is deposited to the lead's inbox without any clean-working-tree, commit-or-tag-reachability, or scenario_hashes-match precondition being run by "shop-msg respond"
     And the availability of this bare forced-recovery path is independent of the wrapper, so landing the wrapper and retiring the prose preconditions does not remove the "--force" escape valve
+
+  @scenario_hash:cba037e97c6a8325 @bc:shopsystem-templates
+  Scenario: bc-emit work-done's clean-working-tree precondition is deliverable-scoped — it refuses the emit only when a path under features/, src/, or tests/ is dirty, and does NOT refuse when the only dirty paths are non-deliverable harness or config paths
+    Given a BC repository whose "git status --porcelain -uall" output reports modified, staged, or untracked paths ONLY under non-deliverable harness or config paths — for example ".claude/canonical/bc-primer.md", ".claude/settings.json", or the ambient carve-outs ".specstory", ".claude/scheduled_tasks.lock", and ".beads/issues.jsonl" — and reports NO modified, staged, untracked, or deleted path under any deliverable directory "features/", "src/", or "tests/"
+    When the BC invokes the "bc-emit work-done" wrapper for its dispatched work_id
+    Then the wrapper does NOT refuse on the clean-working-tree precondition and proceeds to the remaining preconditions, treating the tree as clean because no deliverable path is dirty
+    And the same wrapper, run against a tree whose "git status --porcelain -uall" reports a dirty path under any deliverable directory "features/", "src/", or "tests/", exits non-zero, does not invoke "shop-msg respond work_done", and names the clean-working-tree precondition as the cause while listing each offending deliverable path verbatim as "git status --porcelain" reported it

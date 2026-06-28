@@ -15300,6 +15300,147 @@ def then_carve_outs_treated_clean(context: dict, tmp_path: Path) -> None:
     )
 
 
+# ---- Scenario cba037e97c6a8325 — clean-working-tree is DELIVERABLE-SCOPED ----
+# lead-3rda: the wrapper's clean-tree precondition refuses ONLY when a path
+# under a deliverable directory (features/, src/, tests/) is dirty; a tree
+# dirty ONLY under non-deliverable harness/config paths (.claude/...) or the
+# ambient carve-outs is treated as clean and proceeds. This supersedes the
+# narrow carve-out allowlist model (retired scenario 176 @242c4de927d64339).
+
+
+@given(
+    parsers.parse(
+        'a BC repository whose "git status --porcelain -uall" output reports '
+        "modified, staged, or untracked paths ONLY under non-deliverable "
+        'harness or config paths — for example ".claude/canonical/bc-primer.md", '
+        '".claude/settings.json", or the ambient carve-outs ".specstory", '
+        '".claude/scheduled_tasks.lock", and ".beads/issues.jsonl" — and reports '
+        "NO modified, staged, untracked, or deleted path under any deliverable "
+        'directory "features/", "src/", or "tests/"'
+    )
+)
+def given_dirty_only_non_deliverable(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    # Land a work_id commit on origin/main so reachability passes and the
+    # wrapper can proceed PAST clean-tree to a single clean emit; also commit a
+    # baseline tracked non-deliverable config file to MODIFY below.
+    (clone / "feature.txt").write_text("done\n")
+    (clone / ".claude").mkdir(exist_ok=True)
+    (clone / ".claude" / "settings.json").write_text('{"v": 1}\n')
+    _git_in(clone, "add", "feature.txt", ".claude/settings.json")
+    _git_in(clone, "commit", "-q", "-m", "feat: deliver (work_id: lead-test)")
+    _git_in(clone, "push", "-q", "origin", "main")
+    # Dirty ONLY non-deliverable harness/config + ambient carve-out paths:
+    #   modified tracked config  -> .claude/settings.json
+    #   untracked harness doc    -> .claude/canonical/bc-primer.md
+    #   ambient carve-outs       -> .specstory/, .claude/scheduled_tasks.lock,
+    #                               .beads/issues.jsonl
+    (clone / ".claude" / "settings.json").write_text('{"v": 2}\n')
+    (clone / ".claude" / "canonical").mkdir(parents=True, exist_ok=True)
+    (clone / ".claude" / "canonical" / "bc-primer.md").write_text("primer\n")
+    (clone / ".specstory").mkdir(exist_ok=True)
+    (clone / ".specstory" / "log.md").write_text("noise\n")
+    (clone / ".claude" / "scheduled_tasks.lock").write_text("lock\n")
+    (clone / ".beads").mkdir(exist_ok=True)
+    (clone / ".beads" / "issues.jsonl").write_text("{}\n")
+    # Premise guard: NO deliverable path is dirty.
+    porcelain = [
+        l for l in _git_in(clone, "status", "--porcelain", "-uall").stdout.splitlines()
+        if l.strip()
+    ]
+    for line in porcelain:
+        # Porcelain line is "XY <path>"; take the path (new path on renames).
+        body = line[3:] if len(line) > 3 else line.strip()
+        if " -> " in body:
+            body = body.split(" -> ", 1)[1]
+        path = body.strip().strip('"')
+        assert not (
+            path.startswith("features/")
+            or path.startswith("src/")
+            or path.startswith("tests/")
+        ), f"premise of Given violated: a deliverable path is dirty: {line!r}"
+    recorder, log = _make_recorder(tmp_path)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+
+
+@then(
+    parsers.parse(
+        "the wrapper does NOT refuse on the clean-working-tree precondition and "
+        "proceeds to the remaining preconditions, treating the tree as clean "
+        "because no deliverable path is dirty"
+    )
+)
+def then_no_clean_tree_refusal_non_deliverable(context: dict) -> None:
+    result = context["bc_emit_result"]
+    assert "clean-working-tree precondition" not in result.stderr, (
+        "a non-deliverable-only dirty tree was wrongly refused by the "
+        f"clean-tree check: {result.stderr!r}"
+    )
+    # Concretely: work_id is on origin/main and no scenario hashes are carried,
+    # so the wrapper proceeds past clean-tree all the way and invokes respond.
+    assert _respond_was_invoked(context["respond_log"]), (
+        "expected the wrapper to proceed past clean-tree (non-deliverable dirt "
+        f"only) and invoke respond; stderr={result.stderr!r} rc={result.returncode}"
+    )
+    assert result.returncode == 0, (
+        f"expected a clean zero exit; rc={result.returncode} stderr={result.stderr!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the same wrapper, run against a tree whose "git status --porcelain '
+        '-uall" reports a dirty path under any deliverable directory '
+        '"features/", "src/", or "tests/", exits non-zero, does not invoke '
+        '"shop-msg respond work_done", and names the clean-working-tree '
+        "precondition as the cause while listing each offending deliverable "
+        'path verbatim as "git status --porcelain" reported it'
+    )
+)
+def then_deliverable_dirty_refuses(context: dict, tmp_path: Path) -> None:
+    sub = tmp_path / "deliverable-dirty"
+    sub.mkdir()
+    clone, origin = _init_bare_origin_and_clone(sub)
+    # Land a reachable work_id commit so ONLY the clean-tree check can be the
+    # cause of any refusal (reachability and hash checks must not interfere).
+    (clone / "baseline.txt").write_text("base\n")
+    _git_in(clone, "add", "baseline.txt")
+    _git_in(clone, "commit", "-q", "-m", "feat: deliver (work_id: lead-test)")
+    _git_in(clone, "push", "-q", "origin", "main")
+    # A dirty (untracked) path under EACH deliverable directory.
+    deliverable_paths = [
+        "features/new.feature",
+        "src/shop_templates/_demo.py",
+        "tests/test_demo.py",
+    ]
+    for rel in deliverable_paths:
+        p = clone / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("x = 1\n")
+    recorder, log = _make_recorder(sub)
+    result = _run_bc_emit(
+        clone, recorder, "--work-id", "lead-test", "--status", "complete"
+    )
+    assert result.returncode != 0, (
+        "expected a non-zero exit for a deliverable-dirty tree; "
+        f"rc={result.returncode} stderr={result.stderr!r}"
+    )
+    assert not _respond_was_invoked(log), (
+        "shop-msg respond was invoked despite a deliverable-dirty tree: "
+        f"{log.read_text()!r}"
+    )
+    assert "clean-working-tree precondition" in result.stderr, result.stderr
+    # Each offending deliverable path listed verbatim.
+    for rel in deliverable_paths:
+        assert rel in result.stderr, (
+            f"offending deliverable path {rel!r} not listed verbatim in the "
+            f"refusal error: {result.stderr!r}"
+        )
+
+
 # ---- Scenarios c4d784eda58d01bc / e1b33c51cee48db5 — plan-bead-closure carve-out parity ----
 # lead-20bt: pin, at the executable wrapper level, the prose<->wrapper parity
 # that the work-done-gate Check 1 carve-out depends on. Check 4 of the gate

@@ -24549,3 +24549,209 @@ def then_leaf_trust_file_valid(context: dict) -> None:
     # The precondition shop-shell guarantees: the delivered value IS a PEM block.
     value = _lu91_ca_env_value()
     assert "-----BEGIN CERTIFICATE-----" in value and "-----END CERTIFICATE-----" in value
+
+
+# =======================================================================
+# Scenario @1c054dfdc468860a (lead-dui6 / tmpl-5jz) — the scripted
+# approve-claude step INSIDE the rendered bin/agent-vault-provision captures
+# the issued Claude token and writes a NON-EMPTY CLAUDE_OAUTH credential back
+# into the vault, equal to the captured token — never a blank writeback. When
+# token capture yields an empty value the step ABORTS with a diagnostic rather
+# than writing the blank back over the issued credential.
+#
+# The capture/writeback logic lives INSIDE provision (not a separate script):
+# it is delimited by the `APPROVE-CLAUDE-WRITEBACK-BEGIN/END` markers in the
+# rendered body. Acceptance combines a render-fidelity body assertion with a
+# BEHAVIORAL bash-slice that runs the extracted block under a stub agent-vault
+# (no live broker in the BC env), recording the CLAUDE_OAUTH=<value> the
+# writeback carries.
+#
+# ADDITIVE (preserves @1d08c456af08d577 broker/13 + lead @72af524bca85f59c
+# broker/11): the writeback executes ONLY when the operator supplies the token
+# at approve-time (CLAUDE_OAUTH set in the env); the default create-time run
+# leaves the proposal + handoff untouched and transports no automated secret.
+# =======================================================================
+
+import os as _os_dui6
+import subprocess as _sp_dui6
+import tempfile as _tf_dui6
+
+
+def _provision_body_dui6(slug: str = "acme") -> str:
+    from shop_templates.cli import render_ops_template
+
+    return render_ops_template("agent-vault-provision", slug)
+
+
+def _provision_approve_claude_block_dui6(slug: str = "acme") -> str:
+    """Extract the approve-claude capture/writeback block from the rendered
+    provision body — the logic the scenario pins as living INSIDE provision,
+    delimited by the APPROVE-CLAUDE-WRITEBACK-BEGIN/END markers."""
+    lines = _provision_body_dui6(slug).splitlines()
+    start = next(
+        i for i, l in enumerate(lines) if "APPROVE-CLAUDE-WRITEBACK-BEGIN" in l
+    )
+    end = next(i for i, l in enumerate(lines) if "APPROVE-CLAUDE-WRITEBACK-END" in l)
+    return "\n".join(lines[start : end + 1])
+
+
+def _run_approve_claude_block_dui6(env_assignment: str):
+    """Run the extracted approve-claude block under a stub `agent-vault` that
+    records the CLAUDE_OAUTH=<value> argument the writeback carries.
+
+    `env_assignment` is the bash that establishes (or omits) CLAUDE_OAUTH at
+    approve-time, e.g. `CLAUDE_OAUTH='tok'`, `CLAUDE_OAUTH=''`, or `:` (unset).
+    Returns (returncode, recorded_claude_oauth_value_or_None, stderr)."""
+    block = _provision_approve_claude_block_dui6()
+    d = _tf_dui6.mkdtemp()
+    rec = _os_dui6.path.join(d, "approve_args")
+    harness = (
+        "set +eu\n"
+        # Stub agent-vault: record the CLAUDE_OAUTH=<value> token of a
+        # `vault proposal approve` invocation; everything else is a no-op.
+        "agent-vault() {\n"
+        '  if [[ "$1" == "vault" && "$2" == "proposal" && "$3" == "approve" ]]; then\n'
+        "    for _a in \"$@\"; do\n"
+        '      case "$_a" in CLAUDE_OAUTH=*) printf "%s" "${_a#CLAUDE_OAUTH=}" > '
+        f'"{rec}" ;; esac\n'
+        "    done\n"
+        "  fi\n"
+        "  return 0\n"
+        "}\n"
+        # The writeback runs as `"${DEXEC_SCOPED[@]}" agent-vault ...`; an empty
+        # DEXEC_SCOPED array makes it invoke the shell-function stub directly.
+        "DEXEC_SCOPED=()\n"
+        'PROPOSAL_NUM=1\nVAULT="acme"\n'
+        f"{env_assignment}\n"
+        f"{block}\n"
+    )
+    proc = _sp_dui6.run(
+        ["bash", "-c", harness], capture_output=True, text=True
+    )
+    recorded = None
+    if _os_dui6.path.exists(rec):
+        with open(rec) as fh:
+            recorded = fh.read()
+    return proc.returncode, recorded, proc.stderr
+
+
+@given(
+    parsers.parse(
+        'a "lead" shop bootstrapped by "shop-templates" with the rendered ops '
+        'script "bin/agent-vault-provision" whose approve-claude logic lives '
+        "inside that script and not a separate script"
+    )
+)
+def given_provision_with_inline_approve_claude_dui6(context: dict) -> None:
+    body = _provision_body_dui6()
+    context["provision_body_dui6"] = body
+    # The capture/writeback logic lives INSIDE provision (the delimited block is
+    # present in provision's own body) — not delegated to a separate script.
+    assert "APPROVE-CLAUDE-WRITEBACK-BEGIN" in body, (
+        "the approve-claude capture/writeback logic must live INSIDE "
+        "bin/agent-vault-provision (delimited APPROVE-CLAUDE-WRITEBACK block)"
+    )
+    # provision's OWN approve-claude step must not shell out to the separate
+    # bin/agent-vault-approve-claude tool to perform its writeback.
+    block = _provision_approve_claude_block_dui6()
+    assert "agent-vault-approve-claude" not in block, (
+        "provision's approve-claude step must do the writeback inline, not by "
+        "invoking the separate bin/agent-vault-approve-claude script"
+    )
+
+
+@given(
+    parsers.parse(
+        "an approve-claude approval that issues a valid NON-EMPTY Claude token "
+        "— the same approval performed manually through the broker web "
+        "interface stores a non-empty credential, proving upstream issuance is "
+        "correct"
+    )
+)
+def given_issued_nonempty_token_dui6(context: dict) -> None:
+    # The issued token the operator supplies at approve-time (the same value the
+    # manual broker-web approval would store non-empty).
+    context["issued_token_dui6"] = "av-issued-claude-oauth-TOKEN-9f3c2a1b"
+
+
+@when(
+    parsers.parse(
+        'the rendered "bin/agent-vault-provision" approve-claude step captures '
+        'the issued token and writes the "CLAUDE_OAUTH" credential back into '
+        "the vault"
+    )
+)
+def when_approve_claude_captures_and_writes_dui6(context: dict) -> None:
+    token = context["issued_token_dui6"]
+    rc, recorded, _stderr = _run_approve_claude_block_dui6(
+        f"CLAUDE_OAUTH={_shquote_dui6(token)}"
+    )
+    context["approve_rc_dui6"] = rc
+    context["approve_recorded_dui6"] = recorded
+
+
+def _shquote_dui6(value: str) -> str:
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+@then(
+    parsers.parse(
+        'the "CLAUDE_OAUTH" credential value stored in the vault is NON-EMPTY '
+        "and equals the issued token — the scripted writeback carries the "
+        "captured token material, not a blank value"
+    )
+)
+def then_writeback_nonempty_equals_issued_dui6(context: dict) -> None:
+    recorded = context["approve_recorded_dui6"]
+    token = context["issued_token_dui6"]
+    assert context["approve_rc_dui6"] == 0, (
+        "the approve-claude writeback must succeed when a non-empty token is "
+        "captured at approve-time"
+    )
+    assert recorded is not None and recorded != "", (
+        "the approve-claude step must WRITE the CLAUDE_OAUTH credential back "
+        "(non-empty), not skip the writeback when a token is captured"
+    )
+    assert recorded == token, (
+        "the writeback must carry the CAPTURED token material verbatim "
+        f"(expected {token!r}, the writeback carried {recorded!r}) — a blank "
+        "or mangled value is the defect this scenario pins out"
+    )
+    # Body-level fidelity: the writeback assigns CLAUDE_OAUTH from the captured
+    # token variable, never a blank/placeholder literal.
+    block = _provision_approve_claude_block_dui6()
+    assert 'CLAUDE_OAUTH="$' in block, (
+        "the inline writeback must assign CLAUDE_OAUTH from the captured token "
+        "variable (CLAUDE_OAUTH=\"$...\"), not a blank or literal placeholder"
+    )
+
+
+@then(
+    parsers.parse(
+        'the approve-claude step never writes a blank/empty "CLAUDE_OAUTH" '
+        "credential: when token capture yields an empty value it aborts with a "
+        "diagnostic rather than writing the blank back over the issued "
+        "credential"
+    )
+)
+def then_aborts_on_empty_no_blank_writeback_dui6(context: dict) -> None:
+    # Token capture yields an EMPTY value at approve-time (CLAUDE_OAUTH is set
+    # but empty): the step must ABORT non-zero with a diagnostic and must NOT
+    # call `proposal approve` (no blank writeback over the issued credential).
+    rc, recorded, stderr = _run_approve_claude_block_dui6("CLAUDE_OAUTH=''")
+    assert rc != 0, (
+        "the approve-claude step must ABORT (non-zero) when token capture "
+        "yields an empty value, rather than writing a blank CLAUDE_OAUTH"
+    )
+    assert recorded is None, (
+        "the approve-claude step must NOT call `proposal approve` with a blank "
+        f"CLAUDE_OAUTH when capture is empty; it recorded {recorded!r}"
+    )
+    assert stderr.strip(), (
+        "the abort must emit a diagnostic on stderr explaining the empty-capture "
+        "refusal, not fail silently"
+    )
+    assert "CLAUDE_OAUTH" in stderr, (
+        "the abort diagnostic must name the CLAUDE_OAUTH credential it refused "
+        f"to blank-write; got stderr: {stderr!r}"
+    )

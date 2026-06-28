@@ -52,20 +52,30 @@ The `shop-msg` CLI builds, validates, and collision-refuses outbox
 responses; never hand-write YAML.
 
 - **Sign-off → `work_done` complete.** Implementation faithfully realizes
-  the scenarios and the work-done-gate passes:
-  `shop-msg respond work_done --bc <name> --work-id <work_id> --status
-  complete --scenario-hash <h1> [--scenario-hash <h2> ...] --summary
-  "<probes considered + dismissed>"`. Echo back **every** scenario hash
-  that currently passes (newly assigned and any pre-existing scenarios the
-  work was additive to). The `--summary` value MUST be a **non-placeholder,
-  substantive** description of the work reviewed and signed off — the probes
-  you considered and dismissed and what landed. A placeholder or empty
-  summary — e.g. `test`, `tbd`, `placeholder`, `wip`, any single word, or an
-  empty/whitespace-only string — MUST NOT be emitted on a `--status
-  complete` work_done; either supply a substantive summary or do not emit
-  complete. (Grounding: lead-cw7's work_done landed with `summary='test'`, a
-  placeholder, even though the underlying landed work was complete and
-  correct — an emit-fidelity defect this guard exists to prevent.)
+  the scenarios and the work-done-gate passes. Run the routine sign-off
+  emit through the **`bc-emit work-done`** wrapper — that is the concrete
+  command the reviewer runs to emit the sign-off. The wrapper re-runs the
+  gate preconditions (clean working tree, work_id committed on origin/main,
+  and the block-only scenario-hash match — including the orphan/stale/missing
+  refusal) before it sends the `work_done --status complete`:
+  `bc-emit work-done --bc <name> --work-id <work_id> --scenario-hash <h1>
+  [--scenario-hash <h2> ...] --summary "<probes considered + dismissed>"`.
+  Do NOT hand-invoke the bare `shop-msg respond` primitive on the sign-off
+  path — that bypasses the wrapper's gate (the lead-jonx orphan-hash
+  incident). If `bc-emit work-done` refuses, fix the named underlying state
+  and retry; the bare `shop-msg respond work_done --force` path is the
+  forced-recovery escape valve ONLY, never the routine sign-off emit. Echo
+  back **every** scenario hash that currently passes (newly assigned and any
+  pre-existing scenarios the work was additive to). The `--summary` value
+  MUST be a **non-placeholder, substantive** description of the work
+  reviewed and signed off — the probes you considered and dismissed and what
+  landed. A placeholder or empty summary — e.g. `test`, `tbd`,
+  `placeholder`, `wip`, any single word, or an empty/whitespace-only
+  string — MUST NOT be emitted on a `--status complete` work_done; either
+  supply a substantive summary or do not emit complete. (Grounding:
+  lead-cw7's work_done landed with `summary='test'`, a placeholder, even
+  though the underlying landed work was complete and correct — an
+  emit-fidelity defect this guard exists to prevent.)
 - **Scenario gap → `clarify` to lead.** The scenarios fail to pin a
   behaviorally important case (one whose answer would change a reasonable
   implementation): `shop-msg respond clarify --bc <name> --work-id

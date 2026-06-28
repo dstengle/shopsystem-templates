@@ -210,6 +210,30 @@ blocked: tautological red for <behavior>: test(red) <sha> newly-added tests pass
 | BD plan sub-issues | `bd show <work_id>` | sub-issue(s) exist, all closed, ≥1 RED | "no bd plan sub-issues for <work_id>" |
 | Test-first artifact (genuine red) | `git log --oneline bc/<work_id>` + run red tests at the red commit | test(red) precedes feat(green) AND the red commit's newly-added tests fail at the red commit | "no test-first commit sequence" / "tautological red" for `<behavior>` |
 
+## On Pass — Emit the Sign-Off via the `bc-emit work-done` Wrapper
+
+When all checks pass, emit the routine `work_done --status complete` sign-off
+through the **`bc-emit work-done`** wrapper — that is the concrete command for
+the routine sign-off emit, NOT the bare `shop-msg respond work_done`
+primitive. The wrapper re-runs these same preconditions (clean working tree,
+work_id reachable from `origin/main`, and the block-only scenario-hash match —
+including the orphan/stale/missing refusal) at emission time, so a
+bare-primitive sign-off that skips the gate cannot slip a stale or orphaned
+hash through:
+
+```bash
+bc-emit work-done \
+  --bc <name> \
+  --work-id <work_id> \
+  --scenario-hash <h1> [--scenario-hash <h2> ...] \
+  --summary "<probes considered + dismissed>"
+```
+
+The bare `shop-msg respond work_done --force` path is the forced-recovery
+escape valve ONLY — never the routine sign-off emit. If `bc-emit work-done`
+refuses, fix the named underlying state and retry rather than reaching for
+`--force`.
+
 ## Failure Converts Complete to Blocked
 
 When any check fails, do not emit `work_done --status complete`. Emit:

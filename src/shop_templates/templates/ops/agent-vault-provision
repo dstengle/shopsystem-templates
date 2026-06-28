@@ -424,6 +424,49 @@ cat <<EOF
 
 EOF
 
+# -----------------------------------------------------------------------
+# (3b) Scripted approve-claude WRITEBACK (BUGFIX lead-dui6 / scenario
+#      1c054dfdc468860a). The approve-claude token CAPTURE + WRITEBACK logic
+#      lives HERE, INSIDE provision — not in a separate script. When the
+#      operator supplies the issued Claude token AT APPROVE-TIME via the
+#      CLAUDE_OAUTH environment variable (the same token the manual broker-web
+#      approval would store), this step CAPTURES it and writes the CLAUDE_OAUTH
+#      credential back into the vault NON-EMPTY, equal to the captured token.
+#
+#      FAITHFULNESS GUARD — the defect this fixes: the writeback must carry the
+#      CAPTURED token material, NEVER a blank. If token capture yields an EMPTY
+#      value (CLAUDE_OAUTH set but empty), the step ABORTS with a diagnostic
+#      rather than writing a blank CLAUDE_OAUTH back over the issued credential.
+#
+#      ADDITIVE (broker/13 @1d08c456af08d577 + broker/11 @72af524bca85f59c
+#      preserved): the writeback runs ONLY when the human supplies the token at
+#      approve-time. When CLAUDE_OAUTH is UNSET (the default create-time run)
+#      this step is skipped — provision stays at the proposal + handoff above
+#      and transports no automated real credential (ADR-026 D4).
+# -----------------------------------------------------------------------
+# APPROVE-CLAUDE-WRITEBACK-BEGIN
+if [[ -n "${CLAUDE_OAUTH+x}" ]]; then
+  # A token was supplied at approve-time (the CLAUDE_OAUTH env var is SET). We
+  # CAPTURE it and must write it back NON-EMPTY; we must NEVER write a blank
+  # over the issued credential. An empty capture is the defect — abort.
+  _CLAUDE_OAUTH_CAPTURED="${CLAUDE_OAUTH}"
+  if [[ -z "$_CLAUDE_OAUTH_CAPTURED" ]]; then
+    echo "agent-vault-provision: approve-claude token capture yielded an EMPTY value." >&2
+    echo "  Refusing to write a blank CLAUDE_OAUTH credential back over the issued" >&2
+    echo "  credential — the manual broker-web approval stores a non-empty token, so a" >&2
+    echo "  blank scripted writeback is the defect. Re-run with the real issued Claude" >&2
+    echo "  token in the CLAUDE_OAUTH environment variable." >&2
+    exit 1
+  fi
+  echo "agent-vault-provision: approve-claude writing the captured CLAUDE_OAUTH credential (non-empty) into vault '$VAULT'."
+  # The writeback carries the CAPTURED token material verbatim (non-empty),
+  # under the same vault-scoped session the proposal-create step used.
+  "${DEXEC_SCOPED[@]}" agent-vault vault proposal approve "$PROPOSAL_NUM" \
+    CLAUDE_OAUTH="$_CLAUDE_OAUTH_CAPTURED" --yes --vault "$VAULT"
+  echo "agent-vault-provision: CLAUDE_OAUTH credential approved (non-empty writeback) for vault '$VAULT' (proposal #$PROPOSAL_NUM)."
+fi
+# APPROVE-CLAUDE-WRITEBACK-END
+
 # ADR-026 D4 status check (NON-blocking, informational): the script does not
 # wait for the human approve step (it RESUMES — the handoff above is the clean
 # lead-presentable hand-off, not a blocking gate). We report whether the

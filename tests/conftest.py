@@ -23415,7 +23415,16 @@ def then_beads_one_file(context: dict) -> None:
 def then_dummyco_slug_clean(context: dict) -> None:
     from shop_templates.cli import render_ops_template
     art = render_ops_template("ops-coordinates", "dummyco").lower()
-    assert "shopsystem" not in art and "fleet" not in art, "ops-coordinates artifact leaks shopsystem/fleet"
+    # The Gherkin exempts "a product-neutral framework image reference": ADR-046
+    # (lead-ml51) parks the framework launcher/leaf image default in this single
+    # artifact as OPS_LAUNCHER_IMAGE, so the product-neutral image ref
+    # ghcr.io/dstengle/shopsystem-bc-lead may legitimately carry "shopsystem".
+    # Strip every occurrence of that ref before the cross-product-literal check.
+    residual = art.replace("ghcr.io/dstengle/shopsystem-bc-lead", "")
+    assert "shopsystem" not in residual and "fleet" not in residual, (
+        "ops-coordinates artifact leaks shopsystem/fleet outside the exempt "
+        "product-neutral framework image reference"
+    )
 
 
 # ---- Scenarios cb8fca2c / 104df5a6 — single-sourced beads remote (lead-clyf)
@@ -24944,4 +24953,398 @@ def then_leaf_invokes_gh_without_manual_export_b6f2(context: dict) -> None:
         "bin/shop-shell must DEFAULT GH_TOKEN to the placeholder when the "
         "operator has not exported one (so no manual `export GH_TOKEN=...` is "
         "required), e.g. GH_TOKEN=\"${GH_TOKEN:-<placeholder>}\""
+    )
+
+
+# =======================================================================
+# ADR-043 Phase 1 / ADR-046 (lead-ml51) — bin/shop-shell carries ZERO
+# product-specific literals: every product value is a single-sourced,
+# env-overridable shell-variable reference whose default lives ONLY in the
+# bootstrap-rendered ops-coordinates artifact.
+#
+# Scenarios 1885dea2b4550fde (205 — framework image), b7ea0de32ef49854
+# (204 — every slug-derived coordinate), 827dec9656d97a38 (203 — zero
+# product literals in the rendered dummyco shop-shell).
+# =======================================================================
+
+# docker-run flags in bin/shop-shell that consume a value argument.
+_SS_DOCKER_RUN_VALUE_FLAGS = {
+    "--network",
+    "--env-file",
+    "--group-add",
+    "-e",
+    "-v",
+    "-w",
+}
+# bc-container launch/attach flags that consume a value argument.
+_SS_LAUNCH_VALUE_FLAGS = {
+    "--image",
+    "--network",
+    "--workspace-mount",
+    "--startup-prompt",
+    "--env-file",
+    "--repo-url",
+    "--shopmsg-dsn",
+    "--agent-vault-broker",
+}
+
+
+def _ss_logical_lines(body: str):
+    """Yield each logical (line-continuation-collapsed) shell command of
+    bin/shop-shell as a shlex token list, skipping blank/comment lines."""
+    import shlex
+
+    for raw in body.replace("\\\n", " ").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        probe = line[len("exec ") :].strip() if line.startswith("exec ") else line
+        try:
+            tokens = shlex.split(probe)
+        except ValueError:
+            continue
+        if tokens:
+            yield tokens
+
+
+def _ss_docker_run_image(tokens):
+    """Image ref = first bare (non-flag, non-flag-value) token after `run`."""
+    i = 2
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _SS_DOCKER_RUN_VALUE_FLAGS:
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        return tok
+    return None
+
+
+def _ss_flag_value(tokens, flag):
+    for i in range(len(tokens) - 1):
+        if tokens[i] == flag:
+            return tokens[i + 1]
+    return None
+
+
+def _ss_parse_images(body: str):
+    """Return (docker_run_image_tokens, launch_image_flag_value) for the two
+    docker-run blocks and the inner `bc-container launch --image` of
+    bin/shop-shell."""
+    docker_run_images = []
+    launch_image_flag = None
+    for tokens in _ss_logical_lines(body):
+        if tokens[:2] != ["docker", "run"]:
+            continue
+        docker_run_images.append(_ss_docker_run_image(tokens))
+        if "bc-container" in tokens:
+            ci = tokens.index("bc-container")
+            inner = tokens[ci:]
+            if inner[:2] == ["bc-container", "launch"]:
+                launch_image_flag = _ss_flag_value(inner, "--image")
+    return docker_run_images, launch_image_flag
+
+
+def _read_shop_shell(context: dict) -> str:
+    return (_ops_target(context) / "bin" / "shop-shell").read_text()
+
+
+def _read_ops_coordinates(context: dict) -> str:
+    return (_ops_target(context) / "bin" / "ops-coordinates").read_text()
+
+
+_FIXED_LAUNCHER_IMAGE_LITERAL = "ghcr.io/dstengle/shopsystem-bc-lead:latest"
+
+
+def _ss_image_var_name(body: str) -> str:
+    """Resolve the launcher-image variable name shop-shell references (the
+    bare `$VAR` / `${VAR}` token the docker-run image position carries)."""
+    images, launch_flag = _ss_parse_images(body)
+    candidates = [t for t in [*images, launch_flag] if t]
+    assert candidates, "no docker-run image token found in bin/shop-shell"
+    tok = candidates[0]
+    assert tok.startswith("$"), (
+        f"the framework image must be a $-prefixed reference; got {tok!r}"
+    )
+    return tok.lstrip("$").strip("{}")
+
+
+# -- 205: framework image as an env-overridable $-reference sourced from the
+#    ops-coordinates artifact -------------------------------------------------
+
+
+@then(
+    'the body of "bin/shop-shell" passes the framework image to "docker run" '
+    'and to the inner "bc-container launch --image" as a shell variable '
+    'expansion, a "$"-prefixed reference, not as the fixed literal substring '
+    '"ghcr.io/dstengle/shopsystem-bc-lead:latest"'
+)
+def then_ss_framework_image_is_var_reference(context: dict) -> None:
+    body = _read_shop_shell(context)
+    images, launch_flag = _ss_parse_images(body)
+    assert len(images) == 2, f"expected two docker run blocks; got {images!r}"
+    for img in images:
+        assert img is not None and img.startswith("$"), (
+            f"each `docker run` image must be a $-prefixed variable reference, "
+            f"not the fixed literal; got {img!r}"
+        )
+    assert launch_flag is not None and launch_flag.startswith("$"), (
+        f"`bc-container launch --image` must be a $-prefixed variable "
+        f"reference; got {launch_flag!r}"
+    )
+    assert _FIXED_LAUNCHER_IMAGE_LITERAL not in body, (
+        f"bin/shop-shell must NOT carry the fixed literal "
+        f"{_FIXED_LAUNCHER_IMAGE_LITERAL!r}"
+    )
+
+
+@then(
+    "that framework-image variable's default value is sourced from the single "
+    "bootstrap-rendered ops-coordinates artifact (the ADR-043 D2 derivation "
+    'root), not hardcoded in "bin/shop-shell"'
+)
+def then_ss_framework_image_default_in_artifact(context: dict) -> None:
+    body = _read_shop_shell(context)
+    coords = _read_ops_coordinates(context)
+    var = _ss_image_var_name(body)
+    # shop-shell sources the artifact ...
+    assert "source " in body or ". " in body, (
+        "bin/shop-shell must source the ops-coordinates artifact"
+    )
+    # ... the variable is DEFINED with a default in the artifact ...
+    assert re.search(rf'(?m)^\s*{re.escape(var)}=', coords), (
+        f"the framework-image variable {var!r} must be assigned in "
+        f"bin/ops-coordinates"
+    )
+    assert _FIXED_LAUNCHER_IMAGE_LITERAL in coords, (
+        "the framework-image default must live in the ops-coordinates artifact"
+    )
+    # ... and is NOT hardcoded in shop-shell.
+    assert _FIXED_LAUNCHER_IMAGE_LITERAL not in body, (
+        "the framework-image default must NOT be hardcoded in bin/shop-shell"
+    )
+
+
+@then(
+    "that framework-image variable is environment-overridable, so an operator "
+    "can point shop-shell at a different image reference without editing the "
+    "script"
+)
+def then_ss_framework_image_env_overridable(context: dict) -> None:
+    body = _read_shop_shell(context)
+    coords = _read_ops_coordinates(context)
+    var = _ss_image_var_name(body)
+    # The artifact assigns the variable in the env-overridable parameter-default
+    # form `VAR="${VAR:-<default>}"`, so an exported VAR takes precedence.
+    pat = re.compile(rf'{re.escape(var)}="?\$\{{{re.escape(var)}:-')
+    assert pat.search(coords), (
+        f"bin/ops-coordinates must define {var!r} env-overridably as "
+        f'{var}="${{{var}:-<default>}}" so an exported value wins'
+    )
+
+
+@then(
+    parsers.re(
+        r'the byte contents of "(?P<rel>[^"]+)" for shop name "(?P<slug>[^"]+)" '
+        r'contain no occurrence of the literal substring "(?P<needle>[^"]+)"'
+        r'(?:,.*)?'
+    )
+)
+def then_byte_contents_for_shop_name_no_literal(
+    rel: str, slug: str, needle: str, context: dict
+) -> None:
+    raw = (_ops_target(context) / rel).read_bytes().decode("utf-8", errors="replace")
+    assert needle not in raw, (
+        f"{rel} (shop name {slug!r}) contains the literal substring {needle!r}"
+    )
+
+
+# -- 204: every slug-derived coordinate (and the org) is obtained from the
+#    single ops-coordinates artifact as an env-overridable $-reference ---------
+
+
+def _ss_default_expressions(body: str):
+    """Return the list of `<default>` strings from every `${VAR:-<default>}`
+    parameter-default expansion that appears in bin/shop-shell."""
+    return re.findall(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}", body)
+
+
+@then(
+    'the body of "bin/shop-shell" loads the single bootstrap-rendered '
+    "ops-coordinates artifact (the ADR-043 D2 derivation root) by a shell "
+    'source directive — it contains the literal substring "source " or the '
+    'literal substring ". " applied to that artifact — rather than re-spelling '
+    "the product coordinates"
+)
+def then_ss_sources_ops_coordinates_artifact(context: dict) -> None:
+    body = _read_shop_shell(context)
+    assert "ops-coordinates" in body, (
+        "bin/shop-shell must reference the ops-coordinates artifact"
+    )
+    # The artifact is loaded by a shell source directive: `source <art>` or `. <art>`.
+    sources_it = any(
+        re.search(rf"(?m)^\s*(?:source|\.) .*ops-coordinates", line)
+        for line in [body]
+    )
+    assert sources_it, (
+        "bin/shop-shell must load ops-coordinates by a `source `/`. ` directive"
+    )
+
+
+@then(
+    'the body of "bin/shop-shell" references the product container names, the '
+    'docker network for both the outer launcher and the inner "bc-container '
+    'launch", the persistent data root, the agent-vault env-file path, and the '
+    'beads repo names as shell variable expansions, each a "$"-prefixed '
+    "reference, not as baked product literals"
+)
+def then_ss_references_coordinates_as_vars(context: dict) -> None:
+    body = _read_shop_shell(context)
+    slug = context.get("last_invocation_shop_name", "dummyco")
+    # Strip comment lines: the assertion is about the executable references, not
+    # the explanatory header (which may name the product slug in prose).
+    code = "\n".join(
+        l for l in body.splitlines() if not l.lstrip().startswith("#")
+    )
+
+    # Container names: $-prefixed references, never baked <slug>-postgres /
+    # <slug>-agent-vault literals.
+    for var in ("$OPS_POSTGRES_CONTAINER", "$OPS_AGENT_VAULT_CONTAINER"):
+        assert var in code, f"bin/shop-shell must reference {var}"
+    for baked in (f"{slug}-postgres", f"{slug}-agent-vault"):
+        assert baked not in code, (
+            f"bin/shop-shell must not bake the container literal {baked!r}"
+        )
+
+    # Docker network: BOTH the outer `docker run --network` and the inner
+    # `bc-container launch --network` carry the $OPS_NETWORK reference.
+    docker_run_networks = []
+    launch_network = None
+    for tokens in _ss_logical_lines(body):
+        if tokens[:2] == ["docker", "run"]:
+            docker_run_networks.append(_ss_flag_value(tokens, "--network"))
+            if "bc-container" in tokens:
+                inner = tokens[tokens.index("bc-container") :]
+                if inner[:2] == ["bc-container", "launch"]:
+                    launch_network = _ss_flag_value(inner, "--network")
+    assert docker_run_networks and all(
+        n == "$OPS_NETWORK" for n in docker_run_networks
+    ), (
+        f"every outer `docker run --network` must reference $OPS_NETWORK; got "
+        f"{docker_run_networks!r}"
+    )
+    assert launch_network == "$OPS_NETWORK", (
+        f"the inner `bc-container launch --network` must reference $OPS_NETWORK; "
+        f"got {launch_network!r}"
+    )
+
+    # Persistent data root: referenced via $OPS_DATA_ROOT, with no baked
+    # $HOME/.local/share/<slug> default re-spelled in shop-shell.
+    assert "$OPS_DATA_ROOT" in code, (
+        "bin/shop-shell must reference the persistent data root as $OPS_DATA_ROOT"
+    )
+    assert "$HOME/.local/share/" not in code, (
+        "bin/shop-shell must not re-spell the data-root default — it lives only "
+        "in the ops-coordinates artifact"
+    )
+
+    # Agent-vault env-file path: derived from the $OPS_DATA_ROOT reference, not a
+    # baked path literal.
+    env_file_def = [
+        l for l in code.splitlines() if "AGENT_VAULT_ENV_FILE=" in l
+    ]
+    assert env_file_def, "bin/shop-shell must define AGENT_VAULT_ENV_FILE"
+    assert any("$OPS_DATA_ROOT" in l for l in env_file_def), (
+        "the agent-vault env-file path must derive from $OPS_DATA_ROOT"
+    )
+
+    # Beads repo names: obtained from the artifact (OPS_BEADS_REPO); shop-shell
+    # bakes no <slug>-lead-beads literal.
+    assert f"{slug}-lead-beads" not in code, (
+        f"bin/shop-shell must not bake the beads-repo literal {slug}-lead-beads"
+    )
+    coords = _read_ops_coordinates(context)
+    assert re.search(r"(?m)^\s*OPS_BEADS_REPO=", coords), (
+        "the beads repo name must be defined in the ops-coordinates artifact"
+    )
+
+
+@then(
+    "every such variable reference is environment-overridable — its default "
+    "value resolves from the sourced ops-coordinates artifact and an explicit "
+    "environment assignment takes precedence"
+)
+def then_ss_references_env_overridable_from_artifact(context: dict) -> None:
+    coords = _read_ops_coordinates(context)
+    # The artifact is the single source: every coordinate shop-shell references
+    # is DEFINED there ...
+    for var in (
+        "OPS_NETWORK",
+        "OPS_POSTGRES_CONTAINER",
+        "OPS_AGENT_VAULT_CONTAINER",
+        "OPS_DATA_ROOT",
+        "OPS_BEADS_REPO",
+        "OPS_LAUNCHER_IMAGE",
+    ):
+        assert re.search(rf"(?m)^\s*{var}=", coords), (
+            f"{var} must be defined in the ops-coordinates artifact"
+        )
+    # ... and the env-overridable coordinates resolve their default through the
+    # `${VAR:-...}` parameter-default form so an exported value takes precedence.
+    for var in ("OPS_DATA_ROOT", "OPS_LAUNCHER_IMAGE"):
+        assert re.search(rf'{var}="?\$\{{[A-Za-z_]', coords), (
+            f"{var} must be env-overridable (`${{...:-default}}`) in the artifact"
+        )
+
+
+@then(
+    'no default value of any such variable as it appears in "bin/shop-shell" '
+    "contains a case-insensitive occurrence of the literal substring "
+    '"shopsystem" or the literal substring "dstengle", confirming the literal '
+    "lives only in the single ops-coordinates artifact and shop-shell carries "
+    "only references"
+)
+def then_ss_no_default_carries_product_literal(context: dict) -> None:
+    body = _read_shop_shell(context)
+    for default in _ss_default_expressions(body):
+        low = default.lower()
+        assert "shopsystem" not in low and "dstengle" not in low, (
+            f"a variable default in bin/shop-shell carries a product literal: "
+            f"{default!r}"
+        )
+
+
+# -- 203: the rendered dummyco bin/shop-shell carries ZERO product-specific
+#    literals (no shopsystem/fleet/dstengle/framework-image ref) ---------------
+
+
+@then(
+    parsers.re(
+        r'the byte contents of "(?P<rel>[^"]+)" in the target directory '
+        r'contain no case-insensitive occurrence of the literal substring '
+        r'"(?P<needle>[^"]+)"'
+    )
+)
+def then_byte_contents_no_ci_single(rel: str, needle: str, context: dict) -> None:
+    raw = (_ops_target(context) / rel).read_bytes().decode("utf-8", errors="replace")
+    assert needle.lower() not in raw.lower(), (
+        f"{rel} contains a case-insensitive occurrence of {needle!r}"
+    )
+
+
+@then(
+    parsers.re(
+        r'the byte contents of "(?P<rel>[^"]+)" in the target directory '
+        r'contain no occurrence of the literal substring "(?P<needle>[^"]+)"'
+        r'(?:,.*)?'
+    )
+)
+def then_byte_contents_no_occurrence_single(
+    rel: str, needle: str, context: dict
+) -> None:
+    raw = (_ops_target(context) / rel).read_bytes().decode("utf-8", errors="replace")
+    assert needle not in raw, (
+        f"{rel} contains an occurrence of the literal substring {needle!r}"
     )

@@ -41,3 +41,13 @@ OPS_POSTGRES_PORT="${{{OPS_SLUG_UPPER}}_POSTGRES_PORT:-{{OPS_POSTGRES_PORT}}}"
 
 # Data root (override-aware, 9c8b8b40): {{OPS_SLUG_UPPER}}_DATA wins.
 OPS_DATA_ROOT="${{{OPS_SLUG_UPPER}}_DATA:-$HOME/.local/share/{{OPS_SLUG}}}"
+
+# Framework launcher/leaf-BC runtime image (ADR-046, lead-ml51). The launcher
+# AND the leaf-BC session both run on this image (bc-base + docker CLI). It is
+# PRODUCT-NEUTRAL (the same reference for every product slug, not slug-rewritten),
+# but per the 2026-06-27 product-authority decision it is no longer baked as a
+# literal in bin/shop-shell: its DEFINING literal lives HERE, in the single
+# ops-coordinates artifact, and every consumer references $OPS_LAUNCHER_IMAGE.
+# Override-aware: an exported OPS_LAUNCHER_IMAGE points shop-shell at a different
+# image reference without editing the script (ADR-046 / scenario 1885dea2b4550fde).
+OPS_LAUNCHER_IMAGE="${OPS_LAUNCHER_IMAGE:-ghcr.io/dstengle/shopsystem-bc-lead:latest}"

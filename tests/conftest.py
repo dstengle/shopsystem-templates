@@ -16866,6 +16866,82 @@ def then_skill_names_status(name, state, phrase, context: dict) -> None:
     assert state in body, f"{name}/SKILL.md does not name the {state!r} state"
 
 
+# Scenario 7df4006ce0d43d8b: the poured bring-up-bc skill SCOPES the
+# BCLAUNCHER_HOST_HOME requirement to the workspace-mount / bind-mounted-home
+# devcontainer case, names that a clone-path launch does NOT require it, and
+# drops the old universal "Always set ... single most common launch-time miss"
+# framing. Composes additively with scenario 161 (cc52003444ea63f7), which
+# still asserts the bind-mounted-home requirement is named.
+@then(
+    'the content of ".claude/skills/bring-up-bc/SKILL.md" presents setting '
+    '"BCLAUNCHER_HOST_HOME" as required for the workspace-mount / '
+    "bind-mounted-home devcontainer launch case"
+)
+def then_bring_up_bc_host_home_scoped_required(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (
+        real / ".claude" / "skills" / "bring-up-bc" / "SKILL.md"
+    ).read_text()
+    lc = body.lower()
+    assert "bclauncher_host_home" in lc, (
+        "bring-up-bc/SKILL.md does not name BCLAUNCHER_HOST_HOME"
+    )
+    assert "bind-mount" in lc and "devcontainer" in lc, (
+        "bring-up-bc/SKILL.md does not name the bind-mounted-home devcontainer "
+        "case"
+    )
+    # The requirement must be SCOPED to that case ("required ... only" framing),
+    # not stated universally.
+    assert "required" in lc and "only" in lc, (
+        "bring-up-bc/SKILL.md does not scope the BCLAUNCHER_HOST_HOME "
+        "requirement to the bind-mounted-home case (no 'required ... only' "
+        "framing)"
+    )
+
+
+@then(
+    'the content of ".claude/skills/bring-up-bc/SKILL.md" names that a '
+    'clone-path BC launch does NOT require "BCLAUNCHER_HOST_HOME"'
+)
+def then_bring_up_bc_clone_path_no_host_home(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (
+        real / ".claude" / "skills" / "bring-up-bc" / "SKILL.md"
+    ).read_text()
+    lc = body.lower()
+    assert "clone-path" in lc or "clone path" in lc, (
+        "bring-up-bc/SKILL.md does not name the clone-path launch case"
+    )
+    # The clone-path sentence must say it does NOT require BCLAUNCHER_HOST_HOME.
+    assert "does not require `bclauncher_host_home`" in lc or (
+        "clone-path" in lc and "not require" in lc and "bclauncher_host_home" in lc
+    ), (
+        "bring-up-bc/SKILL.md does not state that a clone-path launch does NOT "
+        "require BCLAUNCHER_HOST_HOME"
+    )
+
+
+@then(
+    'the content of ".claude/skills/bring-up-bc/SKILL.md" does not present '
+    '"BCLAUNCHER_HOST_HOME" as universally required for every launch'
+)
+def then_bring_up_bc_not_universally_required(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (
+        real / ".claude" / "skills" / "bring-up-bc" / "SKILL.md"
+    ).read_text()
+    lc = body.lower()
+    # The overstated universal framing must be DROPPED, not merely qualified.
+    assert "always set `bclauncher_host_home`" not in lc, (
+        "bring-up-bc/SKILL.md still presents BCLAUNCHER_HOST_HOME as universally "
+        "required ('Always set `BCLAUNCHER_HOST_HOME`' was not dropped)"
+    )
+    assert "single most common launch-time miss" not in lc, (
+        "bring-up-bc/SKILL.md still frames BCLAUNCHER_HOST_HOME as 'the single "
+        "most common launch-time miss' (universal overstatement not dropped)"
+    )
+
+
 @then(
     parsers.parse(
         'the content of ".claude/skills/{name}/SKILL.md" names scaffolding a '

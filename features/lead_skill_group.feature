@@ -26,6 +26,20 @@ Feature: shop-templates ships and pours the canonical lead skill-group
       | shop_type | shop_name          | target                 |
       | lead      | shopsystem-product | /tmp/example-lead-shop |
 
+  @scenario_hash:7df4006ce0d43d8b @bc:shopsystem-templates
+  Scenario Outline: the poured "bring-up-bc" skill scopes the BCLAUNCHER_HOST_HOME requirement to the workspace-mount / bind-mounted-home launch case and does not present it as required for a clone-path launch or universally
+    Given an existing git repository at a target directory "<target>" with no ".claude/skills/" directory
+    When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
+    Then the exit code is 0
+    And the target directory contains a file at ".claude/skills/bring-up-bc/SKILL.md"
+    And the content of ".claude/skills/bring-up-bc/SKILL.md" presents setting "BCLAUNCHER_HOST_HOME" as required for the workspace-mount / bind-mounted-home devcontainer launch case
+    And the content of ".claude/skills/bring-up-bc/SKILL.md" names that a clone-path BC launch does NOT require "BCLAUNCHER_HOST_HOME"
+    And the content of ".claude/skills/bring-up-bc/SKILL.md" does not present "BCLAUNCHER_HOST_HOME" as universally required for every launch
+
+    Examples:
+      | shop_type | shop_name          | target                 |
+      | lead      | shopsystem-product | /tmp/example-lead-shop |
+
   @scenario_hash:f75eb04e359f4833 @bc:shopsystem-templates
   Scenario Outline: the poured "create-bc" skill is a member of the canonical lead skill-group and its body names the scaffold, remote, manifest, launch, gotcha, and experimental-honesty elements of the proven create-a-BC-from-scratch procedure
     Given an existing git repository at a target directory "<target>" with no ".claude/skills/" directory

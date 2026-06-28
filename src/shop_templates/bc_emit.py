@@ -68,6 +68,7 @@ and retiring the prose preconditions does not remove `--force`.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -495,6 +496,190 @@ def _scenario_title(block_text: str) -> str:
     return "<unknown scenario>"
 
 
+# =======================================================================
+# Plan-decomposition preconditions (Check 4 + durability) — bd-registry side.
+#
+# The bd plan decomposition for a work_id lives under an UMBRELLA bead in the
+# BC's own bd registry. These two checks run INSIDE the BC container against
+# that registry (ADR-036 D2), via the `bd` CLI (seamable for tests through
+# `bd_cmd`). They run ONLY when an umbrella bead is named (`--plan-umbrella`),
+# so a non-scenario / flat-maintenance emit that carries no decomposition is
+# unaffected and the existing wrapper scenarios are untouched.
+# =======================================================================
+
+
+def _bd(repo: Path, *args: str, bd_cmd: tuple[str, ...] = ("bd",)) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [*bd_cmd, *args],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+    )
+
+
+def _subissue_status(subissue: dict) -> str:
+    return str(subissue.get("status") or "").strip().lower()
+
+
+def _subissue_is_red(subissue: dict) -> bool:
+    """A sub-issue is a RED (failing-test) sub-issue when its title carries the
+    RED nomenclature — "failing test", "(red)", or "test(red)"."""
+    title = str(subissue.get("title") or "").lower()
+    return (
+        "failing test" in title
+        or "(red)" in title
+        or "test(red)" in title
+    )
+
+
+def _default_children_provider(
+    bd_cmd: tuple[str, ...],
+):
+    """Build the default sub-issue enumerator: `bd children <umbrella> --json`.
+
+    `bd children` includes CLOSED issues by default, so the returned set is
+    EVERY sub-issue reachable under the umbrella bead in the BC's own bd
+    registry — including an orphan from an abandoned earlier decomposition that
+    the implementer never created or closed. This independent registry
+    enumeration is exactly what catches orphans the implementer would not
+    self-report.
+    """
+    def provider(repo: Path, umbrella: str) -> list[dict]:
+        result = _bd(repo, "children", umbrella, "--json", bd_cmd=bd_cmd)
+        try:
+            data = json.loads(result.stdout or "[]")
+        except json.JSONDecodeError:
+            data = []
+        return [d for d in data if isinstance(d, dict)]
+    return provider
+
+
+def check_plan_subissues_closed(
+    repo: Path,
+    work_id: str,
+    umbrella: str,
+    *,
+    bd_cmd: tuple[str, ...] = ("bd",),
+    children_provider=None,
+) -> None:
+    """Check 4 (hash 0b48508e40fdde18) — every sub-issue reachable under the
+    work_id umbrella bead must be CLOSED, and at least one must be RED.
+
+    The precondition is evaluated by INDEPENDENTLY enumerating EVERY sub-issue
+    reachable under the work_id umbrella bead from the BC's own bd registry —
+    NOT only the set the implementer reports or itself closed. An OPEN sub-issue
+    the implementer never created (an orphan from an abandoned earlier
+    decomposition the implementer never closed) therefore still blocks the
+    emit. The prior "at least one RED sub-issue exists and all sub-issues the
+    implementer closed are closed" check alone does NOT pass the gate.
+
+    On refusal: raise PreconditionRefusal naming the
+    all-sub-issues-under-the-work_id-umbrella-closed precondition and listing
+    EACH still-OPEN sub-issue (including the orphaned one) by its bd id.
+    """
+    if children_provider is None:
+        children_provider = _default_children_provider(bd_cmd)
+    subissues = children_provider(repo, umbrella)
+
+    if not subissues:
+        raise PreconditionRefusal(
+            "refused: the bd-plan-decomposition precondition failed for work_id "
+            f"{work_id}. No bd plan sub-issues are reachable under the work_id "
+            f"umbrella bead {umbrella}. A scenario-carrying dispatch must be "
+            "decomposed into TDD sub-issues (at least one explicit RED "
+            f"failing-test sub-issue) and all of them closed. {_SELF_RESOLVE}"
+        )
+
+    open_subissues = [s for s in subissues if _subissue_status(s) != "closed"]
+    if open_subissues:
+        open_ids = ", ".join(
+            str(s.get("id") or "<unknown-id>") for s in open_subissues
+        )
+        raise PreconditionRefusal(
+            "refused: the all-sub-issues-under-the-work_id-umbrella-closed "
+            f"precondition failed for work_id {work_id} (umbrella {umbrella}). "
+            "The following sub-issue(s) reachable under the work_id umbrella "
+            "bead are still OPEN — including any orphan from an abandoned "
+            "earlier decomposition the implementer never created or closed: "
+            f"{open_ids}. The precondition is evaluated by enumerating EVERY "
+            "sub-issue reachable under the work_id umbrella bead — not only the "
+            "set the implementer reports or itself closed — so an OPEN "
+            "sub-issue the implementer did not create still blocks the emit, "
+            "and the prior 'at least one RED sub-issue exists and all "
+            "sub-issues the implementer closed are closed' check alone does NOT "
+            f"pass the gate. {_SELF_RESOLVE}"
+        )
+
+    if not any(_subissue_is_red(s) for s in subissues):
+        raise PreconditionRefusal(
+            "refused: the bd-plan-decomposition precondition failed for work_id "
+            f"{work_id} (umbrella {umbrella}). Every sub-issue reachable under "
+            "the work_id umbrella bead is closed, but NONE is an explicit RED "
+            "(failing-test) sub-issue, so there is no test-first decomposition "
+            f"artifact. {_SELF_RESOLVE}"
+        )
+
+
+def _default_durability_probe(
+    bd_cmd: tuple[str, ...],
+):
+    """Build the default bd-dolt reachability probe.
+
+    Durability is established by the decomposition-and-closure STATE being
+    reachable from the pushed tracker remote — the configured bd-dolt remote —
+    NOT by the `.beads/issues.jsonl` working-tree bytes being clean (that path
+    is a carved-out non-idempotent ambient artifact under Check 1, so a clean
+    tree cannot by itself establish durability). bd is dolt-backed (ADR-036
+    implementation guidance), so the concrete surface is the bd-dolt push: a
+    `bd dolt push` that exits zero means the closure state is reachable from
+    the configured remote — the same unpushable-tracker durability signal the
+    BC session-start work-tracker health step uses (beads-health
+    43a05feaefc1d046).
+    """
+    def probe(repo: Path) -> bool:
+        result = _bd(repo, "dolt", "push", bd_cmd=bd_cmd)
+        return result.returncode == 0
+    return probe
+
+
+def check_plan_decomposition_durable(
+    repo: Path,
+    work_id: str,
+    *,
+    bd_cmd: tuple[str, ...] = ("bd",),
+    durability_probe=None,
+) -> None:
+    """Durability precondition (hash 7bcfc89161c0b2ee) — the work_id's
+    sub-issue decomposition-and-closure STATE must be reachable from the pushed
+    tracker remote.
+
+    Refuses when the decomposition and closures exist only in an uncommitted or
+    locally-staged `.beads` registry that is NOT reachable from the BC's pushed
+    tracker remote (the configured bd-dolt remote). The refusal names the
+    bd-decomposition-durability precondition SPECIFICALLY and names the work_id
+    — it does NOT report a generic dirty-working-tree cause, because
+    `.beads/issues.jsonl` is a carved-out non-idempotent ambient artifact whose
+    clean-tree state cannot by itself establish that the closures are durable.
+    """
+    if durability_probe is None:
+        durability_probe = _default_durability_probe(bd_cmd)
+    if not durability_probe(repo):
+        raise PreconditionRefusal(
+            "refused: the bd-decomposition-durability precondition failed for "
+            f"work_id {work_id}. The work_id's sub-issue decomposition and "
+            "closures are NOT reachable from the pushed tracker remote — the "
+            "configured bd-dolt remote — so they exist only in an uncommitted "
+            "or locally-staged .beads registry. This is NOT a generic "
+            "dirty-working-tree cause: the durability precondition is satisfied "
+            "by the decomposition-and-closure state being reachable from the "
+            "pushed tracker remote, NOT by the .beads/issues.jsonl working-tree "
+            "bytes being clean (that path is a carved-out non-idempotent "
+            "ambient artifact under the clean-working-tree precondition, so the "
+            "carve-out cannot by itself establish that the closures are "
+            f"durable). {_SELF_RESOLVE}"
+        )
+
+
 def _invoke_respond(
     respond_cmd: list[str],
     work_id: str,
@@ -540,6 +725,19 @@ def _cmd_work_done(args: argparse.Namespace) -> int:
             check_commit_reachable(repo, args.work_id)
         # Check 3 — scenario-hash match (block-only recompute).
         check_scenario_hashes(repo, list(args.scenario_hash or []))
+        # Check 4 + durability — bd plan decomposition, against the BC's own bd
+        # registry. Run ONLY when an umbrella bead is named: a non-scenario /
+        # flat-maintenance emit carries no decomposition and is unaffected.
+        if args.plan_umbrella:
+            bd_cmd = tuple(args.bd_cmd) if args.bd_cmd else ("bd",)
+            # Check 4 — every sub-issue reachable under the work_id umbrella
+            # bead is closed (orphaned-OPEN detection; hash 0b48508e40fdde18).
+            check_plan_subissues_closed(
+                repo, args.work_id, args.plan_umbrella, bd_cmd=bd_cmd
+            )
+            # Durability — the decomposition-and-closure state is reachable
+            # from the pushed tracker remote (hash 7bcfc89161c0b2ee).
+            check_plan_decomposition_durable(repo, args.work_id, bd_cmd=bd_cmd)
     except PreconditionRefusal as refusal:
         # On ANY precondition refusal: do NOT invoke shop-msg respond; exit
         # non-zero with the named-cause + self-resolve error.
@@ -588,6 +786,31 @@ def build_parser() -> argparse.ArgumentParser:
             "a scenario hash the consumed dispatch named for retirement "
             "(repeatable); the emit is refused while any of these is still "
             "carried by a scenario block under the as-committed features/ tree"
+        ),
+    )
+    wd.add_argument(
+        "--plan-umbrella",
+        default=None,
+        help=(
+            "the bd umbrella bead id carrying the work_id's TDD sub-issue "
+            "decomposition. When provided, the wrapper enforces the bd-plan "
+            "preconditions: every sub-issue reachable under the umbrella bead "
+            "must be closed (with at least one RED failing-test sub-issue) and "
+            "the decomposition-and-closure state must be reachable from the "
+            "pushed tracker remote. Independently enumerated from the BC's own "
+            "bd registry, so an orphaned OPEN sub-issue the implementer never "
+            "created still blocks the emit. Omitted for non-scenario / "
+            "flat-maintenance emits that carry no decomposition."
+        ),
+    )
+    wd.add_argument(
+        "--bd-cmd",
+        action="append",
+        default=None,
+        help=(
+            "base command used to invoke the bd CLI for the plan-decomposition "
+            "preconditions (default: bd); repeatable to pass a multi-token "
+            "command. Seam tests use to inject a fake bd."
         ),
     )
     wd.add_argument(

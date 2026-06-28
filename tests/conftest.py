@@ -15543,6 +15543,13 @@ def when_invoke_wrapper_for_that_work_id(context: dict) -> None:
         extra += ["--retire-hash", h]
     for h in context.get("payload_scenario_hashes", []):
         extra += ["--scenario-hash", h]
+    # Thread the bd plan-decomposition args (lead-8vny). Both default to
+    # absent, so scenarios that do not set them invoke the wrapper exactly as
+    # before — the plan checks run ONLY when an umbrella bead is named.
+    if context.get("plan_umbrella"):
+        extra += ["--plan-umbrella", context["plan_umbrella"]]
+    for tok in context.get("bd_cmd", []):
+        extra += ["--bd-cmd", tok]
     result = _run_bc_emit(
         context["bc_repo"], context["respond_recorder"],
         "--work-id", context["bc_work_id"],
@@ -16151,6 +16158,250 @@ def then_force_independent_of_wrapper(context: dict) -> None:
         "the bc-emit wrapper unexpectedly couples a --force flag to itself; "
         f"--force must stay independent in shop-msg: {wrapper_help!r}"
     )
+
+
+# =======================================================================
+# bc-emit work-done plan-decomposition closure + bd-dolt durability (lead-8vny)
+# Scenarios 0b48508e40fdde18 (orphaned-OPEN sub-issue detection) and
+# 7bcfc89161c0b2ee (bd-decomposition durability/reachability).
+#
+# These reuse the wrapper subprocess harness (real temp git repo with the
+# work_id commit on origin/main + clean tree, no scenario-hash payload), and
+# inject a FAKE bd via --bd-cmd so the wrapper's plan-decomposition checks run
+# against a controlled bd registry view without a live dolt server. The fake bd
+# answers `children <umbrella> --json` (the sub-issue enumeration) and
+# `dolt push` (the durability probe; exit code is configurable).
+# =======================================================================
+
+import json as _json
+
+
+def _make_fake_bd(tmp_path: Path, children: list, push_rc: int = 0) -> Path:
+    """Write a fake `bd` script. Pointed at by --bd-cmd. It serves:
+      children <umbrella> --json  -> prints the given children JSON
+      dolt push                   -> exits with push_rc (durability probe)
+    """
+    children_json = _json.dumps(children)
+    script = tmp_path / "fake_bd.py"
+    script.write_text(_textwrap.dedent(f"""
+        import sys
+        argv = sys.argv[1:]
+        if argv and argv[0] == "children":
+            # Emit the pre-serialized children JSON array verbatim.
+            sys.stdout.write({children_json!r})
+            sys.exit(0)
+        if len(argv) >= 2 and argv[0] == "dolt" and argv[1] == "push":
+            sys.exit({push_rc})
+        # any other bd subcommand: succeed with empty output
+        sys.exit(0)
+    """).lstrip())
+    return script
+
+
+def _fake_bd_cmd(script: Path) -> list:
+    return [sys.executable, str(script)]
+
+
+def _land_work_id_on_origin(clone: Path, work_id: str) -> None:
+    (clone / "deliverable.txt").write_text("delivered\n")
+    _git_in(clone, "add", "deliverable.txt")
+    _git_in(clone, "commit", "-q", "-m", f"feat: deliver (work_id: {work_id})")
+    _git_in(clone, "push", "-q", "origin", "main")
+    _git_in(clone, "fetch", "-q", "origin")
+
+
+@given(
+    parsers.parse(
+        "a dispatched work_id whose umbrella bead carries TDD sub-issues, at "
+        "least one of which is a RED sub-issue, and the implementer's real "
+        "decomposition pass closed every sub-issue that pass created"
+    )
+)
+def given_umbrella_with_closed_tdd_subissues(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    _land_work_id_on_origin(clone, "lead-plan")
+    recorder, log = _make_recorder(tmp_path)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+    context["bc_work_id"] = "lead-plan"
+    context["plan_umbrella"] = "tmpl-plan"
+    # The implementer's real decomposition pass: a RED and a GREEN, both closed.
+    context["impl_closed_ids"] = ["tmpl-plan.1", "tmpl-plan.2"]
+    context["plan_children"] = [
+        {"id": "tmpl-plan.1", "status": "closed",
+         "title": "write the failing test (RED) for the behavior"},
+        {"id": "tmpl-plan.2", "status": "closed",
+         "title": "implement (GREEN) the behavior"},
+    ]
+
+
+@given(
+    parsers.parse(
+        "a separate earlier abandoned decomposition left at least one orphaned "
+        "sub-issue still OPEN under the same work_id umbrella bead, which the "
+        "implementer never closed"
+    )
+)
+def given_orphaned_open_subissue(context: dict, tmp_path: Path) -> None:
+    orphan_id = "tmpl-plan.9"
+    context["orphan_id"] = orphan_id
+    # The orphan is reachable under the umbrella in the bd registry but is NOT
+    # in the set the implementer created/closed.
+    context["plan_children"].append(
+        {"id": orphan_id, "status": "open",
+         "title": "abandoned earlier decomposition stub"}
+    )
+    script = _make_fake_bd(tmp_path, context["plan_children"], push_rc=0)
+    context["bd_cmd"] = _fake_bd_cmd(script)
+
+
+@then(
+    parsers.parse(
+        "the wrapper's error names the "
+        "all-sub-issues-under-the-work_id-umbrella-closed precondition as the "
+        "cause and lists each still-OPEN sub-issue, including the orphaned one, "
+        "by its bd id"
+    )
+)
+def then_names_closed_precondition_and_open_ids(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    assert "all-sub-issues-under-the-work_id-umbrella-closed precondition" in err, err
+    assert context["orphan_id"] in err, (
+        f"orphaned OPEN sub-issue {context['orphan_id']!r} not named in: {err!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "the precondition is evaluated by enumerating EVERY sub-issue reachable "
+        "under the work_id umbrella bead — not only the set the implementer "
+        "reports or itself closed — so an OPEN sub-issue the implementer did "
+        "not create still blocks the emit and the prior \"at least one RED "
+        "sub-issue exists and all sub-issues the implementer closed are "
+        "closed\" check alone does NOT pass the gate"
+    )
+)
+def then_enumeration_catches_orphan_over_prior_check(context: dict) -> None:
+    result = context["bc_emit_result"]
+    err = result.stderr
+    # The implementer's own closed set would have passed a "closed-set + RED"
+    # check; the orphan — which the implementer never created or closed — is
+    # what blocks, proving registry-wide enumeration rather than self-report.
+    assert result.returncode != 0, (
+        f"expected refusal on the orphaned OPEN sub-issue; rc={result.returncode} "
+        f"stderr={err!r}"
+    )
+    assert not _respond_was_invoked(context["respond_log"]), (
+        "respond was invoked despite an OPEN orphan under the umbrella"
+    )
+    assert context["orphan_id"] in err, err
+    # The implementer's closed sub-issues are NOT among the offending OPEN ids:
+    # the orphan the implementer never created is what blocks, proving the
+    # check enumerates the registry rather than trusting the self-reported set.
+    if "are still OPEN" in err:
+        offending_segment = err.split("are still OPEN", 1)[1]
+        for closed_id in context["impl_closed_ids"]:
+            assert closed_id not in offending_segment, (
+                f"implementer-closed sub-issue {closed_id!r} wrongly listed as "
+                f"offending OPEN: {offending_segment!r}"
+            )
+
+
+# ---- Scenario 7bcfc89161c0b2ee — bd-decomposition durability/reachability ----
+
+@given(
+    parsers.parse(
+        "a dispatched work_id whose umbrella bead's TDD sub-issues are all "
+        "closed in the BC's local bd state"
+    )
+)
+def given_umbrella_subissues_all_closed_locally(context: dict, tmp_path: Path) -> None:
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    _land_work_id_on_origin(clone, "lead-durable")
+    recorder, log = _make_recorder(tmp_path)
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+    context["bc_work_id"] = "lead-durable"
+    context["plan_umbrella"] = "tmpl-durable"
+    # All sub-issues closed in local bd state, including a RED — so Check 4
+    # (closure) passes and the durability check is what must refuse.
+    context["plan_children"] = [
+        {"id": "tmpl-durable.1", "status": "closed",
+         "title": "write the failing test (RED) for the behavior"},
+        {"id": "tmpl-durable.2", "status": "closed",
+         "title": "implement (GREEN) the behavior"},
+    ]
+
+
+@given(
+    parsers.parse(
+        "those sub-issue creations and closures exist only in an uncommitted "
+        'or locally-staged ".beads" registry that is NOT yet committed and '
+        "reachable from the BC's pushed tracker remote — the configured "
+        'bd-dolt remote / "origin/main"'
+    )
+)
+def given_closures_not_reachable_from_pushed_remote(
+    context: dict, tmp_path: Path
+) -> None:
+    # The fake bd reports all sub-issues closed (children), but its `dolt push`
+    # exits NON-ZERO — i.e. the decomposition-and-closure state is NOT reachable
+    # from the configured bd-dolt remote. The git working tree itself is clean
+    # (Check 1 passes) and the work_id commit is on origin/main (Check 2
+    # passes), so the ONLY refusal cause is the durability precondition.
+    script = _make_fake_bd(tmp_path, context["plan_children"], push_rc=1)
+    context["bd_cmd"] = _fake_bd_cmd(script)
+
+
+@then(
+    parsers.parse(
+        "the wrapper's error names the bd-decomposition-durability "
+        "precondition specifically — that the work_id's sub-issue "
+        "decomposition and closures are not reachable from the pushed tracker "
+        "remote — and names the work_id, rather than reporting a generic "
+        "dirty-working-tree cause"
+    )
+)
+def then_names_durability_precondition_specifically(context: dict) -> None:
+    err = context["bc_emit_result"].stderr
+    assert "bd-decomposition-durability precondition" in err, err
+    assert "reachable from the pushed tracker remote" in err, err
+    assert context["bc_work_id"] in err, err
+    # It must NOT be reported as a generic dirty-working-tree refusal: the
+    # clean-working-tree precondition is NOT the named cause here.
+    assert "the clean-working-tree precondition failed" not in err, (
+        "durability refusal was mis-reported as a generic dirty working tree: "
+        f"{err!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "the durability precondition is satisfied by the "
+        "decomposition-and-closure state being reachable from the pushed "
+        'tracker remote, NOT by the ".beads/issues.jsonl" working-tree bytes '
+        "being clean — consistent with that path being a carved-out "
+        "non-idempotent ambient artifact under the clean-working-tree "
+        "precondition, so the carve-out cannot by itself establish that the "
+        "closures are durable"
+    )
+)
+def then_durability_not_satisfiable_by_clean_beads_tree(context: dict) -> None:
+    result = context["bc_emit_result"]
+    err = result.stderr
+    # The wrapper refused (durability), proving a clean .beads tree alone does
+    # not establish durability — and respond was NOT invoked.
+    assert result.returncode != 0, (
+        f"expected a durability refusal; rc={result.returncode} stderr={err!r}"
+    )
+    assert not _respond_was_invoked(context["respond_log"]), (
+        "respond was invoked despite a non-durable bd decomposition"
+    )
+    assert ".beads/issues.jsonl" in err and "carved-out" in err, err
 
 
 # =======================================================================

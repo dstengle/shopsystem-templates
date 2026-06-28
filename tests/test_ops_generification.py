@@ -259,11 +259,11 @@ def test_dummyco_shop_shell_is_slug_scoped_thin_wrapper(tmp_path):
     assert "$HOME/.local/share/" not in body
 
     # ADR-046 (lead-ml51): the framework image is no longer a baked product
-    # literal — the wrapper references the single-sourced $OPS_LAUNCHER_IMAGE and
+    # literal — the wrapper references the single-sourced $OPS_FRAMEWORK_IMAGE and
     # carries no ghcr.io/dstengle/shopsystem-bc-lead literal. (The full
     # zero-shopsystem byte contract is pinned by scenario 827dec9656d97a38.)
-    assert "$OPS_LAUNCHER_IMAGE" in body, (
-        "thin wrapper must reference the single-sourced $OPS_LAUNCHER_IMAGE"
+    assert "$OPS_FRAMEWORK_IMAGE" in body, (
+        "thin wrapper must reference the single-sourced $OPS_FRAMEWORK_IMAGE"
     )
     assert "ghcr.io/dstengle/shopsystem-bc-lead" not in body, (
         "thin wrapper must NOT bake the framework image as a product literal"
@@ -394,8 +394,8 @@ def test_shopsystem_product_preserves_lead_held_invariants(tmp_path):
     assert "docker compose" in shell and "up -d postgres" in shell
     assert "docker run --rm" in shell
     # ADR-046 (lead-ml51): the framework image is the single-sourced
-    # $OPS_LAUNCHER_IMAGE reference, no longer a baked shopsystem-bc-lead literal.
-    assert "$OPS_LAUNCHER_IMAGE" in shell
+    # $OPS_FRAMEWORK_IMAGE reference, no longer a baked shopsystem-bc-lead literal.
+    assert "$OPS_FRAMEWORK_IMAGE" in shell
     assert "ghcr.io/dstengle/shopsystem-bc-lead" not in shell
     assert "bc-container launch" in shell and "bc-container attach" in shell
     # the retired dedicated-shell-image knob is gone

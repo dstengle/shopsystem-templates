@@ -23463,11 +23463,23 @@ def _rendered_bin(context: dict) -> dict:
 
 
 def _assign_count(text: str, literal: str) -> int:
-    # Count DEFINING assignments to an exact literal value: lines of the form
-    # KEY="<literal>" (the literal as a complete double-quoted assignment value).
+    # Count DEFINING assignments to an exact literal value. A defining assignment
+    # is a line of the form KEY="<literal>" OR — since lead-ow4d made every OPS_*
+    # coordinate env-overridable — KEY="${<OVERRIDE>:-<literal>}", where the
+    # literal is the rendered default of an env-overridable parameter expansion.
+    # Either form carries the literal exactly once, so both count as one defining
+    # assignment for the "carried exactly once" invariant (ffb602e6 / b499c9ba).
     import re
-    return len(re.findall(r'^[A-Za-z_][A-Za-z0-9_]*="' + re.escape(literal) + r'"\s*$',
-                          text, flags=re.MULTILINE))
+    lit = re.escape(literal)
+    pat = re.compile(
+        r'^[A-Za-z_][A-Za-z0-9_]*="(?:'
+        + lit
+        + r'|\$\{[A-Za-z_][A-Za-z0-9_]*:-'
+        + lit
+        + r'\})"\s*$',
+        flags=re.MULTILINE,
+    )
+    return len(pat.findall(text))
 
 
 # -- 38c7cc83 (D1) — manifest is the single identity root -------------------
@@ -23540,7 +23552,13 @@ def then_one_artifact(context: dict) -> None:
     binf = _rendered_bin(context)
     assert "ops-coordinates" in binf, "bin/ops-coordinates not rendered"
     art = binf["ops-coordinates"]
-    assert 'OPS_SLUG="acme"' in art and 'OPS_AGENT_VAULT_CONTAINER=' in art
+    # lead-ow4d: every OPS_* coordinate is now env-overridable, so OPS_SLUG is
+    # OPS_SLUG="${<OVERRIDE>:-acme}" rather than the plain OPS_SLUG="acme" — the
+    # slug is still carried (as the rendered default) exactly once.
+    import re as _re
+    assert _re.search(r'(?m)^OPS_SLUG=', art), "artifact must define OPS_SLUG"
+    assert _assign_count(art, "acme") >= 1, "artifact must carry the slug default"
+    assert 'OPS_AGENT_VAULT_CONTAINER=' in art
     context["artifact"] = art
 
 
@@ -23668,7 +23686,7 @@ def then_dummyco_slug_clean(context: dict) -> None:
     art = render_ops_template("ops-coordinates", "dummyco").lower()
     # The Gherkin exempts "a product-neutral framework image reference": ADR-046
     # (lead-ml51) parks the framework launcher/leaf image default in this single
-    # artifact as OPS_LAUNCHER_IMAGE, so the product-neutral image ref
+    # artifact as OPS_FRAMEWORK_IMAGE, so the product-neutral image ref
     # ghcr.io/dstengle/shopsystem-bc-lead may legitimately carry "shopsystem".
     # Strip every occurrence of that ref before the cross-product-literal check.
     residual = art.replace("ghcr.io/dstengle/shopsystem-bc-lead", "")
@@ -25537,14 +25555,17 @@ def then_ss_references_env_overridable_from_artifact(context: dict) -> None:
         "OPS_AGENT_VAULT_CONTAINER",
         "OPS_DATA_ROOT",
         "OPS_BEADS_REPO",
-        "OPS_LAUNCHER_IMAGE",
+        # lead-ow4d: the framework launcher/leaf image key was renamed
+        # OPS_FRAMEWORK_IMAGE -> OPS_FRAMEWORK_IMAGE (ADR-046 / scenario
+        # d5d65b9cfedc24c1); shop-shell references $OPS_FRAMEWORK_IMAGE.
+        "OPS_FRAMEWORK_IMAGE",
     ):
         assert re.search(rf"(?m)^\s*{var}=", coords), (
             f"{var} must be defined in the ops-coordinates artifact"
         )
     # ... and the env-overridable coordinates resolve their default through the
     # `${VAR:-...}` parameter-default form so an exported value takes precedence.
-    for var in ("OPS_DATA_ROOT", "OPS_LAUNCHER_IMAGE"):
+    for var in ("OPS_DATA_ROOT", "OPS_FRAMEWORK_IMAGE"):
         assert re.search(rf'{var}="?\$\{{[A-Za-z_]', coords), (
             f"{var} must be env-overridable (`${{...:-default}}`) in the artifact"
         )

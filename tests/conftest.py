@@ -25159,3 +25159,158 @@ def then_byte_contents_for_shop_name_no_literal(
     assert needle not in raw, (
         f"{rel} (shop name {slug!r}) contains the literal substring {needle!r}"
     )
+
+
+# -- 204: every slug-derived coordinate (and the org) is obtained from the
+#    single ops-coordinates artifact as an env-overridable $-reference ---------
+
+
+def _ss_default_expressions(body: str):
+    """Return the list of `<default>` strings from every `${VAR:-<default>}`
+    parameter-default expansion that appears in bin/shop-shell."""
+    return re.findall(r"\$\{[A-Za-z_][A-Za-z0-9_]*:-([^}]*)\}", body)
+
+
+@then(
+    'the body of "bin/shop-shell" loads the single bootstrap-rendered '
+    "ops-coordinates artifact (the ADR-043 D2 derivation root) by a shell "
+    'source directive — it contains the literal substring "source " or the '
+    'literal substring ". " applied to that artifact — rather than re-spelling '
+    "the product coordinates"
+)
+def then_ss_sources_ops_coordinates_artifact(context: dict) -> None:
+    body = _read_shop_shell(context)
+    assert "ops-coordinates" in body, (
+        "bin/shop-shell must reference the ops-coordinates artifact"
+    )
+    # The artifact is loaded by a shell source directive: `source <art>` or `. <art>`.
+    sources_it = any(
+        re.search(rf"(?m)^\s*(?:source|\.) .*ops-coordinates", line)
+        for line in [body]
+    )
+    assert sources_it, (
+        "bin/shop-shell must load ops-coordinates by a `source `/`. ` directive"
+    )
+
+
+@then(
+    'the body of "bin/shop-shell" references the product container names, the '
+    'docker network for both the outer launcher and the inner "bc-container '
+    'launch", the persistent data root, the agent-vault env-file path, and the '
+    'beads repo names as shell variable expansions, each a "$"-prefixed '
+    "reference, not as baked product literals"
+)
+def then_ss_references_coordinates_as_vars(context: dict) -> None:
+    body = _read_shop_shell(context)
+    slug = context.get("last_invocation_shop_name", "dummyco")
+    # Strip comment lines: the assertion is about the executable references, not
+    # the explanatory header (which may name the product slug in prose).
+    code = "\n".join(
+        l for l in body.splitlines() if not l.lstrip().startswith("#")
+    )
+
+    # Container names: $-prefixed references, never baked <slug>-postgres /
+    # <slug>-agent-vault literals.
+    for var in ("$OPS_POSTGRES_CONTAINER", "$OPS_AGENT_VAULT_CONTAINER"):
+        assert var in code, f"bin/shop-shell must reference {var}"
+    for baked in (f"{slug}-postgres", f"{slug}-agent-vault"):
+        assert baked not in code, (
+            f"bin/shop-shell must not bake the container literal {baked!r}"
+        )
+
+    # Docker network: BOTH the outer `docker run --network` and the inner
+    # `bc-container launch --network` carry the $OPS_NETWORK reference.
+    docker_run_networks = []
+    launch_network = None
+    for tokens in _ss_logical_lines(body):
+        if tokens[:2] == ["docker", "run"]:
+            docker_run_networks.append(_ss_flag_value(tokens, "--network"))
+            if "bc-container" in tokens:
+                inner = tokens[tokens.index("bc-container") :]
+                if inner[:2] == ["bc-container", "launch"]:
+                    launch_network = _ss_flag_value(inner, "--network")
+    assert docker_run_networks and all(
+        n == "$OPS_NETWORK" for n in docker_run_networks
+    ), (
+        f"every outer `docker run --network` must reference $OPS_NETWORK; got "
+        f"{docker_run_networks!r}"
+    )
+    assert launch_network == "$OPS_NETWORK", (
+        f"the inner `bc-container launch --network` must reference $OPS_NETWORK; "
+        f"got {launch_network!r}"
+    )
+
+    # Persistent data root: referenced via $OPS_DATA_ROOT, with no baked
+    # $HOME/.local/share/<slug> default re-spelled in shop-shell.
+    assert "$OPS_DATA_ROOT" in code, (
+        "bin/shop-shell must reference the persistent data root as $OPS_DATA_ROOT"
+    )
+    assert "$HOME/.local/share/" not in code, (
+        "bin/shop-shell must not re-spell the data-root default — it lives only "
+        "in the ops-coordinates artifact"
+    )
+
+    # Agent-vault env-file path: derived from the $OPS_DATA_ROOT reference, not a
+    # baked path literal.
+    env_file_def = [
+        l for l in code.splitlines() if "AGENT_VAULT_ENV_FILE=" in l
+    ]
+    assert env_file_def, "bin/shop-shell must define AGENT_VAULT_ENV_FILE"
+    assert any("$OPS_DATA_ROOT" in l for l in env_file_def), (
+        "the agent-vault env-file path must derive from $OPS_DATA_ROOT"
+    )
+
+    # Beads repo names: obtained from the artifact (OPS_BEADS_REPO); shop-shell
+    # bakes no <slug>-lead-beads literal.
+    assert f"{slug}-lead-beads" not in code, (
+        f"bin/shop-shell must not bake the beads-repo literal {slug}-lead-beads"
+    )
+    coords = _read_ops_coordinates(context)
+    assert re.search(r"(?m)^\s*OPS_BEADS_REPO=", coords), (
+        "the beads repo name must be defined in the ops-coordinates artifact"
+    )
+
+
+@then(
+    "every such variable reference is environment-overridable — its default "
+    "value resolves from the sourced ops-coordinates artifact and an explicit "
+    "environment assignment takes precedence"
+)
+def then_ss_references_env_overridable_from_artifact(context: dict) -> None:
+    coords = _read_ops_coordinates(context)
+    # The artifact is the single source: every coordinate shop-shell references
+    # is DEFINED there ...
+    for var in (
+        "OPS_NETWORK",
+        "OPS_POSTGRES_CONTAINER",
+        "OPS_AGENT_VAULT_CONTAINER",
+        "OPS_DATA_ROOT",
+        "OPS_BEADS_REPO",
+        "OPS_LAUNCHER_IMAGE",
+    ):
+        assert re.search(rf"(?m)^\s*{var}=", coords), (
+            f"{var} must be defined in the ops-coordinates artifact"
+        )
+    # ... and the env-overridable coordinates resolve their default through the
+    # `${VAR:-...}` parameter-default form so an exported value takes precedence.
+    for var in ("OPS_DATA_ROOT", "OPS_LAUNCHER_IMAGE"):
+        assert re.search(rf'{var}="?\$\{{[A-Za-z_]', coords), (
+            f"{var} must be env-overridable (`${{...:-default}}`) in the artifact"
+        )
+
+
+@then(
+    'no default value of any such variable as it appears in "bin/shop-shell" '
+    "contains a case-insensitive occurrence of the literal substring "
+    '"shopsystem" or the literal substring "dstengle", confirming the literal '
+    "lives only in the single ops-coordinates artifact and shop-shell carries "
+    "only references"
+)
+def then_ss_no_default_carries_product_literal(context: dict) -> None:
+    body = _read_shop_shell(context)
+    for default in _ss_default_expressions(body):
+        low = default.lower()
+        assert "shopsystem" not in low and "dstengle" not in low, (
+            f"a variable default in bin/shop-shell carries a product literal: "
+            f"{default!r}"
+        )

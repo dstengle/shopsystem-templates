@@ -242,6 +242,41 @@ def test_work_done_gate_has_plan_and_test_first_artifact_checks():
     assert "test(red)" in body and "feat(green)" in body  # test-first ordering
 
 
+def test_work_done_gate_routine_signoff_names_bc_emit_wrapper():
+    """lead-mab1 fold-in (no separate scenario; consistent with scenario 210
+    35d3af0c79b55fbf): the work-done-gate skill must direct the ROUTINE
+    sign-off `work_done --status complete` emit through the `bc-emit
+    work-done` WRAPPER (which re-runs the gate preconditions, incl. the
+    block-only scenario-hash orphan/stale/missing refusal), NOT the bare
+    `shop-msg respond work_done` primitive — and must scope the bare
+    `shop-msg respond work_done --force` path to forced-recovery ONLY. This
+    mirrors the bc-reviewer template's Outcomes sign-off bullet so the
+    primitive-vs-wrapper correction holds in both surfaces."""
+    body = _skill("work-done-gate")
+    # The routine sign-off complete emit names the wrapper.
+    assert "bc-emit work-done" in body, (
+        "work-done-gate does not name the `bc-emit work-done` wrapper for the "
+        "routine sign-off complete emit"
+    )
+    # The bare --force path is present and scoped to forced-recovery only.
+    forced = "shop-msg respond work_done --force"
+    assert forced in body, (
+        "work-done-gate does not name the bare --force forced-recovery path"
+    )
+    pos = body.find(forced)
+    window = body[max(0, pos - 220): pos + 220].lower()
+    assert "escape valve" in window and (
+        "forced-recovery" in window or "forced recovery" in window
+    ), (
+        "the bare `shop-msg respond work_done --force` path in work-done-gate "
+        "is not framed as the forced-recovery escape valve"
+    )
+    assert "only" in window or "never" in window, (
+        "the bare --force path in work-done-gate is not scoped as "
+        "escape-valve-ONLY (missing 'only'/'never')"
+    )
+
+
 def test_integrating_to_main_staged_commits_survive_squash():
     body = _skill("integrating-to-main").lower()
     assert "test(red)" in body and "feat(green)" in body

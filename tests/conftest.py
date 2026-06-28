@@ -25599,3 +25599,123 @@ def then_byte_contents_no_occurrence_single(
     assert needle not in raw, (
         f"{rel} contains an occurrence of the literal substring {needle!r}"
     )
+
+
+# -----------------------------------------------------------------------
+# Then steps — bc-reviewer "## Outcomes" sign-off emit is routed through the
+# `bc-emit work-done` wrapper (scenario 35d3af0c79b55fbf, lead-mab1).
+#
+# These steps pin that the sign-off "work_done complete" outcome names the
+# `bc-emit work-done` WRAPPER as the concrete command — NOT the bare
+# `shop-msg respond work_done` primitive — and that the bare
+# `shop-msg respond work_done --force` path is scoped to forced-recovery
+# ONLY. The wrapper is what runs the gate/precondition checks (incl. the
+# block-only scenario-hash orphan/stale/missing refusal); a bare primitive
+# on the sign-off path bypasses them (the lead-jonx orphan-hash incident).
+# -----------------------------------------------------------------------
+
+
+def _signoff_outcome_bullet(content: str) -> str:
+    """Return the text of the sign-off ("work_done complete") top-level
+    bullet within the bc-reviewer "## Outcomes" subsection, including its
+    wrapped continuation lines, and stopping at the next top-level bullet.
+    """
+    section = _extract_subsection_between_headings(content, "## Outcomes")
+    bullet_lines: list[str] = []
+    capturing = False
+    for line in section.splitlines():
+        if line.lstrip().startswith("- **"):
+            if capturing:
+                break  # reached the next top-level outcome bullet
+            if "Sign-off" in line:
+                capturing = True
+                bullet_lines.append(line)
+            continue
+        if capturing:
+            bullet_lines.append(line)
+    return "\n".join(bullet_lines)
+
+
+@then(
+    parsers.parse(
+        'the sign-off "{outcome}" outcome names "{command}" as the concrete '
+        'command the reviewer runs to emit the sign-off'
+    )
+)
+def then_signoff_names_wrapper_command(
+    outcome: str, command: str, context: dict
+) -> None:
+    bullet = _signoff_outcome_bullet(context["template_content"])
+    assert bullet, (
+        "could not locate the sign-off outcome bullet under '## Outcomes'"
+    )
+    # Premise: the located bullet is in fact the work_done-complete sign-off
+    # outcome, so the assertion is not satisfied by coincidence elsewhere.
+    low = bullet.lower()
+    for token in outcome.lower().split():
+        assert token in low, (
+            f"located bullet does not concern the {outcome!r} outcome "
+            f"(missing token {token!r}): {bullet!r}"
+        )
+    assert command in bullet, (
+        f"sign-off '{outcome}' outcome does not name {command!r} as the "
+        f"concrete command the reviewer runs to emit the sign-off.\n"
+        f"bullet:\n{bullet}"
+    )
+
+
+@then(
+    parsers.parse(
+        'that sign-off outcome does NOT instruct a bare "{bare}" invocation '
+        'as the command the reviewer runs to emit the sign-off'
+    )
+)
+def then_signoff_no_bare_primitive(bare: str, context: dict) -> None:
+    bullet = _signoff_outcome_bullet(context["template_content"])
+    assert bullet, (
+        "could not locate the sign-off outcome bullet under '## Outcomes'"
+    )
+    # Every occurrence of the bare primitive within the sign-off bullet must
+    # be the forced-recovery `--force` form. A bare occurrence NOT followed
+    # by `--force` is the primitive instructed as the routine sign-off
+    # command, which is exactly what this scenario forbids.
+    idx = 0
+    while True:
+        pos = bullet.find(bare, idx)
+        if pos < 0:
+            break
+        tail = bullet[pos + len(bare):].lstrip(" `\n\t")
+        assert tail.startswith("--force"), (
+            f"sign-off bullet instructs a bare {bare!r} as the routine "
+            f"sign-off emit command (not the --force escape valve); "
+            f"offending text: {bullet[pos:pos + 80]!r}"
+        )
+        idx = pos + len(bare)
+
+
+@then(
+    parsers.parse(
+        'the bare "{forced}" path is named only as the forced-recovery '
+        'escape valve, never as the routine sign-off emit'
+    )
+)
+def then_force_path_is_escape_valve_only(forced: str, context: dict) -> None:
+    content = context["template_content"]
+    occurrences = [m.start() for m in re.finditer(re.escape(forced), content)]
+    assert occurrences, (
+        f"template does not name the bare {forced!r} path at all; it must be "
+        f"present and framed as the forced-recovery escape valve"
+    )
+    for pos in occurrences:
+        window = content[max(0, pos - 200): pos + len(forced) + 200]
+        low = window.lower()
+        assert "escape valve" in low and (
+            "forced-recovery" in low or "forced recovery" in low
+        ), (
+            f"the bare {forced!r} path is not framed as the forced-recovery "
+            f"escape valve near: ...{window!r}..."
+        )
+        assert "only" in low or "never" in low, (
+            f"the bare {forced!r} path is not scoped as escape-valve-ONLY "
+            f"(missing 'only'/'never') near: ...{window!r}..."
+        )

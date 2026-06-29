@@ -267,7 +267,12 @@ if [[ "$REUSE_SLOT" -eq 0 ]]; then
     CLAUDE_OAUTH="$CLAUDE_OAUTH_VALUE" --yes --vault "$VAULT"
   echo "agent-vault-approve-claude: CLAUDE_OAUTH proposal approved for vault '$VAULT' (broker '$CONTAINER', proposal #$PROPOSAL_NUM)."
 else
-  echo "agent-vault-approve-claude: CLAUDE_OAUTH slot already ensured on vault '$VAULT' (broker '$CONTAINER') — reusing it (idempotent re-run), skipping proposal approve."
+  # SUPPORTED TOKEN-UPDATE (lead-m1dc / 221): the slot already exists, so this
+  # re-run UPDATES the already-populated credential. The oauth/tokens writeback
+  # below re-POSTs the fresh material (a supported, non-error path — the broker
+  # validates the new refresh token against token_url before persisting); we do
+  # NOT error because the credential already exists.
+  echo "agent-vault-approve-claude: CLAUDE_OAUTH slot already ensured on vault '$VAULT' (broker '$CONTAINER') — reusing it (idempotent re-run) to UPDATE the existing credential's tokens, skipping proposal approve."
 fi
 
 # OAUTH-TOKENS-POPULATE-BEGIN
@@ -361,6 +366,11 @@ if [[ "$_status" != 2* ]]; then
   echo "  re-log in with the Claude CLI and re-run with a fresh token." >&2
   exit 1
 fi
-echo "agent-vault-approve-claude: CLAUDE_OAUTH populated for vault '$VAULT' (broker '$BROKER_ADDR') — the credential is refreshable (refresh_token_ct + connected_at set)."
+# SUPPORTED TOKEN-UPDATE (lead-m1dc / 221): on a re-run that reused an already-
+# ensured slot this writeback is an UPDATE of the existing credential, not a
+# first-time populate; report it as such. (REUSE_SLOT is unset when this block is
+# exercised in isolation, in which case it defaults to a first-time populate.)
+if [[ "${REUSE_SLOT:-0}" -eq 1 ]]; then _AV_POP_VERB="updated"; else _AV_POP_VERB="populated"; fi
+echo "agent-vault-approve-claude: CLAUDE_OAUTH $_AV_POP_VERB for vault '$VAULT' (broker '$BROKER_ADDR') — the credential is refreshable (refresh_token_ct + connected_at set)."
 # OAUTH-TOKENS-POPULATE-END
 exit 0

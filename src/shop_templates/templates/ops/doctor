@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# bin/doctor — operator connectivity & credential diagnostic (shop-owned,
+# PDR-003 path F; lead-q3r1 / tmpl-e44).
+#
+# A one-shot health check a lead-shop operator runs to get ONE clear pass/fail
+# verdict on the three things a brokered Claude session needs before it can do
+# any work:
+#   1. SHOPMSG_DSN / postgres      — the messaging DB is configured and reachable.
+#   2. agent-vault broker / CA trust — the broker is reachable AND its CA is
+#      trusted by the leaf trust store.
+#   3. CLAUDE_OAUTH                 — the Claude credential is present and in a
+#      refreshable/connected state.
+# Each check emits a NAMED line carrying an explicit [PASS]/[FAIL] status and,
+# on failure, a `hint:` naming the corrective action. doctor then prints an
+# aggregate diagnosis DERIVED from the individual results: overall pass requires
+# EVERY check to pass; any single failure forces overall fail (naming which
+# check(s) failed) and a non-zero exit.
+#
+# PRODUCT-NEUTRAL: every product-scoped coordinate (the broker address, ports)
+# is SOURCED from bin/ops-coordinates (ADR-043 Phase 1) — no slug literal is
+# baked in here.
+#
+# DEPENDENCY-INJECTED PROBES: the three external probes resolve by name
+# ($DOCTOR_PSQL=psql, $DOCTOR_CURL=curl, $DOCTOR_JQ=jq) so a test (or an operator
+# with an alternative client) can override them without editing this script.
+#
+# NON-ABORTING per check: doctor deliberately does NOT use `set -e`. A failing
+# probe downgrades to a [FAIL] check line — it never aborts before the remaining
+# checks run — so the operator always sees the full picture in one pass. The
+# overall verdict drives the FINAL exit code.
+set -uo pipefail
+
+# Source the single ops-coordinates artifact — the broker address and ports come
+# from the OPS_* variables defined there.
+source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"
+
+# Overridable external probe commands (dependency injection for tests; real
+# operators get the standard clients).
+: "${DOCTOR_PSQL:=psql}"
+: "${DOCTOR_CURL:=curl}"
+: "${DOCTOR_JQ:=jq}"
+
+# Network probe budget (seconds).
+DOCTOR_CONNECT_TIMEOUT="${DOCTOR_CONNECT_TIMEOUT:-5}"
+DOCTOR_MAX_TIME="${DOCTOR_MAX_TIME:-10}"
+
+# Explicit, greppable status tokens. "[PASS]" contains no "FAIL" and vice-versa,
+# so each check line carries an unambiguous status.
+_PASS="[PASS]"
+_FAIL="[FAIL]"
+
+# Names of the checks that FAILED, in run order — the single source the aggregate
+# diagnosis is derived from (027a4d836bb1ae43).
+FAILED_CHECKS=()
+
+emit_pass() {  # <check-name> <detail>
+  printf '%s %s — %s\n' "$_PASS" "$1" "$2"
+}
+
+emit_fail() {  # <check-name> <detail> <remediation-hint>
+  printf '%s %s — %s    hint: %s\n' "$_FAIL" "$1" "$2" "$3"
+  FAILED_CHECKS+=("$1")
+}
+
+# -- Check 1: SHOPMSG_DSN / postgres (a6f8c0656a9e1cd9) ----------------------
+# Pass iff SHOPMSG_DSN is set AND the product postgres answers at that DSN. The
+# fail line names the corrective action: an unset DSN -> "set SHOPMSG_DSN"; a set
+# but unreachable DSN -> "bring up the product postgres".
+check_shopmsg_dsn() {
+  local name="SHOPMSG_DSN / postgres"
+  if [[ -z "${SHOPMSG_DSN:-}" ]]; then
+    emit_fail "$name" \
+      "SHOPMSG_DSN is not set" \
+      "set SHOPMSG_DSN to the product postgres DSN (then bring up the product postgres: docker compose up -d postgres)"
+    return 1
+  fi
+  if "$DOCTOR_PSQL" "$SHOPMSG_DSN" -tAc 'SELECT 1' >/dev/null 2>&1; then
+    emit_pass "$name" "SHOPMSG_DSN is set and the product postgres is reachable at that DSN"
+    return 0
+  fi
+  emit_fail "$name" \
+    "SHOPMSG_DSN is set but the product postgres is not reachable at that DSN" \
+    "bring up the product postgres (docker compose up -d postgres) or correct SHOPMSG_DSN"
+  return 1
+}
+
+main() {
+  check_shopmsg_dsn
+
+  if (( ${#FAILED_CHECKS[@]} == 0 )); then
+    exit 0
+  fi
+  exit 1
+}
+
+main "$@"

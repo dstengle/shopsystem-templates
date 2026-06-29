@@ -631,6 +631,7 @@ def _render_lead_ops_scaffolding(target: Path, slug: str) -> None:
     _render_lead_env_example(target, slug)
     _render_lead_ops_coordinates(target, slug)
     _render_lead_footing_script(target, slug)
+    _render_lead_doctor_script(target, slug)
 
 
 # The top-level .env.example scaffold (lead-llc1, scenario d8b53704e6e2584).
@@ -707,6 +708,32 @@ def _render_lead_ops_coordinates(target: Path, slug: str) -> None:
     dest = target / "bin" / "ops-coordinates"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(body)
+
+
+# The operator connectivity & credential diagnostic (lead-q3r1, scenarios
+# a6f8c0656a9e1cd9 / f55aa51f4bd138b3 / 5cf88671d3fab25b / 027a4d836bb1ae43).
+# Like bin/footing, .env.example, and bin/ops-coordinates above, this is
+# DELIBERATELY rendered OUTSIDE the six-file `_LEAD_OPS_FILES` ops-TOOL
+# enumeration: bin/doctor is a diagnostic command, NOT a member of the converged
+# ops-tool set the exclusivity invariant (scenario 0a7e4c29fc7db52b) enumerates,
+# so the "exactly seven shop-owned ops files" enumeration stays intact. It SOURCES
+# bin/ops-coordinates for the broker address/ports and is written with its
+# owner-execute bit set so the operator can run `./bin/doctor`.
+_LEAD_DOCTOR_TEMPLATE = "doctor"
+
+
+def _render_lead_doctor_script(target: Path, slug: str) -> None:
+    """Render the executable top-level bin/doctor diagnostic for a lead shop.
+
+    Additive to the six-file ops-tool set (NOT part of `_LEAD_OPS_FILES`):
+    rendered through the same placeholder-substitution mechanism and product-
+    neutral (every product-scoped coordinate is sourced from bin/ops-coordinates,
+    not baked here). Written owner-executable."""
+    body = render_ops_template(_LEAD_DOCTOR_TEMPLATE, slug)
+    dest = target / "bin" / "doctor"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(body)
+    dest.chmod(dest.stat().st_mode | 0o100)
 
 
 def canonical_role_set(shop_type: str) -> tuple[str, ...]:

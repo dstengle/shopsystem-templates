@@ -26316,3 +26316,460 @@ def then_override_precedence(ovar: str, oval: str, expected: str, context: dict)
         f"after exporting {ovar}={oval}, OPS_POSTGRES_PORT={values['OPS_POSTGRES_PORT']!r}, "
         f"expected {expected!r} (env override must win over the rendered default)"
     )
+
+
+# =====================================================================
+# bin/doctor operator diagnostic (lead-q3r1 / tmpl-e44).
+# Scenarios a6f8c0656a9e1cd9 (SHOPMSG_DSN/postgres), f55aa51f4bd138b3
+# (agent-vault broker / CA trust), 5cf88671d3fab25b (CLAUDE_OAUTH refreshable),
+# 027a4d836bb1ae43 (aggregate pass/fail + non-zero exit).
+#
+# The rendered bin/doctor is exercised OUT-OF-PROCESS against the worktree
+# src/ (the same hermetic PYTHONPATH convention test_ops_generification._bootstrap
+# uses) so the assertion reflects THIS branch's render. bin/doctor's external
+# probes resolve by NAME on PATH (psql, curl) and via jq; tests prepend a stub
+# dir carrying fake psql/curl whose pass/fail is driven by DOCTOR_TEST_* env so
+# each check's pass-session and fail-session are deterministic and hermetic
+# (no real postgres / broker / network).
+# =====================================================================
+
+_DOCTOR_FAKE_PSQL = """#!/usr/bin/env bash
+# Fake psql for doctor tests: success iff DOCTOR_TEST_PG_OK=1.
+[ "${DOCTOR_TEST_PG_OK:-0}" = "1" ] && exit 0
+exit 2
+"""
+
+_DOCTOR_FAKE_CURL = """#!/usr/bin/env bash
+# Fake curl for doctor tests. The doctor broker probe distinguishes reachability
+# (a `-k` insecure connect that ignores cert trust) from CA trust (a verifying
+# connect WITHOUT `-k`). This stub mirrors real curl exit semantics:
+#   broker down            -> 7  (couldn't connect) for either probe
+#   broker up, insecure    -> 0  (reachable)
+#   broker up, CA trusted  -> 0  (verified)
+#   broker up, CA untrusted-> 60 (SSL certificate problem)
+insecure=0
+for a in "$@"; do [ "$a" = "-k" ] && insecure=1; done
+if [ "${DOCTOR_TEST_BROKER_UP:-0}" != "1" ]; then exit 7; fi
+if [ "$insecure" = "1" ]; then exit 0; fi
+[ "${DOCTOR_TEST_CA_TRUSTED:-0}" = "1" ] && exit 0
+exit 60
+"""
+
+
+def _doctor_run(target, env_overrides=None):
+    """Run the rendered bin/doctor in `target` with fake psql/curl on PATH and
+    the supplied DOCTOR_TEST_*/SHOPMSG_DSN/CLAUDE_OAUTH env. Returns the
+    CompletedProcess (stdout/stderr/returncode)."""
+    import os
+    import stat as _stat
+    import subprocess
+    import tempfile
+
+    stubdir = Path(tempfile.mkdtemp(prefix="doctor_stub_"))
+    for name, body in (("psql", _DOCTOR_FAKE_PSQL), ("curl", _DOCTOR_FAKE_CURL)):
+        p = stubdir / name
+        p.write_text(body)
+        p.chmod(p.stat().st_mode | _stat.S_IXUSR | _stat.S_IXGRP | _stat.S_IXOTH)
+
+    env = dict(os.environ)
+    # Start from a clean slate so the host's own credentials never leak in.
+    env.pop("SHOPMSG_DSN", None)
+    env.pop("CLAUDE_OAUTH", None)
+    env["PATH"] = str(stubdir) + os.pathsep + env.get("PATH", "")
+    if env_overrides:
+        env.update({k: str(v) for k, v in env_overrides.items()})
+
+    return subprocess.run(
+        ["bash", str(target / "bin" / "doctor")],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(target),
+        timeout=60,
+    )
+
+
+def _doctor_check_line(stdout: str, name: str) -> str:
+    """Return the single named CHECK line (the one that opens with the explicit
+    [PASS]/[FAIL] status token), distinct from the aggregate-diagnosis line that
+    may also mention the check name when it failed."""
+    cands = [
+        l
+        for l in stdout.splitlines()
+        if name in l and (l.lstrip().startswith("[PASS]") or l.lstrip().startswith("[FAIL]"))
+    ]
+    assert cands, f"no [PASS]/[FAIL] check line named {name!r} in doctor stdout:\n{stdout}"
+    assert len(cands) == 1, f"expected exactly one check line named {name!r}; got {cands!r}"
+    return cands[0]
+
+
+def _doctor_status(line: str) -> str:
+    """'pass' or 'fail' from a check line's explicit status token."""
+    s = line.lstrip()
+    if s.startswith("[PASS]"):
+        return "pass"
+    if s.startswith("[FAIL]"):
+        return "fail"
+    raise AssertionError(f"check line carries no explicit [PASS]/[FAIL] status: {line!r}")
+
+
+_DOCTOR_DSN = "postgresql://postgres:postgres@localhost:5432/doctor_probe"
+
+
+@given(
+    'a "lead" shop bootstrapped by "shop-templates" with the rendered ops command "bin/doctor"'
+)
+def given_lead_shop_with_doctor(context: dict, tmp_path) -> None:
+    from test_ops_generification import _bootstrap
+
+    target = _bootstrap(tmp_path, "shopsystem-product")
+    doctor = target / "bin" / "doctor"
+    assert doctor.is_file(), (
+        "bootstrap must render the bin/doctor ops command for a lead shop"
+    )
+    import stat as _stat
+
+    assert doctor.stat().st_mode & _stat.S_IXUSR, "bin/doctor must be owner-executable"
+    context["doctor_target"] = target
+
+
+# -- Scenario a6f8c0656a9e1cd9 — SHOPMSG_DSN / postgres -----------------------
+
+_DOCTOR_PG_NAME = "SHOPMSG_DSN / postgres"
+
+
+@when(
+    'the operator runs "bin/doctor" in a session whose "SHOPMSG_DSN" is set and whose product postgres is reachable at that DSN'
+)
+def when_doctor_pg_pass_session(context: dict) -> None:
+    context["doctor_pg_pass"] = _doctor_run(
+        context["doctor_target"],
+        env_overrides={"SHOPMSG_DSN": _DOCTOR_DSN, "DOCTOR_TEST_PG_OK": "1"},
+    )
+
+
+@then(
+    '"bin/doctor" emits a check line named for the messaging-DB connection (a "SHOPMSG_DSN / postgres" check) whose status is an explicit pass'
+)
+def then_doctor_pg_pass(context: dict) -> None:
+    line = _doctor_check_line(context["doctor_pg_pass"].stdout, _DOCTOR_PG_NAME)
+    assert _doctor_status(line) == "pass", f"expected an explicit PASS; got: {line!r}"
+
+
+@then(
+    'the same check, run in a session where "SHOPMSG_DSN" is unset or points at a postgres that is not reachable, emits that same named check line whose status is an explicit fail'
+)
+def then_doctor_pg_fail(context: dict) -> None:
+    # Unset SHOPMSG_DSN -> fail.
+    unset = _doctor_run(context["doctor_target"], env_overrides={"DOCTOR_TEST_PG_OK": "1"})
+    line_unset = _doctor_check_line(unset.stdout, _DOCTOR_PG_NAME)
+    assert _doctor_status(line_unset) == "fail", (
+        f"unset SHOPMSG_DSN must FAIL the check; got: {line_unset!r}"
+    )
+    # Set but unreachable postgres -> fail.
+    unreachable = _doctor_run(
+        context["doctor_target"],
+        env_overrides={"SHOPMSG_DSN": _DOCTOR_DSN, "DOCTOR_TEST_PG_OK": "0"},
+    )
+    line_unreachable = _doctor_check_line(unreachable.stdout, _DOCTOR_PG_NAME)
+    assert _doctor_status(line_unreachable) == "fail", (
+        f"set-but-unreachable SHOPMSG_DSN must FAIL the check; got: {line_unreachable!r}"
+    )
+    context["doctor_pg_fail"] = unreachable
+    context["doctor_pg_fail_unset"] = unset
+
+
+@then(
+    'the fail line carries a remediation hint naming the corrective action (set "SHOPMSG_DSN" / bring up the product postgres) rather than only reporting that the check failed'
+)
+def then_doctor_pg_fail_hint(context: dict) -> None:
+    # The unset-cause fail names "set SHOPMSG_DSN"; the unreachable-cause fail
+    # names "bring up the product postgres". Each carries an explicit `hint:`.
+    unset_line = _doctor_check_line(context["doctor_pg_fail_unset"].stdout, _DOCTOR_PG_NAME)
+    assert "hint:" in unset_line.lower(), f"fail line lacks a remediation hint: {unset_line!r}"
+    assert "shopmsg_dsn" in unset_line.lower() and "set" in unset_line.lower(), (
+        f"unset-cause hint must name the corrective action (set SHOPMSG_DSN): {unset_line!r}"
+    )
+    unreachable_line = _doctor_check_line(context["doctor_pg_fail"].stdout, _DOCTOR_PG_NAME)
+    assert "hint:" in unreachable_line.lower(), (
+        f"fail line lacks a remediation hint: {unreachable_line!r}"
+    )
+    assert "postgres" in unreachable_line.lower(), (
+        f"unreachable-cause hint must name bringing up the product postgres: {unreachable_line!r}"
+    )
+
+
+# -- Scenario f55aa51f4bd138b3 — agent-vault broker / CA trust ----------------
+
+_DOCTOR_BROKER_NAME = "agent-vault broker / CA trust"
+_DOCTOR_BROKER_URL = "https://shopsystem-agent-vault:14322/"
+
+
+@when(
+    'the operator runs "bin/doctor" in a session whose agent-vault broker is reachable and whose broker CA is trusted by the leaf trust store'
+)
+def when_doctor_broker_pass_session(context: dict) -> None:
+    context["doctor_broker_pass"] = _doctor_run(
+        context["doctor_target"],
+        env_overrides={
+            "DOCTOR_BROKER_URL": _DOCTOR_BROKER_URL,
+            "DOCTOR_TEST_BROKER_UP": "1",
+            "DOCTOR_TEST_CA_TRUSTED": "1",
+        },
+    )
+
+
+@then(
+    '"bin/doctor" emits a check line named for the agent-vault broker connection (a "agent-vault broker / CA trust" check) whose status is an explicit pass'
+)
+def then_doctor_broker_pass(context: dict) -> None:
+    line = _doctor_check_line(context["doctor_broker_pass"].stdout, _DOCTOR_BROKER_NAME)
+    assert _doctor_status(line) == "pass", f"expected an explicit PASS; got: {line!r}"
+
+
+@then(
+    'the same check, run in a session where the broker is unreachable or the broker CA is not trusted by the leaf, emits that same named check line whose status is an explicit fail'
+)
+def then_doctor_broker_fail(context: dict) -> None:
+    # Broker unreachable -> fail.
+    unreachable = _doctor_run(
+        context["doctor_target"],
+        env_overrides={"DOCTOR_BROKER_URL": _DOCTOR_BROKER_URL, "DOCTOR_TEST_BROKER_UP": "0"},
+    )
+    line_unreachable = _doctor_check_line(unreachable.stdout, _DOCTOR_BROKER_NAME)
+    assert _doctor_status(line_unreachable) == "fail", (
+        f"unreachable broker must FAIL the check; got: {line_unreachable!r}"
+    )
+    # Broker reachable but CA untrusted -> fail.
+    untrusted = _doctor_run(
+        context["doctor_target"],
+        env_overrides={
+            "DOCTOR_BROKER_URL": _DOCTOR_BROKER_URL,
+            "DOCTOR_TEST_BROKER_UP": "1",
+            "DOCTOR_TEST_CA_TRUSTED": "0",
+        },
+    )
+    line_untrusted = _doctor_check_line(untrusted.stdout, _DOCTOR_BROKER_NAME)
+    assert _doctor_status(line_untrusted) == "fail", (
+        f"untrusted broker CA must FAIL the check; got: {line_untrusted!r}"
+    )
+    context["doctor_broker_fail_unreachable"] = unreachable
+    context["doctor_broker_fail_untrusted"] = untrusted
+
+
+@then(
+    'the fail line distinguishes the unreachable-broker cause from the untrusted-CA cause and carries a remediation hint naming the corrective action rather than only reporting that the check failed'
+)
+def then_doctor_broker_fail_distinguishes(context: dict) -> None:
+    unreachable_line = _doctor_check_line(
+        context["doctor_broker_fail_unreachable"].stdout, _DOCTOR_BROKER_NAME
+    ).lower()
+    untrusted_line = _doctor_check_line(
+        context["doctor_broker_fail_untrusted"].stdout, _DOCTOR_BROKER_NAME
+    ).lower()
+    # Both carry a remediation hint.
+    assert "hint:" in unreachable_line, f"unreachable fail line lacks a hint: {unreachable_line!r}"
+    assert "hint:" in untrusted_line, f"untrusted fail line lacks a hint: {untrusted_line!r}"
+    # The two causes are DISTINGUISHED — the unreachable line names unreachability;
+    # the untrusted line names the CA/trust cause; and they are not identical.
+    assert "unreachable" in unreachable_line, (
+        f"unreachable-broker fail must name the unreachable cause: {unreachable_line!r}"
+    )
+    assert ("ca" in untrusted_line or "trust" in untrusted_line), (
+        f"untrusted-CA fail must name the CA/trust cause: {untrusted_line!r}"
+    )
+    assert "unreachable" not in untrusted_line, (
+        f"untrusted-CA fail must NOT be reported as unreachable: {untrusted_line!r}"
+    )
+    assert unreachable_line != untrusted_line, (
+        "the two fail causes must be distinguished, not the same generic line"
+    )
+
+
+# -- Scenario 5cf88671d3fab25b — CLAUDE_OAUTH refreshable/connected -----------
+
+_DOCTOR_OAUTH_NAME = "CLAUDE_OAUTH"
+# A refreshable/connected oauth credential carries a non-empty refresh token
+# (per lead-al1r, a populated refresh token is what makes the credential
+# refreshable by construction).
+_DOCTOR_OAUTH_REFRESHABLE = (
+    '{"access_token":"sk-ant-oat-AAA","refresh_token":"sk-ant-ort-BBB","expires_at":9999999999}'
+)
+# Present but NOT refreshable: no refresh token.
+_DOCTOR_OAUTH_NON_REFRESHABLE = '{"access_token":"sk-ant-oat-AAA","expires_at":9999999999}'
+
+
+@when(
+    'the operator runs "bin/doctor" in a session whose "CLAUDE_OAUTH" credential is present and in a refreshable, connected state'
+)
+def when_doctor_oauth_pass_session(context: dict) -> None:
+    context["doctor_oauth_pass"] = _doctor_run(
+        context["doctor_target"],
+        env_overrides={"CLAUDE_OAUTH": _DOCTOR_OAUTH_REFRESHABLE},
+    )
+
+
+@then(
+    '"bin/doctor" emits a check line named for the Claude credential (a "CLAUDE_OAUTH" check) whose status is an explicit pass'
+)
+def then_doctor_oauth_pass(context: dict) -> None:
+    line = _doctor_check_line(context["doctor_oauth_pass"].stdout, _DOCTOR_OAUTH_NAME)
+    assert _doctor_status(line) == "pass", f"expected an explicit PASS; got: {line!r}"
+
+
+@then(
+    'the same check, run in a session where "CLAUDE_OAUTH" is absent, empty, or in a non-refreshable/disconnected state, emits that same named check line whose status is an explicit fail'
+)
+def then_doctor_oauth_fail(context: dict) -> None:
+    # Absent CLAUDE_OAUTH -> fail (env_overrides omits it; _doctor_run unsets it).
+    absent = _doctor_run(context["doctor_target"], env_overrides={})
+    line_absent = _doctor_check_line(absent.stdout, _DOCTOR_OAUTH_NAME)
+    assert _doctor_status(line_absent) == "fail", (
+        f"absent CLAUDE_OAUTH must FAIL the check; got: {line_absent!r}"
+    )
+    # Empty CLAUDE_OAUTH -> fail.
+    empty = _doctor_run(context["doctor_target"], env_overrides={"CLAUDE_OAUTH": ""})
+    line_empty = _doctor_check_line(empty.stdout, _DOCTOR_OAUTH_NAME)
+    assert _doctor_status(line_empty) == "fail", (
+        f"empty CLAUDE_OAUTH must FAIL the check; got: {line_empty!r}"
+    )
+    # Present but non-refreshable (no refresh token) -> fail.
+    non_refreshable = _doctor_run(
+        context["doctor_target"], env_overrides={"CLAUDE_OAUTH": _DOCTOR_OAUTH_NON_REFRESHABLE}
+    )
+    line_nonref = _doctor_check_line(non_refreshable.stdout, _DOCTOR_OAUTH_NAME)
+    assert _doctor_status(line_nonref) == "fail", (
+        f"non-refreshable CLAUDE_OAUTH must FAIL the check; got: {line_nonref!r}"
+    )
+    context["doctor_oauth_fail"] = absent
+
+
+@then(
+    'the fail line carries a remediation hint naming the corrective action (re-run the approve-claude provisioning to restore a non-empty refreshable credential) rather than only reporting that the check failed'
+)
+def then_doctor_oauth_fail_hint(context: dict) -> None:
+    line = _doctor_check_line(context["doctor_oauth_fail"].stdout, _DOCTOR_OAUTH_NAME).lower()
+    assert "hint:" in line, f"fail line lacks a remediation hint: {line!r}"
+    assert "approve-claude" in line, (
+        f"hint must name re-running the approve-claude provisioning: {line!r}"
+    )
+    assert "refreshable" in line, (
+        f"hint must name restoring a refreshable credential: {line!r}"
+    )
+
+
+# -- Scenario 027a4d836bb1ae43 — aggregate pass/fail + non-zero exit ----------
+
+_DOCTOR_ALL_CHECK_NAMES = (
+    "SHOPMSG_DSN / postgres",
+    "agent-vault broker / CA trust",
+    "CLAUDE_OAUTH",
+)
+
+# An all-pass session: every individual check's inputs are configured to pass.
+_DOCTOR_ALL_PASS_ENV = {
+    "SHOPMSG_DSN": _DOCTOR_DSN,
+    "DOCTOR_TEST_PG_OK": "1",
+    "DOCTOR_BROKER_URL": _DOCTOR_BROKER_URL,
+    "DOCTOR_TEST_BROKER_UP": "1",
+    "DOCTOR_TEST_CA_TRUSTED": "1",
+    "CLAUDE_OAUTH": _DOCTOR_OAUTH_REFRESHABLE,
+}
+
+
+def _doctor_aggregate_line(stdout: str) -> str:
+    cands = [l for l in stdout.splitlines() if "aggregate diagnosis" in l and "overall" in l]
+    assert cands, f"no aggregate-diagnosis line in doctor stdout:\n{stdout}"
+    assert len(cands) == 1, f"expected exactly one aggregate line; got {cands!r}"
+    return cands[0]
+
+
+@given(
+    'a "lead" shop bootstrapped by "shop-templates" with the rendered ops command "bin/doctor" that performs the messaging-DB, agent-vault, and Claude-credential checks'
+)
+def given_lead_shop_with_doctor_all_checks(context: dict, tmp_path) -> None:
+    from test_ops_generification import _bootstrap
+
+    target = _bootstrap(tmp_path, "shopsystem-product")
+    doctor = target / "bin" / "doctor"
+    assert doctor.is_file(), "bootstrap must render bin/doctor for a lead shop"
+    context["doctor_target"] = target
+    # Premise: doctor performs all three named checks (in an all-pass run, each
+    # named check line is emitted).
+    proc = _doctor_run(target, env_overrides=_DOCTOR_ALL_PASS_ENV)
+    for name in _DOCTOR_ALL_CHECK_NAMES:
+        _doctor_check_line(proc.stdout, name)  # raises if a check is missing
+
+
+@when('the operator runs "bin/doctor" in a session where every individual check would pass')
+def when_doctor_all_pass(context: dict) -> None:
+    context["doctor_all_pass"] = _doctor_run(
+        context["doctor_target"], env_overrides=_DOCTOR_ALL_PASS_ENV
+    )
+
+
+@then(
+    '"bin/doctor" reports each named check line as a pass, reports an aggregate diagnosis of overall pass, and exits with code 0'
+)
+def then_doctor_all_pass(context: dict) -> None:
+    proc = context["doctor_all_pass"]
+    for name in _DOCTOR_ALL_CHECK_NAMES:
+        line = _doctor_check_line(proc.stdout, name)
+        assert _doctor_status(line) == "pass", f"check {name!r} not PASS: {line!r}"
+    agg = _doctor_aggregate_line(proc.stdout)
+    assert "[PASS]" in agg and "[FAIL]" not in agg, f"aggregate must be overall PASS: {agg!r}"
+    assert proc.returncode == 0, f"all-pass run must exit 0; got {proc.returncode}"
+
+
+@then(
+    'when "bin/doctor" is run in a session where at least one individual check would fail, it reports each check line with its own pass/fail status, reports an aggregate diagnosis of overall fail that names which check(s) failed, and exits non-zero'
+)
+def then_doctor_one_fails(context: dict) -> None:
+    # All pass EXCEPT CLAUDE_OAUTH (absent) -> exactly one failed check.
+    env = dict(_DOCTOR_ALL_PASS_ENV)
+    env.pop("CLAUDE_OAUTH")
+    proc = _doctor_run(context["doctor_target"], env_overrides=env)
+    # Each check line carries its own explicit status.
+    statuses = {name: _doctor_status(_doctor_check_line(proc.stdout, name)) for name in _DOCTOR_ALL_CHECK_NAMES}
+    assert statuses["SHOPMSG_DSN / postgres"] == "pass"
+    assert statuses["agent-vault broker / CA trust"] == "pass"
+    assert statuses["CLAUDE_OAUTH"] == "fail"
+    # Aggregate is overall FAIL and names the failed check.
+    agg = _doctor_aggregate_line(proc.stdout)
+    assert "[FAIL]" in agg, f"aggregate must be overall FAIL: {agg!r}"
+    assert "CLAUDE_OAUTH" in agg, f"aggregate must name the failed check: {agg!r}"
+    assert "SHOPMSG_DSN / postgres" not in agg, (
+        f"aggregate must name only the FAILED check(s), not passing ones: {agg!r}"
+    )
+    assert proc.returncode != 0, f"any-fail run must exit non-zero; got {proc.returncode}"
+    context["doctor_one_fail"] = proc
+
+
+@then(
+    'the aggregate diagnosis is derived from the individual check results — overall pass requires every check to pass and any single failed check forces overall fail — so the operator gets one clear pass/fail verdict without ad-hoc diagnosing'
+)
+def then_doctor_aggregate_derived(context: dict) -> None:
+    # all-pass => overall pass + exit 0.
+    allp = context["doctor_all_pass"]
+    assert "[PASS]" in _doctor_aggregate_line(allp.stdout) and allp.returncode == 0
+    # Walk each single-check-fail session: exactly that check fails, aggregate is
+    # overall FAIL naming exactly it, exit non-zero — proving the verdict is
+    # DERIVED from the individual results, not fixed.
+    single_fail_envs = {
+        "SHOPMSG_DSN / postgres": {**_DOCTOR_ALL_PASS_ENV, "DOCTOR_TEST_PG_OK": "0"},
+        "agent-vault broker / CA trust": {**_DOCTOR_ALL_PASS_ENV, "DOCTOR_TEST_BROKER_UP": "0"},
+    }
+    oauth_env = dict(_DOCTOR_ALL_PASS_ENV)
+    oauth_env.pop("CLAUDE_OAUTH")
+    single_fail_envs["CLAUDE_OAUTH"] = oauth_env
+    for failing, env in single_fail_envs.items():
+        proc = _doctor_run(context["doctor_target"], env_overrides=env)
+        agg = _doctor_aggregate_line(proc.stdout)
+        assert "[FAIL]" in agg, f"single fail of {failing!r} must drive overall FAIL: {agg!r}"
+        assert failing in agg, f"aggregate must name the failed check {failing!r}: {agg!r}"
+        assert proc.returncode != 0, (
+            f"single fail of {failing!r} must exit non-zero; got {proc.returncode}"
+        )
+        # The named failed check actually carries a [FAIL] line (derivation, not
+        # an independently computed verdict).
+        assert _doctor_status(_doctor_check_line(proc.stdout, failing)) == "fail"

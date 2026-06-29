@@ -84,8 +84,46 @@ check_shopmsg_dsn() {
   return 1
 }
 
+# -- Check 2: agent-vault broker / CA trust (f55aa51f4bd138b3) ---------------
+# Pass iff the broker is reachable AND its CA is trusted by the leaf trust store.
+# The cause is DERIVED from two probes against the SAME broker HTTPS endpoint,
+# differing only in TLS verification:
+#   * reachability — a `-k` (insecure) connect that ignores cert trust;
+#   * CA trust     — a verifying connect WITHOUT `-k`.
+# If the insecure connect fails the broker is UNREACHABLE; if it succeeds but the
+# verifying connect fails the broker is reachable but its CA is UNTRUSTED. This
+# is exactly how real curl reports the two cases (connect failure vs SSL cert
+# error), so the fail line names the right corrective action for each cause.
+check_agent_vault() {
+  local name="agent-vault broker / CA trust"
+  # Derive the broker HTTPS endpoint (host from OPS_BROKER_ADDR, the proxy port
+  # whose CA the leaf must trust) unless a probe target is supplied.
+  local host="${OPS_BROKER_ADDR#*://}"
+  host="${host%%/*}"
+  host="${host%%:*}"
+  local url="${DOCTOR_BROKER_URL:-https://${host}:${OPS_VAULT_PROXY_PORT}/}"
+
+  if ! "$DOCTOR_CURL" -sS -k --connect-timeout "$DOCTOR_CONNECT_TIMEOUT" \
+        --max-time "$DOCTOR_MAX_TIME" -o /dev/null "$url" >/dev/null 2>&1; then
+    emit_fail "$name" \
+      "the agent-vault broker is unreachable at ${url}" \
+      "bring up the agent-vault broker (docker compose up -d agent-vault) and check AGENT_VAULT_ADDR / the broker proxy port"
+    return 1
+  fi
+  if ! "$DOCTOR_CURL" -sS --connect-timeout "$DOCTOR_CONNECT_TIMEOUT" \
+        --max-time "$DOCTOR_MAX_TIME" -o /dev/null "$url" >/dev/null 2>&1; then
+    emit_fail "$name" \
+      "the agent-vault broker is reachable but its CA is not trusted by the leaf trust store" \
+      "install/trust the broker CA in the leaf trust store (re-run bin/shop-shell so it delivers the broker CA PEM, then update-ca-certificates)"
+    return 1
+  fi
+  emit_pass "$name" "the agent-vault broker is reachable and its CA is trusted by the leaf"
+  return 0
+}
+
 main() {
   check_shopmsg_dsn
+  check_agent_vault
 
   if (( ${#FAILED_CHECKS[@]} == 0 )); then
     exit 0

@@ -130,3 +130,47 @@ def test_rerun_lands_populated_refreshing_credential():
     assert "refreshable" in r.stdout.lower(), (
         f"the re-run must report the credential refreshable/connected; stdout={r.stdout!r}"
     )
+
+
+# =====================================================================
+# 221 — supported token-update: a later re-run re-POSTs fresh material
+# =====================================================================
+
+
+def test_update_rerun_reposts_new_token_material():
+    """A later re-run with newer tokens against an already-populated credential
+    performs the owner login and re-POSTs the NEW access+refresh tokens to the
+    oauth-tokens endpoint (a supported, non-error path)."""
+    r = run_approve_claude(pending_proposal=False, slot_exists=True,
+                           access="acc-NEWER", refresh="ref-NEWER")
+    assert r.returncode == 0, f"the update re-run must not error; stderr={r.stderr!r}"
+    assert r.posted_to("/v1/auth/login"), "the update path must perform the owner login"
+    body = r.post_body_to("/v1/credentials/oauth/tokens")
+    assert "acc-NEWER" in body and "ref-NEWER" in body, (
+        f"the re-POST must carry the NEW access+refresh material; body={body!r}"
+    )
+
+
+def test_update_rerun_is_framed_as_a_supported_update():
+    """The script TREATS updating an already-populated credential as a supported
+    path — it recognises the re-run as an UPDATE of the existing credential
+    rather than presenting it as a first-time populate or erroring."""
+    r = run_approve_claude(pending_proposal=False, slot_exists=True,
+                           access="acc-NEWER", refresh="ref-NEWER")
+    out = (r.stdout + r.stderr).lower()
+    assert "updat" in out, (
+        f"the re-run must be reported as an update of the existing credential; "
+        f"output={r.stdout + r.stderr!r}"
+    )
+
+
+def test_update_rerun_leaves_credential_refreshing():
+    """After the update the credential carries the new material and remains
+    refreshing/connected (a 2xx oauth/tokens response means the broker validated
+    the refresh token against token_url before persisting)."""
+    r = run_approve_claude(pending_proposal=False, slot_exists=True,
+                           access="acc-NEWER", refresh="ref-NEWER")
+    assert r.returncode == 0
+    assert "refreshable" in r.stdout.lower(), (
+        f"the updated credential must be reported refreshable/connected; stdout={r.stdout!r}"
+    )

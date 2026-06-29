@@ -26973,3 +26973,74 @@ def then_rerun_end_state_populated_refreshing(context: dict) -> None:
     assert "refreshable" in r.stdout.lower(), (
         f"the credential must be reported refreshable/connected; stdout={r.stdout!r}"
     )
+
+
+# ---- 221: supported token-update (a later re-run re-POSTs fresh material) -----
+
+@given(
+    parsers.parse(
+        'a "lead" shop bootstrapped by "shop-templates" with the rendered ops '
+        'script "bin/agent-vault-approve-claude" and an already-populated, '
+        'refreshing CLAUDE_OAUTH credential from a prior successful run'
+    )
+)
+def given_approve_claude_already_populated(context: dict) -> None:
+    # A prior successful run: the slot exists (already approved/populated) and no
+    # pending proposal remains.
+    context["m1dc_prior_state"] = dict(pending_proposal=False, slot_exists=True)
+
+
+@when(
+    parsers.parse(
+        'the operator later re-runs "bin/agent-vault-approve-claude" with newer '
+        'Claude token material to refresh the stored credential'
+    )
+)
+def when_rerun_approve_claude_newer_tokens(context: dict) -> None:
+    from _approve_claude_harness import run_approve_claude
+
+    context["m1dc_update"] = run_approve_claude(
+        access="acc-NEWER", refresh="ref-NEWER", **context["m1dc_prior_state"]
+    )
+
+
+@then(
+    parsers.parse(
+        '"bin/agent-vault-approve-claude" treats updating an already-populated '
+        'CLAUDE_OAUTH credential as a supported path — it performs the owner login '
+        'and re-POSTs the new access and refresh tokens to "POST '
+        '/v1/credentials/oauth/tokens" rather than erroring because the credential '
+        'already exists'
+    )
+)
+def then_update_is_supported_path(context: dict) -> None:
+    r = context["m1dc_update"]
+    assert r.returncode == 0, (
+        f"updating an already-populated credential must be a non-error path; stderr={r.stderr!r}"
+    )
+    assert r.posted_to("/v1/auth/login"), "the update path must perform the owner login"
+    body = r.post_body_to("/v1/credentials/oauth/tokens")
+    assert "acc-NEWER" in body and "ref-NEWER" in body, (
+        f"the re-POST must carry the NEW access+refresh material; body={body!r}"
+    )
+    assert "updat" in (r.stdout + r.stderr).lower(), (
+        f"the re-run must be treated/reported as an UPDATE of the existing "
+        f"credential; output={r.stdout + r.stderr!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the update the CLAUDE_OAUTH credential carries the newly supplied '
+        'token material and remains in a refreshing/connected state'
+    )
+)
+def then_update_credential_refreshing(context: dict) -> None:
+    r = context["m1dc_update"]
+    body = r.post_body_to("/v1/credentials/oauth/tokens")
+    assert "acc-NEWER" in body and "ref-NEWER" in body, (
+        f"the credential must carry the newly supplied material; body={body!r}"
+    )
+    assert "refreshable" in r.stdout.lower(), (
+        f"the updated credential must remain refreshing/connected; stdout={r.stdout!r}"
+    )

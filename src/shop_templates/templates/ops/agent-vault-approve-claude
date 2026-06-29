@@ -55,8 +55,20 @@ set -euo pipefail
 
 # Source the single ops-coordinates artifact (ADR-043 Phase 1) — the broker
 # container, vault name, and addresses come from OPS_* defined there; this script
-# re-derives none of them.
+# re-derives none of them. The artifact must be present/readable; surface a clear
+# diagnostic (not a bare `source` failure) when it is not — the precondition gate
+# below then names any coordinate the artifact fails to define.
+if [[ ! -r "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates" ]]; then
+  echo "agent-vault-approve-claude: cannot source the ops-coordinates artifact at" \
+       "'$(dirname "${BASH_SOURCE[0]}")/ops-coordinates' — it must be present and readable." >&2
+  exit 1
+fi
 source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"
+# Tolerate an unresolvable ops-coordinates: default every coordinate the gate
+# checks to empty so a missing definition is NAMED by the precondition gate below
+# rather than tripping `set -u` mid-script (which would exit opaquely).
+: "${OPS_SLUG:=}" "${OPS_AGENT_VAULT_CONTAINER:=}" "${OPS_VAULT_NAME:=}" \
+  "${OPS_BROKER_LOCAL_ADDR:=}" "${OPS_AGENT_VAULT_ADDR:=}" "${OPS_BROKER_ADDR:=}"
 
 # -----------------------------------------------------------------------
 # Broker coordinates — referenced from the sourced ops-coordinates artifact, so
@@ -108,12 +120,69 @@ else
   fi
 fi
 
-# Fail fast if the compose-defined broker is not up.
+# Owner-login + oauth-tokens-populate coordinates, resolved up-front so the
+# precondition gate can verify them BEFORE any mutating step (the populate block
+# below re-derives the same values so it remains self-contained).
+BROKER_ADDR="${AGENT_VAULT_ADDR:-$OPS_AGENT_VAULT_ADDR}"
+BROKER_ADDR="${BROKER_ADDR%/}"
+OWNER_EMAIL="${AGENT_VAULT_OWNER_EMAIL:-owner@${OPS_SLUG}.local}"
+OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-}"
+
+# =======================================================================
+# PRECONDITION GATE (full-process-or-zero-partial-state, lead-m1dc / 219).
+# Verify EVERY required input and endpoint reachability BEFORE any mutating step
+# — before the owner login, before ensuring/approving the proposal-slot, and
+# before the oauth/tokens writeback. On ANY gap, exit non-zero NAMING the
+# specific missing precondition and make ZERO partial changes (no proposal/slot
+# create-or-mutate, no token writeback) — the vault is left exactly as found.
+# The v0.47.0 login path added an owner-credential requirement the predecessor
+# proposal-approve path never needed; checking it AFTER the approve (as the
+# unfixed flow did) breaks AFTER the slot was ensured, leaving partial state.
+# =======================================================================
+_MISSING=()
+# (1) Resolvable ops-coordinates — the sourced artifact must define the
+#     coordinates every downstream step needs.
+[[ -n "$OPS_SLUG" ]]                  || _MISSING+=("resolvable ops-coordinates: OPS_SLUG is unset (bin/ops-coordinates did not source cleanly)")
+[[ -n "$OPS_AGENT_VAULT_CONTAINER" ]] || _MISSING+=("resolvable ops-coordinates: OPS_AGENT_VAULT_CONTAINER is unset")
+[[ -n "$OPS_VAULT_NAME" ]]            || _MISSING+=("resolvable ops-coordinates: OPS_VAULT_NAME is unset")
+[[ -n "$OPS_BROKER_LOCAL_ADDR" ]]     || _MISSING+=("resolvable ops-coordinates: OPS_BROKER_LOCAL_ADDR is unset")
+# (2) Claude credential/token source — access AND refresh (a single token cannot
+#     refresh; lead-pdsd I1).
+[[ -n "$ACCESS_TOKEN" ]]  || _MISSING+=("Claude credential/token source: no access token in '$CRED_FILE' (set CLAUDE_CREDENTIALS_FILE, log in with the Claude CLI, or pass a JSON positional override)")
+[[ -n "$REFRESH_TOKEN" ]] || _MISSING+=("Claude credential/token source: no refresh token — CLAUDE_OAUTH is a refreshing credential and a single token cannot refresh")
+# (3) Owner login credentials — the v0.47.0 oauth/tokens populate path needs an
+#     OWNER (member-role) login; the vault-scoped av_sess_ Bearer is rejected
+#     "Member role required" (agent-vault-broker/13: lead-driveable env input).
+[[ -n "$OWNER_PASSWORD" ]] || _MISSING+=("owner login credentials: AGENT_VAULT_OWNER_PASSWORD is not set (required for POST /v1/auth/login; the scoped av_sess_ Bearer is rejected 'Member role required')")
+# (4) Broker address.
+[[ -n "$BROKER_ADDR" ]] || _MISSING+=("broker address: neither AGENT_VAULT_ADDR nor OPS_AGENT_VAULT_ADDR is set")
+if (( ${#_MISSING[@]} > 0 )); then
+  echo "agent-vault-approve-claude: missing required precondition(s) — refusing to make ANY change; the vault is left in its pre-run state:" >&2
+  for _m in "${_MISSING[@]}"; do echo "  - $_m" >&2; done
+  exit 1
+fi
+
+# (5) Broker reachability — the broker container must be up and the endpoints this
+#     script will call must be reachable, verified BEFORE any mutating step. The
+#     HEAD probes are non-mutating (no login, no writeback).
 if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-  echo "agent-vault-approve-claude: broker container '$CONTAINER' is not running." >&2
+  echo "agent-vault-approve-claude: broker container '$CONTAINER' is not running — refusing to make ANY change." >&2
   echo "  Bring it up first:  docker compose -f compose.yaml up -d agent-vault" >&2
   exit 1
 fi
+_UNREACHABLE=()
+for _ep in /v1/auth/login /v1/credentials/oauth/tokens; do
+  if ! curl -sS -o /dev/null --max-time 10 -I "$BROKER_ADDR$_ep" >/dev/null 2>&1; then
+    _UNREACHABLE+=("$BROKER_ADDR$_ep")
+  fi
+done
+if (( ${#_UNREACHABLE[@]} > 0 )); then
+  echo "agent-vault-approve-claude: required broker endpoint(s) unreachable — refusing to make ANY change:" >&2
+  for _u in "${_UNREACHABLE[@]}"; do echo "  - $_u" >&2; done
+  echo "  Check the broker is up and reachable at AGENT_VAULT_ADDR ('$BROKER_ADDR')." >&2
+  exit 1
+fi
+# ===================== END PRECONDITION GATE ===========================
 
 # Every CLI verb runs inside the broker container via this exec prefix.
 DEXEC=(docker exec -i "$CONTAINER")
@@ -147,13 +216,34 @@ DEXEC_SCOPED=(docker exec -i \
 # '58' from '16:58') and produced 'Error: Proposal #58 not found'.
 # -----------------------------------------------------------------------
 ENV_FILE="${ENV_FILE:-.env}"
-PROPOSAL_NUM="$(grep -E '^CLAUDE_OAUTH_PROPOSAL_NUM=' "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2 | tr -dc '0-9')"
-if [[ -z "$PROPOSAL_NUM" ]]; then
-  PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null \
-    | grep -F 'pending' | head -n1 | grep -oE '[0-9]+' | head -n1)"
-fi
-if [[ -z "$PROPOSAL_NUM" ]]; then
-  echo "agent-vault-approve-claude: no pending proposal found on vault '$VAULT' (broker '$CONTAINER')." >&2
+# PRIMARY (d8422606 identity pin): the create-time number footing/provision
+# persisted into .env. `|| true` tolerates a missing/unreadable .env so resolution
+# falls through to the pending-list fallback rather than exiting opaquely under
+# `set -e`/`pipefail` (a re-run from a directory without .env must not die here).
+PROPOSAL_NUM="$(grep -E '^CLAUDE_OAUTH_PROPOSAL_NUM=' "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2 | tr -dc '0-9' || true)"
+# FALLBACK: the leading "#" column of a PENDING data row (never the timestamp
+# tail). PENDING_NUM also tells us whether a pending CLAUDE_OAUTH proposal remains.
+PENDING_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null | grep -F 'pending' | head -n1 | grep -oE '[0-9]+' | head -n1 || true)"
+[[ -z "$PROPOSAL_NUM" ]] && PROPOSAL_NUM="$PENDING_NUM"
+
+# -----------------------------------------------------------------------
+# ENSURE the CLAUDE_OAUTH proposal/slot = CREATE-OR-REUSE (lead-m1dc / 220). A
+# re-run after a failed OR a successful prior attempt must complete cleanly
+# regardless of partial prior state: if a PENDING proposal exists, approve it
+# (creating the slot); if a prior run already ensured the slot (no pending
+# proposal but the CLAUDE_OAUTH slot already exists), REUSE it and skip the
+# approve rather than aborting because one already exists; only when neither a
+# pending proposal NOR an existing slot is found is provisioning genuinely
+# missing. The oauth/tokens writeback below then (re-)populates the slot, so the
+# end state is a populated, refreshing credential regardless of prior state.
+# -----------------------------------------------------------------------
+REUSE_SLOT=0
+if [[ -n "$PENDING_NUM" ]]; then
+  : # a pending CLAUDE_OAUTH proposal exists — approve it below to create the slot
+elif "${DEXEC_SCOPED[@]}" agent-vault vault proposal list --vault "$VAULT" 2>/dev/null | grep -qiF 'CLAUDE_OAUTH'; then
+  REUSE_SLOT=1 # prior run already ensured the slot — reuse it (idempotent re-run)
+else
+  echo "agent-vault-approve-claude: no pending CLAUDE_OAUTH proposal and no existing CLAUDE_OAUTH slot on vault '$VAULT' (broker '$CONTAINER')." >&2
   echo "  Create the CLAUDE_OAUTH proposal first:  bin/agent-vault-provision" >&2
   exit 1
 fi
@@ -164,13 +254,26 @@ fi
 # exists. NOTE (lead-al1r): for an oauth-typed credential this KEY=VALUE override
 # is SILENTLY DROPPED by the broker, so this step alone leaves the token material
 # NULL — the OAUTH-TOKENS-POPULATE step below is what actually lands the
-# refreshable token. The token rides the in-container argv ONLY; it is never
-# echoed to stdout/stderr nor written to any file.
+# refreshable token. On an idempotent re-run that reuses an already-ensured slot
+# the approve is skipped (the slot already exists; re-approving is rejected). The
+# token rides the in-container argv ONLY; it is never echoed nor written to a file.
 # -----------------------------------------------------------------------
-"${DEXEC_SCOPED[@]}" agent-vault vault proposal approve "$PROPOSAL_NUM" \
-  CLAUDE_OAUTH="$CLAUDE_OAUTH_VALUE" --yes --vault "$VAULT"
-
-echo "agent-vault-approve-claude: CLAUDE_OAUTH proposal approved for vault '$VAULT' (broker '$CONTAINER', proposal #$PROPOSAL_NUM)."
+if [[ "$REUSE_SLOT" -eq 0 ]]; then
+  if [[ -z "$PROPOSAL_NUM" ]]; then
+    echo "agent-vault-approve-claude: could not resolve the pending CLAUDE_OAUTH proposal number on vault '$VAULT' (broker '$CONTAINER')." >&2
+    exit 1
+  fi
+  "${DEXEC_SCOPED[@]}" agent-vault vault proposal approve "$PROPOSAL_NUM" \
+    CLAUDE_OAUTH="$CLAUDE_OAUTH_VALUE" --yes --vault "$VAULT"
+  echo "agent-vault-approve-claude: CLAUDE_OAUTH proposal approved for vault '$VAULT' (broker '$CONTAINER', proposal #$PROPOSAL_NUM)."
+else
+  # SUPPORTED TOKEN-UPDATE (lead-m1dc / 221): the slot already exists, so this
+  # re-run UPDATES the already-populated credential. The oauth/tokens writeback
+  # below re-POSTs the fresh material (a supported, non-error path — the broker
+  # validates the new refresh token against token_url before persisting); we do
+  # NOT error because the credential already exists.
+  echo "agent-vault-approve-claude: CLAUDE_OAUTH slot already ensured on vault '$VAULT' (broker '$CONTAINER') — reusing it (idempotent re-run) to UPDATE the existing credential's tokens, skipping proposal approve."
+fi
 
 # OAUTH-TOKENS-POPULATE-BEGIN
 # -----------------------------------------------------------------------
@@ -263,6 +366,11 @@ if [[ "$_status" != 2* ]]; then
   echo "  re-log in with the Claude CLI and re-run with a fresh token." >&2
   exit 1
 fi
-echo "agent-vault-approve-claude: CLAUDE_OAUTH populated for vault '$VAULT' (broker '$BROKER_ADDR') — the credential is refreshable (refresh_token_ct + connected_at set)."
+# SUPPORTED TOKEN-UPDATE (lead-m1dc / 221): on a re-run that reused an already-
+# ensured slot this writeback is an UPDATE of the existing credential, not a
+# first-time populate; report it as such. (REUSE_SLOT is unset when this block is
+# exercised in isolation, in which case it defaults to a first-time populate.)
+if [[ "${REUSE_SLOT:-0}" -eq 1 ]]; then _AV_POP_VERB="updated"; else _AV_POP_VERB="populated"; fi
+echo "agent-vault-approve-claude: CLAUDE_OAUTH $_AV_POP_VERB for vault '$VAULT' (broker '$BROKER_ADDR') — the credential is refreshable (refresh_token_ct + connected_at set)."
 # OAUTH-TOKENS-POPULATE-END
 exit 0

@@ -216,13 +216,34 @@ DEXEC_SCOPED=(docker exec -i \
 # '58' from '16:58') and produced 'Error: Proposal #58 not found'.
 # -----------------------------------------------------------------------
 ENV_FILE="${ENV_FILE:-.env}"
-PROPOSAL_NUM="$(grep -E '^CLAUDE_OAUTH_PROPOSAL_NUM=' "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2 | tr -dc '0-9')"
-if [[ -z "$PROPOSAL_NUM" ]]; then
-  PROPOSAL_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null \
-    | grep -F 'pending' | head -n1 | grep -oE '[0-9]+' | head -n1)"
-fi
-if [[ -z "$PROPOSAL_NUM" ]]; then
-  echo "agent-vault-approve-claude: no pending proposal found on vault '$VAULT' (broker '$CONTAINER')." >&2
+# PRIMARY (d8422606 identity pin): the create-time number footing/provision
+# persisted into .env. `|| true` tolerates a missing/unreadable .env so resolution
+# falls through to the pending-list fallback rather than exiting opaquely under
+# `set -e`/`pipefail` (a re-run from a directory without .env must not die here).
+PROPOSAL_NUM="$(grep -E '^CLAUDE_OAUTH_PROPOSAL_NUM=' "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2 | tr -dc '0-9' || true)"
+# FALLBACK: the leading "#" column of a PENDING data row (never the timestamp
+# tail). PENDING_NUM also tells us whether a pending CLAUDE_OAUTH proposal remains.
+PENDING_NUM="$("${DEXEC_SCOPED[@]}" agent-vault vault proposal list --status pending --vault "$VAULT" 2>/dev/null | grep -F 'pending' | head -n1 | grep -oE '[0-9]+' | head -n1 || true)"
+[[ -z "$PROPOSAL_NUM" ]] && PROPOSAL_NUM="$PENDING_NUM"
+
+# -----------------------------------------------------------------------
+# ENSURE the CLAUDE_OAUTH proposal/slot = CREATE-OR-REUSE (lead-m1dc / 220). A
+# re-run after a failed OR a successful prior attempt must complete cleanly
+# regardless of partial prior state: if a PENDING proposal exists, approve it
+# (creating the slot); if a prior run already ensured the slot (no pending
+# proposal but the CLAUDE_OAUTH slot already exists), REUSE it and skip the
+# approve rather than aborting because one already exists; only when neither a
+# pending proposal NOR an existing slot is found is provisioning genuinely
+# missing. The oauth/tokens writeback below then (re-)populates the slot, so the
+# end state is a populated, refreshing credential regardless of prior state.
+# -----------------------------------------------------------------------
+REUSE_SLOT=0
+if [[ -n "$PENDING_NUM" ]]; then
+  : # a pending CLAUDE_OAUTH proposal exists — approve it below to create the slot
+elif "${DEXEC_SCOPED[@]}" agent-vault vault proposal list --vault "$VAULT" 2>/dev/null | grep -qiF 'CLAUDE_OAUTH'; then
+  REUSE_SLOT=1 # prior run already ensured the slot — reuse it (idempotent re-run)
+else
+  echo "agent-vault-approve-claude: no pending CLAUDE_OAUTH proposal and no existing CLAUDE_OAUTH slot on vault '$VAULT' (broker '$CONTAINER')." >&2
   echo "  Create the CLAUDE_OAUTH proposal first:  bin/agent-vault-provision" >&2
   exit 1
 fi
@@ -233,13 +254,21 @@ fi
 # exists. NOTE (lead-al1r): for an oauth-typed credential this KEY=VALUE override
 # is SILENTLY DROPPED by the broker, so this step alone leaves the token material
 # NULL — the OAUTH-TOKENS-POPULATE step below is what actually lands the
-# refreshable token. The token rides the in-container argv ONLY; it is never
-# echoed to stdout/stderr nor written to any file.
+# refreshable token. On an idempotent re-run that reuses an already-ensured slot
+# the approve is skipped (the slot already exists; re-approving is rejected). The
+# token rides the in-container argv ONLY; it is never echoed nor written to a file.
 # -----------------------------------------------------------------------
-"${DEXEC_SCOPED[@]}" agent-vault vault proposal approve "$PROPOSAL_NUM" \
-  CLAUDE_OAUTH="$CLAUDE_OAUTH_VALUE" --yes --vault "$VAULT"
-
-echo "agent-vault-approve-claude: CLAUDE_OAUTH proposal approved for vault '$VAULT' (broker '$CONTAINER', proposal #$PROPOSAL_NUM)."
+if [[ "$REUSE_SLOT" -eq 0 ]]; then
+  if [[ -z "$PROPOSAL_NUM" ]]; then
+    echo "agent-vault-approve-claude: could not resolve the pending CLAUDE_OAUTH proposal number on vault '$VAULT' (broker '$CONTAINER')." >&2
+    exit 1
+  fi
+  "${DEXEC_SCOPED[@]}" agent-vault vault proposal approve "$PROPOSAL_NUM" \
+    CLAUDE_OAUTH="$CLAUDE_OAUTH_VALUE" --yes --vault "$VAULT"
+  echo "agent-vault-approve-claude: CLAUDE_OAUTH proposal approved for vault '$VAULT' (broker '$CONTAINER', proposal #$PROPOSAL_NUM)."
+else
+  echo "agent-vault-approve-claude: CLAUDE_OAUTH slot already ensured on vault '$VAULT' (broker '$CONTAINER') — reusing it (idempotent re-run), skipping proposal approve."
+fi
 
 # OAUTH-TOKENS-POPULATE-BEGIN
 # -----------------------------------------------------------------------

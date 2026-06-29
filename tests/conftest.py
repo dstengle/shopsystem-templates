@@ -26895,3 +26895,81 @@ def then_zero_partial_changes(context: dict) -> None:
         assert not r.posted_to("/v1/credentials/oauth/tokens"), (
             f"gap {label!r}: a token writeback was attempted; {r.curl_log!r}"
         )
+
+
+# ---- 220: idempotent re-run (ensure = create-or-reuse the proposal/slot) -----
+
+@given(
+    parsers.parse(
+        'a "lead" shop bootstrapped by "shop-templates" with the rendered ops '
+        'script "bin/agent-vault-approve-claude"'
+    )
+)
+def given_approve_claude_rendered_plain(context: dict) -> None:
+    context["m1dc_ready"] = True
+
+
+@given(
+    parsers.parse(
+        'a vault left in a partial state by a prior interrupted run — for example '
+        'a CLAUDE_OAUTH proposal/slot was already created but the "POST '
+        '/v1/credentials/oauth/tokens" token writeback never completed — or a '
+        'vault already carrying a fully populated CLAUDE_OAUTH credential from a '
+        'prior successful run'
+    )
+)
+def given_vault_partial_or_prior_state(context: dict) -> None:
+    # No PENDING proposal remains; the CLAUDE_OAUTH slot already exists (the
+    # shape both partial-prior and fully-populated-prior states share for the
+    # approve script's resolution).
+    context["m1dc_prior_state"] = dict(pending_proposal=False, slot_exists=True)
+
+
+@when(
+    parsers.parse(
+        'the operator re-runs "bin/agent-vault-approve-claude" with all required '
+        'inputs present'
+    )
+)
+def when_rerun_approve_claude_all_inputs(context: dict) -> None:
+    from _approve_claude_harness import run_approve_claude
+
+    context["m1dc_rerun"] = run_approve_claude(
+        access="acc-RERUN", refresh="ref-RERUN", **context["m1dc_prior_state"]
+    )
+
+
+@then(
+    parsers.parse(
+        'the re-run completes successfully rather than erroring on the '
+        'pre-existing partial or prior state — it ensures (creates-or-reuses) the '
+        'CLAUDE_OAUTH proposal/slot rather than aborting because one already exists'
+    )
+)
+def then_rerun_completes_reusing_slot(context: dict) -> None:
+    r = context["m1dc_rerun"]
+    assert r.returncode == 0, (
+        f"the re-run must complete cleanly on pre-existing state; stderr={r.stderr!r}"
+    )
+    assert not r.approved_a_proposal, (
+        f"ensure=create-or-reuse: the re-run must reuse the slot, not re-approve "
+        f"an already-approved proposal; mutations={r.mutation_log!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the end state after the re-run is a populated, refreshing CLAUDE_OAUTH '
+        'credential — non-empty token material, refresh token present, connected '
+        '— regardless of whatever partial state the prior attempt left behind'
+    )
+)
+def then_rerun_end_state_populated_refreshing(context: dict) -> None:
+    r = context["m1dc_rerun"]
+    body = r.post_body_to("/v1/credentials/oauth/tokens")
+    assert "acc-RERUN" in body and "ref-RERUN" in body, (
+        f"the writeback must carry non-empty access+refresh material; body={body!r}"
+    )
+    assert "refreshable" in r.stdout.lower(), (
+        f"the credential must be reported refreshable/connected; stdout={r.stdout!r}"
+    )

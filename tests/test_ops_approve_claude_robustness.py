@@ -88,3 +88,45 @@ def test_unreachable_endpoint_makes_zero_partial_changes():
     assert not r.made_any_mutating_call, (
         f"an unreachable endpoint must make zero mutating calls; mutations={r.mutation_log!r} curl={r.curl_log!r}"
     )
+
+
+# =====================================================================
+# 220 — idempotent re-run (ensure = create-or-reuse the proposal/slot)
+# =====================================================================
+
+
+def test_rerun_with_slot_already_ensured_completes_cleanly():
+    """A re-run after a prior attempt that already ensured the CLAUDE_OAUTH
+    proposal/slot (no PENDING proposal remains) must complete cleanly — reusing
+    the slot — rather than aborting because one already exists."""
+    r = run_approve_claude(pending_proposal=False, slot_exists=True)
+    assert r.returncode == 0, (
+        f"re-run on an already-ensured slot must complete cleanly; stderr={r.stderr!r}"
+    )
+
+
+def test_rerun_reuses_the_slot_instead_of_re_approving():
+    """ENSURE = create-or-reuse: with no pending proposal but the slot already
+    present, the re-run reuses it and does NOT re-run proposal approve (which a
+    real broker rejects for an already-approved proposal)."""
+    r = run_approve_claude(pending_proposal=False, slot_exists=True)
+    assert not r.approved_a_proposal, (
+        f"re-run must reuse the slot, not re-approve it; mutations={r.mutation_log!r}"
+    )
+
+
+def test_rerun_lands_populated_refreshing_credential():
+    """The end state after the re-run is a populated, refreshing credential: the
+    oauth/tokens writeback POSTs both tokens and succeeds (the broker validates
+    the refresh token against token_url before persisting, so a 2xx means
+    refreshable/connected)."""
+    r = run_approve_claude(pending_proposal=False, slot_exists=True,
+                           access="acc-RERUN", refresh="ref-RERUN")
+    assert r.returncode == 0
+    body = r.post_body_to("/v1/credentials/oauth/tokens")
+    assert "acc-RERUN" in body and "ref-RERUN" in body, (
+        f"the re-run must writeback non-empty access+refresh material; body={body!r}"
+    )
+    assert "refreshable" in r.stdout.lower(), (
+        f"the re-run must report the credential refreshable/connected; stdout={r.stdout!r}"
+    )

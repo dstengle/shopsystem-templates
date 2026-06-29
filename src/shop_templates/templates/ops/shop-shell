@@ -124,6 +124,24 @@ if [[ -n "$_CA_PEM_REL" ]]; then
   fi
 fi
 
+# Derive a non-empty, DB-reachable SHOPMSG_DSN for the launched lead-shell
+# session (lead-j8so, scenario a0342b1700fe27e7). The launched session's router
+# runs `shop-msg` against the product postgres on first use; without a populated
+# SHOPMSG_DSN that first invocation exits non-zero on an unset DSN, forcing the
+# operator to `export SHOPMSG_DSN=...` by hand. Like AGENT_VAULT_CA_PEM, this is
+# a RUNTIME-DERIVED value (computed here from the sourced ops-coordinates, not a
+# static line in .env), so it travels on the `-e SHOPMSG_DSN` PROCESS-ENV path
+# below — NOT the file-based --env-file path (ADR-045 precedent). The DSN is
+# DERIVED from the single ops-coordinates artifact's postgres coordinates
+# (OPS_POSTGRES_CONTAINER / OPS_POSTGRES_PORT, sourced above; scenario
+# 0a3a8267109b5792) and the slug-derived role/db/password the compose postgres
+# is provisioned with ($OPS_SLUG, env-overridable via POSTGRES_PASSWORD, matching
+# compose.yaml) — never an empty or placeholder address. An operator who has
+# already exported SHOPMSG_DSN wins via the parameter-default; otherwise it
+# defaults to the coordinate-derived value so the value reaching the launch is
+# always non-empty and points at the reachable product postgres.
+export SHOPMSG_DSN="${SHOPMSG_DSN:-postgresql://$OPS_SLUG:${POSTGRES_PASSWORD:-$OPS_SLUG}@$OPS_POSTGRES_CONTAINER:$OPS_POSTGRES_PORT/$OPS_SLUG}"
+
 # The lead session-start prompt the launched session runs — overriding the
 # bc-base default BC session-start so the launched lead session runs the lead
 # router session-start (prime, drain inbox, arm the watcher).
@@ -151,6 +169,7 @@ docker run --rm -it \
   --network "$OPS_NETWORK" \
   --env-file "$AGENT_VAULT_ENV_FILE" \
   -e AGENT_VAULT_CA_PEM \
+  -e SHOPMSG_DSN \
   --group-add "$SOCKET_GID" \
   -v "$REPO_ROOT:$REPO_ROOT" \
   -v /var/run/docker.sock:/var/run/docker.sock \
@@ -172,6 +191,7 @@ docker run --rm -it \
 exec docker run --rm -it \
   --network "$OPS_NETWORK" \
   -e AGENT_VAULT_CA_PEM \
+  -e SHOPMSG_DSN \
   --group-add "$SOCKET_GID" \
   -v "$REPO_ROOT:$REPO_ROOT" \
   -v /var/run/docker.sock:/var/run/docker.sock \

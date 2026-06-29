@@ -26316,3 +26316,184 @@ def then_override_precedence(ovar: str, oval: str, expected: str, context: dict)
         f"after exporting {ovar}={oval}, OPS_POSTGRES_PORT={values['OPS_POSTGRES_PORT']!r}, "
         f"expected {expected!r} (env override must win over the rendered default)"
     )
+
+
+# =====================================================================
+# bin/doctor operator diagnostic (lead-q3r1 / tmpl-e44).
+# Scenarios a6f8c0656a9e1cd9 (SHOPMSG_DSN/postgres), f55aa51f4bd138b3
+# (agent-vault broker / CA trust), 5cf88671d3fab25b (CLAUDE_OAUTH refreshable),
+# 027a4d836bb1ae43 (aggregate pass/fail + non-zero exit).
+#
+# The rendered bin/doctor is exercised OUT-OF-PROCESS against the worktree
+# src/ (the same hermetic PYTHONPATH convention test_ops_generification._bootstrap
+# uses) so the assertion reflects THIS branch's render. bin/doctor's external
+# probes resolve by NAME on PATH (psql, curl) and via jq; tests prepend a stub
+# dir carrying fake psql/curl whose pass/fail is driven by DOCTOR_TEST_* env so
+# each check's pass-session and fail-session are deterministic and hermetic
+# (no real postgres / broker / network).
+# =====================================================================
+
+_DOCTOR_FAKE_PSQL = """#!/usr/bin/env bash
+# Fake psql for doctor tests: success iff DOCTOR_TEST_PG_OK=1.
+[ "${DOCTOR_TEST_PG_OK:-0}" = "1" ] && exit 0
+exit 2
+"""
+
+_DOCTOR_FAKE_CURL = """#!/usr/bin/env bash
+# Fake curl for doctor tests. The doctor broker probe distinguishes reachability
+# (a `-k` insecure connect that ignores cert trust) from CA trust (a verifying
+# connect WITHOUT `-k`). This stub mirrors real curl exit semantics:
+#   broker down            -> 7  (couldn't connect) for either probe
+#   broker up, insecure    -> 0  (reachable)
+#   broker up, CA trusted  -> 0  (verified)
+#   broker up, CA untrusted-> 60 (SSL certificate problem)
+insecure=0
+for a in "$@"; do [ "$a" = "-k" ] && insecure=1; done
+if [ "${DOCTOR_TEST_BROKER_UP:-0}" != "1" ]; then exit 7; fi
+if [ "$insecure" = "1" ]; then exit 0; fi
+[ "${DOCTOR_TEST_CA_TRUSTED:-0}" = "1" ] && exit 0
+exit 60
+"""
+
+
+def _doctor_run(target, env_overrides=None):
+    """Run the rendered bin/doctor in `target` with fake psql/curl on PATH and
+    the supplied DOCTOR_TEST_*/SHOPMSG_DSN/CLAUDE_OAUTH env. Returns the
+    CompletedProcess (stdout/stderr/returncode)."""
+    import os
+    import stat as _stat
+    import subprocess
+    import tempfile
+
+    stubdir = Path(tempfile.mkdtemp(prefix="doctor_stub_"))
+    for name, body in (("psql", _DOCTOR_FAKE_PSQL), ("curl", _DOCTOR_FAKE_CURL)):
+        p = stubdir / name
+        p.write_text(body)
+        p.chmod(p.stat().st_mode | _stat.S_IXUSR | _stat.S_IXGRP | _stat.S_IXOTH)
+
+    env = dict(os.environ)
+    # Start from a clean slate so the host's own credentials never leak in.
+    env.pop("SHOPMSG_DSN", None)
+    env.pop("CLAUDE_OAUTH", None)
+    env["PATH"] = str(stubdir) + os.pathsep + env.get("PATH", "")
+    if env_overrides:
+        env.update({k: str(v) for k, v in env_overrides.items()})
+
+    return subprocess.run(
+        ["bash", str(target / "bin" / "doctor")],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(target),
+        timeout=60,
+    )
+
+
+def _doctor_check_line(stdout: str, name: str) -> str:
+    """Return the single named CHECK line (the one that opens with the explicit
+    [PASS]/[FAIL] status token), distinct from the aggregate-diagnosis line that
+    may also mention the check name when it failed."""
+    cands = [
+        l
+        for l in stdout.splitlines()
+        if name in l and (l.lstrip().startswith("[PASS]") or l.lstrip().startswith("[FAIL]"))
+    ]
+    assert cands, f"no [PASS]/[FAIL] check line named {name!r} in doctor stdout:\n{stdout}"
+    assert len(cands) == 1, f"expected exactly one check line named {name!r}; got {cands!r}"
+    return cands[0]
+
+
+def _doctor_status(line: str) -> str:
+    """'pass' or 'fail' from a check line's explicit status token."""
+    s = line.lstrip()
+    if s.startswith("[PASS]"):
+        return "pass"
+    if s.startswith("[FAIL]"):
+        return "fail"
+    raise AssertionError(f"check line carries no explicit [PASS]/[FAIL] status: {line!r}")
+
+
+_DOCTOR_DSN = "postgresql://postgres:postgres@localhost:5432/doctor_probe"
+
+
+@given(
+    'a "lead" shop bootstrapped by "shop-templates" with the rendered ops command "bin/doctor"'
+)
+def given_lead_shop_with_doctor(context: dict, tmp_path) -> None:
+    from test_ops_generification import _bootstrap
+
+    target = _bootstrap(tmp_path, "shopsystem-product")
+    doctor = target / "bin" / "doctor"
+    assert doctor.is_file(), (
+        "bootstrap must render the bin/doctor ops command for a lead shop"
+    )
+    import stat as _stat
+
+    assert doctor.stat().st_mode & _stat.S_IXUSR, "bin/doctor must be owner-executable"
+    context["doctor_target"] = target
+
+
+# -- Scenario a6f8c0656a9e1cd9 — SHOPMSG_DSN / postgres -----------------------
+
+_DOCTOR_PG_NAME = "SHOPMSG_DSN / postgres"
+
+
+@when(
+    'the operator runs "bin/doctor" in a session whose "SHOPMSG_DSN" is set and whose product postgres is reachable at that DSN'
+)
+def when_doctor_pg_pass_session(context: dict) -> None:
+    context["doctor_pg_pass"] = _doctor_run(
+        context["doctor_target"],
+        env_overrides={"SHOPMSG_DSN": _DOCTOR_DSN, "DOCTOR_TEST_PG_OK": "1"},
+    )
+
+
+@then(
+    '"bin/doctor" emits a check line named for the messaging-DB connection (a "SHOPMSG_DSN / postgres" check) whose status is an explicit pass'
+)
+def then_doctor_pg_pass(context: dict) -> None:
+    line = _doctor_check_line(context["doctor_pg_pass"].stdout, _DOCTOR_PG_NAME)
+    assert _doctor_status(line) == "pass", f"expected an explicit PASS; got: {line!r}"
+
+
+@then(
+    'the same check, run in a session where "SHOPMSG_DSN" is unset or points at a postgres that is not reachable, emits that same named check line whose status is an explicit fail'
+)
+def then_doctor_pg_fail(context: dict) -> None:
+    # Unset SHOPMSG_DSN -> fail.
+    unset = _doctor_run(context["doctor_target"], env_overrides={"DOCTOR_TEST_PG_OK": "1"})
+    line_unset = _doctor_check_line(unset.stdout, _DOCTOR_PG_NAME)
+    assert _doctor_status(line_unset) == "fail", (
+        f"unset SHOPMSG_DSN must FAIL the check; got: {line_unset!r}"
+    )
+    # Set but unreachable postgres -> fail.
+    unreachable = _doctor_run(
+        context["doctor_target"],
+        env_overrides={"SHOPMSG_DSN": _DOCTOR_DSN, "DOCTOR_TEST_PG_OK": "0"},
+    )
+    line_unreachable = _doctor_check_line(unreachable.stdout, _DOCTOR_PG_NAME)
+    assert _doctor_status(line_unreachable) == "fail", (
+        f"set-but-unreachable SHOPMSG_DSN must FAIL the check; got: {line_unreachable!r}"
+    )
+    context["doctor_pg_fail"] = unreachable
+    context["doctor_pg_fail_unset"] = unset
+
+
+@then(
+    'the fail line carries a remediation hint naming the corrective action (set "SHOPMSG_DSN" / bring up the product postgres) rather than only reporting that the check failed'
+)
+def then_doctor_pg_fail_hint(context: dict) -> None:
+    # The unset-cause fail names "set SHOPMSG_DSN"; the unreachable-cause fail
+    # names "bring up the product postgres". Each carries an explicit `hint:`.
+    unset_line = _doctor_check_line(context["doctor_pg_fail_unset"].stdout, _DOCTOR_PG_NAME)
+    assert "hint:" in unset_line.lower(), f"fail line lacks a remediation hint: {unset_line!r}"
+    assert "shopmsg_dsn" in unset_line.lower() and "set" in unset_line.lower(), (
+        f"unset-cause hint must name the corrective action (set SHOPMSG_DSN): {unset_line!r}"
+    )
+    unreachable_line = _doctor_check_line(context["doctor_pg_fail"].stdout, _DOCTOR_PG_NAME)
+    assert "hint:" in unreachable_line.lower(), (
+        f"fail line lacks a remediation hint: {unreachable_line!r}"
+    )
+    assert "postgres" in unreachable_line.lower(), (
+        f"unreachable-cause hint must name bringing up the product postgres: {unreachable_line!r}"
+    )

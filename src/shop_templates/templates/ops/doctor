@@ -147,14 +147,28 @@ check_claude_oauth() {
   return 0
 }
 
+# -- Aggregate diagnosis (027a4d836bb1ae43) ---------------------------------
+# Run every check, then print ONE aggregate verdict DERIVED from the individual
+# results: overall pass requires EVERY check to have passed (FAILED_CHECKS empty);
+# any single failed check forces overall fail, names which check(s) failed, and
+# drives a non-zero exit. The operator gets one clear pass/fail verdict without
+# ad-hoc diagnosing.
 main() {
   check_shopmsg_dsn
   check_agent_vault
   check_claude_oauth
 
   if (( ${#FAILED_CHECKS[@]} == 0 )); then
+    printf 'doctor: aggregate diagnosis — overall %s (all checks passed)\n' "$_PASS"
     exit 0
   fi
+
+  # Join the failed-check names with ", " for the verdict line.
+  local joined="" c
+  for c in "${FAILED_CHECKS[@]}"; do
+    if [[ -z "$joined" ]]; then joined="$c"; else joined="$joined, $c"; fi
+  done
+  printf 'doctor: aggregate diagnosis — overall %s (failed checks: %s)\n' "$_FAIL" "$joined"
   exit 1
 }
 

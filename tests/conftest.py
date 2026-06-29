@@ -26497,3 +26497,90 @@ def then_doctor_pg_fail_hint(context: dict) -> None:
     assert "postgres" in unreachable_line.lower(), (
         f"unreachable-cause hint must name bringing up the product postgres: {unreachable_line!r}"
     )
+
+
+# -- Scenario f55aa51f4bd138b3 — agent-vault broker / CA trust ----------------
+
+_DOCTOR_BROKER_NAME = "agent-vault broker / CA trust"
+_DOCTOR_BROKER_URL = "https://shopsystem-agent-vault:14322/"
+
+
+@when(
+    'the operator runs "bin/doctor" in a session whose agent-vault broker is reachable and whose broker CA is trusted by the leaf trust store'
+)
+def when_doctor_broker_pass_session(context: dict) -> None:
+    context["doctor_broker_pass"] = _doctor_run(
+        context["doctor_target"],
+        env_overrides={
+            "DOCTOR_BROKER_URL": _DOCTOR_BROKER_URL,
+            "DOCTOR_TEST_BROKER_UP": "1",
+            "DOCTOR_TEST_CA_TRUSTED": "1",
+        },
+    )
+
+
+@then(
+    '"bin/doctor" emits a check line named for the agent-vault broker connection (a "agent-vault broker / CA trust" check) whose status is an explicit pass'
+)
+def then_doctor_broker_pass(context: dict) -> None:
+    line = _doctor_check_line(context["doctor_broker_pass"].stdout, _DOCTOR_BROKER_NAME)
+    assert _doctor_status(line) == "pass", f"expected an explicit PASS; got: {line!r}"
+
+
+@then(
+    'the same check, run in a session where the broker is unreachable or the broker CA is not trusted by the leaf, emits that same named check line whose status is an explicit fail'
+)
+def then_doctor_broker_fail(context: dict) -> None:
+    # Broker unreachable -> fail.
+    unreachable = _doctor_run(
+        context["doctor_target"],
+        env_overrides={"DOCTOR_BROKER_URL": _DOCTOR_BROKER_URL, "DOCTOR_TEST_BROKER_UP": "0"},
+    )
+    line_unreachable = _doctor_check_line(unreachable.stdout, _DOCTOR_BROKER_NAME)
+    assert _doctor_status(line_unreachable) == "fail", (
+        f"unreachable broker must FAIL the check; got: {line_unreachable!r}"
+    )
+    # Broker reachable but CA untrusted -> fail.
+    untrusted = _doctor_run(
+        context["doctor_target"],
+        env_overrides={
+            "DOCTOR_BROKER_URL": _DOCTOR_BROKER_URL,
+            "DOCTOR_TEST_BROKER_UP": "1",
+            "DOCTOR_TEST_CA_TRUSTED": "0",
+        },
+    )
+    line_untrusted = _doctor_check_line(untrusted.stdout, _DOCTOR_BROKER_NAME)
+    assert _doctor_status(line_untrusted) == "fail", (
+        f"untrusted broker CA must FAIL the check; got: {line_untrusted!r}"
+    )
+    context["doctor_broker_fail_unreachable"] = unreachable
+    context["doctor_broker_fail_untrusted"] = untrusted
+
+
+@then(
+    'the fail line distinguishes the unreachable-broker cause from the untrusted-CA cause and carries a remediation hint naming the corrective action rather than only reporting that the check failed'
+)
+def then_doctor_broker_fail_distinguishes(context: dict) -> None:
+    unreachable_line = _doctor_check_line(
+        context["doctor_broker_fail_unreachable"].stdout, _DOCTOR_BROKER_NAME
+    ).lower()
+    untrusted_line = _doctor_check_line(
+        context["doctor_broker_fail_untrusted"].stdout, _DOCTOR_BROKER_NAME
+    ).lower()
+    # Both carry a remediation hint.
+    assert "hint:" in unreachable_line, f"unreachable fail line lacks a hint: {unreachable_line!r}"
+    assert "hint:" in untrusted_line, f"untrusted fail line lacks a hint: {untrusted_line!r}"
+    # The two causes are DISTINGUISHED — the unreachable line names unreachability;
+    # the untrusted line names the CA/trust cause; and they are not identical.
+    assert "unreachable" in unreachable_line, (
+        f"unreachable-broker fail must name the unreachable cause: {unreachable_line!r}"
+    )
+    assert ("ca" in untrusted_line or "trust" in untrusted_line), (
+        f"untrusted-CA fail must name the CA/trust cause: {untrusted_line!r}"
+    )
+    assert "unreachable" not in untrusted_line, (
+        f"untrusted-CA fail must NOT be reported as unreachable: {untrusted_line!r}"
+    )
+    assert unreachable_line != untrusted_line, (
+        "the two fail causes must be distinguished, not the same generic line"
+    )

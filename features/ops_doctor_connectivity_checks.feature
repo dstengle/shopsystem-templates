@@ -7,3 +7,11 @@ Feature: rendered bin/doctor operator diagnostic (lead shop, lead-q3r1) — the 
     Then "bin/doctor" emits a check line named for the messaging-DB connection (a "SHOPMSG_DSN / postgres" check) whose status is an explicit pass
     And the same check, run in a session where "SHOPMSG_DSN" is unset or points at a postgres that is not reachable, emits that same named check line whose status is an explicit fail
     And the fail line carries a remediation hint naming the corrective action (set "SHOPMSG_DSN" / bring up the product postgres) rather than only reporting that the check failed
+
+  @scenario_hash:f55aa51f4bd138b3 @bc:shopsystem-templates
+  Scenario: the rendered "bin/doctor" credential check for agent-vault asserts the broker is reachable and its CA is trusted by the leaf, reporting a named pass/fail line with a remediation hint on failure
+    Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops command "bin/doctor"
+    When the operator runs "bin/doctor" in a session whose agent-vault broker is reachable and whose broker CA is trusted by the leaf trust store
+    Then "bin/doctor" emits a check line named for the agent-vault broker connection (a "agent-vault broker / CA trust" check) whose status is an explicit pass
+    And the same check, run in a session where the broker is unreachable or the broker CA is not trusted by the leaf, emits that same named check line whose status is an explicit fail
+    And the fail line distinguishes the unreachable-broker cause from the untrusted-CA cause and carries a remediation hint naming the corrective action rather than only reporting that the check failed

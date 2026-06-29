@@ -26773,3 +26773,125 @@ def then_doctor_aggregate_derived(context: dict) -> None:
         # The named failed check actually carries a [FAIL] line (derivation, not
         # an independently computed verdict).
         assert _doctor_status(_doctor_check_line(proc.stdout, failing)) == "fail"
+
+
+# =====================================================================
+# lead-m1dc robustness pins for the rendered bin/agent-vault-approve-claude:
+# 219 precondition-gate + zero-partial-state, 220 idempotent re-run, 221
+# supported token-update re-POST. The Then steps run the RENDERED script
+# out-of-process under PATH-stubbed docker/curl (tests/_approve_claude_harness)
+# and assert over the control flow it exercises.
+# =====================================================================
+
+
+# ---- 219: precondition gate (verify-all-before-mutate) + zero partial state -
+
+@given(
+    parsers.parse(
+        'a "lead" shop bootstrapped by "shop-templates" with the rendered ops '
+        'script "bin/agent-vault-approve-claude" whose token-seed path resolves '
+        'the ops-coordinates, performs an owner "POST /v1/auth/login", ensures '
+        'the CLAUDE_OAUTH proposal/slot, and performs "POST '
+        '/v1/credentials/oauth/tokens" with the access and refresh tokens'
+    )
+)
+def given_approve_claude_token_seed_path(context: dict) -> None:
+    context["m1dc_ready"] = True
+
+
+@when(
+    parsers.parse(
+        'the operator runs "bin/agent-vault-approve-claude" in a session missing '
+        'one or more required inputs — the Claude credential/token source, the '
+        'owner login credentials, the broker address, or the resolvable '
+        'ops-coordinates — or where a required broker endpoint is unreachable'
+    )
+)
+def when_run_approve_claude_missing_preconditions(context: dict) -> None:
+    from _approve_claude_harness import run_approve_claude
+
+    # One run per required-input / reachability gap the precondition set covers,
+    # each paired with the diagnostic substring it must name.
+    context["m1dc_gap_runs"] = {
+        "owner login credentials": (
+            run_approve_claude(owner_password=None),
+            "AGENT_VAULT_OWNER_PASSWORD",
+        ),
+        "Claude credential/token source": (
+            run_approve_claude(creds_file_missing=True),
+            "agent-vault-approve-claude",
+        ),
+        "refresh token (single token cannot refresh)": (
+            run_approve_claude(access="acc-only", refresh=""),
+            "refresh",
+        ),
+        "resolvable ops-coordinates": (
+            run_approve_claude(ops_coordinates_ok=False),
+            "OPS_",
+        ),
+        "broker reachability": (
+            run_approve_claude(broker_up=False),
+            "broker",
+        ),
+        "endpoint reachability": (
+            run_approve_claude(endpoints_reachable=False),
+            "reach",
+        ),
+    }
+    # Positive control: with every input present and reachable the gate lets the
+    # run through (so the gate fails CLOSED on gaps, not on the happy path).
+    context["m1dc_happy"] = run_approve_claude()
+
+
+@then(
+    parsers.parse(
+        '"bin/agent-vault-approve-claude" verifies every required input is '
+        'present and every endpoint it will call is reachable BEFORE performing '
+        'any mutating step (before the owner login, before ensuring the '
+        'proposal/slot, before the oauth/tokens writeback)'
+    )
+)
+def then_verifies_before_any_mutating_step(context: dict) -> None:
+    for label, (r, _diag) in context["m1dc_gap_runs"].items():
+        assert not r.made_any_mutating_call, (
+            f"gap {label!r}: a mutating step ran before the gate caught the gap.\n"
+            f"mutations={r.mutation_log!r}\ncurl={r.curl_log!r}"
+        )
+    happy = context["m1dc_happy"]
+    assert happy.returncode == 0 and happy.made_any_mutating_call, (
+        f"the gate must let the all-present happy path through; stderr={happy.stderr!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'on any missing input or unreachable endpoint it exits non-zero with a '
+        'clear, actionable diagnostic naming the specific missing precondition, '
+        'rather than failing partway through with an opaque message that tells '
+        'the operator only to retry'
+    )
+)
+def then_exits_nonzero_naming_the_precondition(context: dict) -> None:
+    for label, (r, diag) in context["m1dc_gap_runs"].items():
+        assert r.returncode != 0, f"gap {label!r} must exit non-zero"
+        assert diag in r.stderr, (
+            f"gap {label!r}: diagnostic must name the precondition (expected "
+            f"{diag!r}); stderr={r.stderr!r}"
+        )
+
+
+@then(
+    parsers.parse(
+        'it makes ZERO partial changes when a precondition fails — no '
+        'proposal/slot is created or mutated and no token writeback is '
+        'attempted — so the vault is left in exactly its pre-run state'
+    )
+)
+def then_zero_partial_changes(context: dict) -> None:
+    for label, (r, _diag) in context["m1dc_gap_runs"].items():
+        assert not r.approved_a_proposal, (
+            f"gap {label!r}: a proposal/slot was created or mutated; {r.mutation_log!r}"
+        )
+        assert not r.posted_to("/v1/credentials/oauth/tokens"), (
+            f"gap {label!r}: a token writeback was attempted; {r.curl_log!r}"
+        )

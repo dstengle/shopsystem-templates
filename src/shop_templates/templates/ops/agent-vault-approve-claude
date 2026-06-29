@@ -55,8 +55,20 @@ set -euo pipefail
 
 # Source the single ops-coordinates artifact (ADR-043 Phase 1) — the broker
 # container, vault name, and addresses come from OPS_* defined there; this script
-# re-derives none of them.
+# re-derives none of them. The artifact must be present/readable; surface a clear
+# diagnostic (not a bare `source` failure) when it is not — the precondition gate
+# below then names any coordinate the artifact fails to define.
+if [[ ! -r "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates" ]]; then
+  echo "agent-vault-approve-claude: cannot source the ops-coordinates artifact at" \
+       "'$(dirname "${BASH_SOURCE[0]}")/ops-coordinates' — it must be present and readable." >&2
+  exit 1
+fi
 source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"
+# Tolerate an unresolvable ops-coordinates: default every coordinate the gate
+# checks to empty so a missing definition is NAMED by the precondition gate below
+# rather than tripping `set -u` mid-script (which would exit opaquely).
+: "${OPS_SLUG:=}" "${OPS_AGENT_VAULT_CONTAINER:=}" "${OPS_VAULT_NAME:=}" \
+  "${OPS_BROKER_LOCAL_ADDR:=}" "${OPS_AGENT_VAULT_ADDR:=}" "${OPS_BROKER_ADDR:=}"
 
 # -----------------------------------------------------------------------
 # Broker coordinates — referenced from the sourced ops-coordinates artifact, so
@@ -108,12 +120,69 @@ else
   fi
 fi
 
-# Fail fast if the compose-defined broker is not up.
+# Owner-login + oauth-tokens-populate coordinates, resolved up-front so the
+# precondition gate can verify them BEFORE any mutating step (the populate block
+# below re-derives the same values so it remains self-contained).
+BROKER_ADDR="${AGENT_VAULT_ADDR:-$OPS_AGENT_VAULT_ADDR}"
+BROKER_ADDR="${BROKER_ADDR%/}"
+OWNER_EMAIL="${AGENT_VAULT_OWNER_EMAIL:-owner@${OPS_SLUG}.local}"
+OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-}"
+
+# =======================================================================
+# PRECONDITION GATE (full-process-or-zero-partial-state, lead-m1dc / 219).
+# Verify EVERY required input and endpoint reachability BEFORE any mutating step
+# — before the owner login, before ensuring/approving the proposal-slot, and
+# before the oauth/tokens writeback. On ANY gap, exit non-zero NAMING the
+# specific missing precondition and make ZERO partial changes (no proposal/slot
+# create-or-mutate, no token writeback) — the vault is left exactly as found.
+# The v0.47.0 login path added an owner-credential requirement the predecessor
+# proposal-approve path never needed; checking it AFTER the approve (as the
+# unfixed flow did) breaks AFTER the slot was ensured, leaving partial state.
+# =======================================================================
+_MISSING=()
+# (1) Resolvable ops-coordinates — the sourced artifact must define the
+#     coordinates every downstream step needs.
+[[ -n "$OPS_SLUG" ]]                  || _MISSING+=("resolvable ops-coordinates: OPS_SLUG is unset (bin/ops-coordinates did not source cleanly)")
+[[ -n "$OPS_AGENT_VAULT_CONTAINER" ]] || _MISSING+=("resolvable ops-coordinates: OPS_AGENT_VAULT_CONTAINER is unset")
+[[ -n "$OPS_VAULT_NAME" ]]            || _MISSING+=("resolvable ops-coordinates: OPS_VAULT_NAME is unset")
+[[ -n "$OPS_BROKER_LOCAL_ADDR" ]]     || _MISSING+=("resolvable ops-coordinates: OPS_BROKER_LOCAL_ADDR is unset")
+# (2) Claude credential/token source — access AND refresh (a single token cannot
+#     refresh; lead-pdsd I1).
+[[ -n "$ACCESS_TOKEN" ]]  || _MISSING+=("Claude credential/token source: no access token in '$CRED_FILE' (set CLAUDE_CREDENTIALS_FILE, log in with the Claude CLI, or pass a JSON positional override)")
+[[ -n "$REFRESH_TOKEN" ]] || _MISSING+=("Claude credential/token source: no refresh token — CLAUDE_OAUTH is a refreshing credential and a single token cannot refresh")
+# (3) Owner login credentials — the v0.47.0 oauth/tokens populate path needs an
+#     OWNER (member-role) login; the vault-scoped av_sess_ Bearer is rejected
+#     "Member role required" (agent-vault-broker/13: lead-driveable env input).
+[[ -n "$OWNER_PASSWORD" ]] || _MISSING+=("owner login credentials: AGENT_VAULT_OWNER_PASSWORD is not set (required for POST /v1/auth/login; the scoped av_sess_ Bearer is rejected 'Member role required')")
+# (4) Broker address.
+[[ -n "$BROKER_ADDR" ]] || _MISSING+=("broker address: neither AGENT_VAULT_ADDR nor OPS_AGENT_VAULT_ADDR is set")
+if (( ${#_MISSING[@]} > 0 )); then
+  echo "agent-vault-approve-claude: missing required precondition(s) — refusing to make ANY change; the vault is left in its pre-run state:" >&2
+  for _m in "${_MISSING[@]}"; do echo "  - $_m" >&2; done
+  exit 1
+fi
+
+# (5) Broker reachability — the broker container must be up and the endpoints this
+#     script will call must be reachable, verified BEFORE any mutating step. The
+#     HEAD probes are non-mutating (no login, no writeback).
 if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-  echo "agent-vault-approve-claude: broker container '$CONTAINER' is not running." >&2
+  echo "agent-vault-approve-claude: broker container '$CONTAINER' is not running — refusing to make ANY change." >&2
   echo "  Bring it up first:  docker compose -f compose.yaml up -d agent-vault" >&2
   exit 1
 fi
+_UNREACHABLE=()
+for _ep in /v1/auth/login /v1/credentials/oauth/tokens; do
+  if ! curl -sS -o /dev/null --max-time 10 -I "$BROKER_ADDR$_ep" >/dev/null 2>&1; then
+    _UNREACHABLE+=("$BROKER_ADDR$_ep")
+  fi
+done
+if (( ${#_UNREACHABLE[@]} > 0 )); then
+  echo "agent-vault-approve-claude: required broker endpoint(s) unreachable — refusing to make ANY change:" >&2
+  for _u in "${_UNREACHABLE[@]}"; do echo "  - $_u" >&2; done
+  echo "  Check the broker is up and reachable at AGENT_VAULT_ADDR ('$BROKER_ADDR')." >&2
+  exit 1
+fi
+# ===================== END PRECONDITION GATE ===========================
 
 # Every CLI verb runs inside the broker container via this exec prefix.
 DEXEC=(docker exec -i "$CONTAINER")

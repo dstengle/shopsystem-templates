@@ -121,9 +121,36 @@ check_agent_vault() {
   return 0
 }
 
+# -- Check 3: CLAUDE_OAUTH refreshable/connected (5cf88671d3fab25b) ----------
+# Pass iff CLAUDE_OAUTH is present AND in a refreshable/connected state. The
+# credential value is the oauth JSON object bin/agent-vault-approve-claude
+# populates; a populated, non-empty refresh token is what makes it refreshable
+# by construction (lead-al1r), so an absent/empty value or a value carrying no
+# refresh token FAILS, with a hint to re-run the approve-claude provisioning.
+check_claude_oauth() {
+  local name="CLAUDE_OAUTH"
+  local hint="re-run the approve-claude provisioning (bin/agent-vault-approve-claude) to restore a non-empty refreshable credential"
+  local val="${CLAUDE_OAUTH:-}"
+  if [[ -z "$val" ]]; then
+    emit_fail "$name" "CLAUDE_OAUTH is absent or empty" "$hint"
+    return 1
+  fi
+  local refresh
+  refresh="$(printf '%s' "$val" | "$DOCTOR_JQ" -r '(.refresh_token // .refreshToken) // empty' 2>/dev/null || true)"
+  if [[ -z "$refresh" ]]; then
+    emit_fail "$name" \
+      "CLAUDE_OAUTH is present but not in a refreshable/connected state (no refresh token)" \
+      "$hint"
+    return 1
+  fi
+  emit_pass "$name" "CLAUDE_OAUTH is present and in a refreshable, connected state"
+  return 0
+}
+
 main() {
   check_shopmsg_dsn
   check_agent_vault
+  check_claude_oauth
 
   if (( ${#FAILED_CHECKS[@]} == 0 )); then
     exit 0

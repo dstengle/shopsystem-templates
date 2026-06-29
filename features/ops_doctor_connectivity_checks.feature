@@ -15,3 +15,11 @@ Feature: rendered bin/doctor operator diagnostic (lead shop, lead-q3r1) — the 
     Then "bin/doctor" emits a check line named for the agent-vault broker connection (a "agent-vault broker / CA trust" check) whose status is an explicit pass
     And the same check, run in a session where the broker is unreachable or the broker CA is not trusted by the leaf, emits that same named check line whose status is an explicit fail
     And the fail line distinguishes the unreachable-broker cause from the untrusted-CA cause and carries a remediation hint naming the corrective action rather than only reporting that the check failed
+
+  @scenario_hash:5cf88671d3fab25b @bc:shopsystem-templates
+  Scenario: the rendered "bin/doctor" credential check for Claude asserts CLAUDE_OAUTH is present and in a refreshable/connected state, reporting a named pass/fail line with a remediation hint on failure
+    Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops command "bin/doctor"
+    When the operator runs "bin/doctor" in a session whose "CLAUDE_OAUTH" credential is present and in a refreshable, connected state
+    Then "bin/doctor" emits a check line named for the Claude credential (a "CLAUDE_OAUTH" check) whose status is an explicit pass
+    And the same check, run in a session where "CLAUDE_OAUTH" is absent, empty, or in a non-refreshable/disconnected state, emits that same named check line whose status is an explicit fail
+    And the fail line carries a remediation hint naming the corrective action (re-run the approve-claude provisioning to restore a non-empty refreshable credential) rather than only reporting that the check failed

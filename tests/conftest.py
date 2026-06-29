@@ -26584,3 +26584,75 @@ def then_doctor_broker_fail_distinguishes(context: dict) -> None:
     assert unreachable_line != untrusted_line, (
         "the two fail causes must be distinguished, not the same generic line"
     )
+
+
+# -- Scenario 5cf88671d3fab25b — CLAUDE_OAUTH refreshable/connected -----------
+
+_DOCTOR_OAUTH_NAME = "CLAUDE_OAUTH"
+# A refreshable/connected oauth credential carries a non-empty refresh token
+# (per lead-al1r, a populated refresh token is what makes the credential
+# refreshable by construction).
+_DOCTOR_OAUTH_REFRESHABLE = (
+    '{"access_token":"sk-ant-oat-AAA","refresh_token":"sk-ant-ort-BBB","expires_at":9999999999}'
+)
+# Present but NOT refreshable: no refresh token.
+_DOCTOR_OAUTH_NON_REFRESHABLE = '{"access_token":"sk-ant-oat-AAA","expires_at":9999999999}'
+
+
+@when(
+    'the operator runs "bin/doctor" in a session whose "CLAUDE_OAUTH" credential is present and in a refreshable, connected state'
+)
+def when_doctor_oauth_pass_session(context: dict) -> None:
+    context["doctor_oauth_pass"] = _doctor_run(
+        context["doctor_target"],
+        env_overrides={"CLAUDE_OAUTH": _DOCTOR_OAUTH_REFRESHABLE},
+    )
+
+
+@then(
+    '"bin/doctor" emits a check line named for the Claude credential (a "CLAUDE_OAUTH" check) whose status is an explicit pass'
+)
+def then_doctor_oauth_pass(context: dict) -> None:
+    line = _doctor_check_line(context["doctor_oauth_pass"].stdout, _DOCTOR_OAUTH_NAME)
+    assert _doctor_status(line) == "pass", f"expected an explicit PASS; got: {line!r}"
+
+
+@then(
+    'the same check, run in a session where "CLAUDE_OAUTH" is absent, empty, or in a non-refreshable/disconnected state, emits that same named check line whose status is an explicit fail'
+)
+def then_doctor_oauth_fail(context: dict) -> None:
+    # Absent CLAUDE_OAUTH -> fail (env_overrides omits it; _doctor_run unsets it).
+    absent = _doctor_run(context["doctor_target"], env_overrides={})
+    line_absent = _doctor_check_line(absent.stdout, _DOCTOR_OAUTH_NAME)
+    assert _doctor_status(line_absent) == "fail", (
+        f"absent CLAUDE_OAUTH must FAIL the check; got: {line_absent!r}"
+    )
+    # Empty CLAUDE_OAUTH -> fail.
+    empty = _doctor_run(context["doctor_target"], env_overrides={"CLAUDE_OAUTH": ""})
+    line_empty = _doctor_check_line(empty.stdout, _DOCTOR_OAUTH_NAME)
+    assert _doctor_status(line_empty) == "fail", (
+        f"empty CLAUDE_OAUTH must FAIL the check; got: {line_empty!r}"
+    )
+    # Present but non-refreshable (no refresh token) -> fail.
+    non_refreshable = _doctor_run(
+        context["doctor_target"], env_overrides={"CLAUDE_OAUTH": _DOCTOR_OAUTH_NON_REFRESHABLE}
+    )
+    line_nonref = _doctor_check_line(non_refreshable.stdout, _DOCTOR_OAUTH_NAME)
+    assert _doctor_status(line_nonref) == "fail", (
+        f"non-refreshable CLAUDE_OAUTH must FAIL the check; got: {line_nonref!r}"
+    )
+    context["doctor_oauth_fail"] = absent
+
+
+@then(
+    'the fail line carries a remediation hint naming the corrective action (re-run the approve-claude provisioning to restore a non-empty refreshable credential) rather than only reporting that the check failed'
+)
+def then_doctor_oauth_fail_hint(context: dict) -> None:
+    line = _doctor_check_line(context["doctor_oauth_fail"].stdout, _DOCTOR_OAUTH_NAME).lower()
+    assert "hint:" in line, f"fail line lacks a remediation hint: {line!r}"
+    assert "approve-claude" in line, (
+        f"hint must name re-running the approve-claude provisioning: {line!r}"
+    )
+    assert "refreshable" in line, (
+        f"hint must name restoring a refreshable credential: {line!r}"
+    )

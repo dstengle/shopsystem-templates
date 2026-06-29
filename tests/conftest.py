@@ -26656,3 +26656,120 @@ def then_doctor_oauth_fail_hint(context: dict) -> None:
     assert "refreshable" in line, (
         f"hint must name restoring a refreshable credential: {line!r}"
     )
+
+
+# -- Scenario 027a4d836bb1ae43 — aggregate pass/fail + non-zero exit ----------
+
+_DOCTOR_ALL_CHECK_NAMES = (
+    "SHOPMSG_DSN / postgres",
+    "agent-vault broker / CA trust",
+    "CLAUDE_OAUTH",
+)
+
+# An all-pass session: every individual check's inputs are configured to pass.
+_DOCTOR_ALL_PASS_ENV = {
+    "SHOPMSG_DSN": _DOCTOR_DSN,
+    "DOCTOR_TEST_PG_OK": "1",
+    "DOCTOR_BROKER_URL": _DOCTOR_BROKER_URL,
+    "DOCTOR_TEST_BROKER_UP": "1",
+    "DOCTOR_TEST_CA_TRUSTED": "1",
+    "CLAUDE_OAUTH": _DOCTOR_OAUTH_REFRESHABLE,
+}
+
+
+def _doctor_aggregate_line(stdout: str) -> str:
+    cands = [l for l in stdout.splitlines() if "aggregate diagnosis" in l and "overall" in l]
+    assert cands, f"no aggregate-diagnosis line in doctor stdout:\n{stdout}"
+    assert len(cands) == 1, f"expected exactly one aggregate line; got {cands!r}"
+    return cands[0]
+
+
+@given(
+    'a "lead" shop bootstrapped by "shop-templates" with the rendered ops command "bin/doctor" that performs the messaging-DB, agent-vault, and Claude-credential checks'
+)
+def given_lead_shop_with_doctor_all_checks(context: dict, tmp_path) -> None:
+    from test_ops_generification import _bootstrap
+
+    target = _bootstrap(tmp_path, "shopsystem-product")
+    doctor = target / "bin" / "doctor"
+    assert doctor.is_file(), "bootstrap must render bin/doctor for a lead shop"
+    context["doctor_target"] = target
+    # Premise: doctor performs all three named checks (in an all-pass run, each
+    # named check line is emitted).
+    proc = _doctor_run(target, env_overrides=_DOCTOR_ALL_PASS_ENV)
+    for name in _DOCTOR_ALL_CHECK_NAMES:
+        _doctor_check_line(proc.stdout, name)  # raises if a check is missing
+
+
+@when('the operator runs "bin/doctor" in a session where every individual check would pass')
+def when_doctor_all_pass(context: dict) -> None:
+    context["doctor_all_pass"] = _doctor_run(
+        context["doctor_target"], env_overrides=_DOCTOR_ALL_PASS_ENV
+    )
+
+
+@then(
+    '"bin/doctor" reports each named check line as a pass, reports an aggregate diagnosis of overall pass, and exits with code 0'
+)
+def then_doctor_all_pass(context: dict) -> None:
+    proc = context["doctor_all_pass"]
+    for name in _DOCTOR_ALL_CHECK_NAMES:
+        line = _doctor_check_line(proc.stdout, name)
+        assert _doctor_status(line) == "pass", f"check {name!r} not PASS: {line!r}"
+    agg = _doctor_aggregate_line(proc.stdout)
+    assert "[PASS]" in agg and "[FAIL]" not in agg, f"aggregate must be overall PASS: {agg!r}"
+    assert proc.returncode == 0, f"all-pass run must exit 0; got {proc.returncode}"
+
+
+@then(
+    'when "bin/doctor" is run in a session where at least one individual check would fail, it reports each check line with its own pass/fail status, reports an aggregate diagnosis of overall fail that names which check(s) failed, and exits non-zero'
+)
+def then_doctor_one_fails(context: dict) -> None:
+    # All pass EXCEPT CLAUDE_OAUTH (absent) -> exactly one failed check.
+    env = dict(_DOCTOR_ALL_PASS_ENV)
+    env.pop("CLAUDE_OAUTH")
+    proc = _doctor_run(context["doctor_target"], env_overrides=env)
+    # Each check line carries its own explicit status.
+    statuses = {name: _doctor_status(_doctor_check_line(proc.stdout, name)) for name in _DOCTOR_ALL_CHECK_NAMES}
+    assert statuses["SHOPMSG_DSN / postgres"] == "pass"
+    assert statuses["agent-vault broker / CA trust"] == "pass"
+    assert statuses["CLAUDE_OAUTH"] == "fail"
+    # Aggregate is overall FAIL and names the failed check.
+    agg = _doctor_aggregate_line(proc.stdout)
+    assert "[FAIL]" in agg, f"aggregate must be overall FAIL: {agg!r}"
+    assert "CLAUDE_OAUTH" in agg, f"aggregate must name the failed check: {agg!r}"
+    assert "SHOPMSG_DSN / postgres" not in agg, (
+        f"aggregate must name only the FAILED check(s), not passing ones: {agg!r}"
+    )
+    assert proc.returncode != 0, f"any-fail run must exit non-zero; got {proc.returncode}"
+    context["doctor_one_fail"] = proc
+
+
+@then(
+    'the aggregate diagnosis is derived from the individual check results — overall pass requires every check to pass and any single failed check forces overall fail — so the operator gets one clear pass/fail verdict without ad-hoc diagnosing'
+)
+def then_doctor_aggregate_derived(context: dict) -> None:
+    # all-pass => overall pass + exit 0.
+    allp = context["doctor_all_pass"]
+    assert "[PASS]" in _doctor_aggregate_line(allp.stdout) and allp.returncode == 0
+    # Walk each single-check-fail session: exactly that check fails, aggregate is
+    # overall FAIL naming exactly it, exit non-zero — proving the verdict is
+    # DERIVED from the individual results, not fixed.
+    single_fail_envs = {
+        "SHOPMSG_DSN / postgres": {**_DOCTOR_ALL_PASS_ENV, "DOCTOR_TEST_PG_OK": "0"},
+        "agent-vault broker / CA trust": {**_DOCTOR_ALL_PASS_ENV, "DOCTOR_TEST_BROKER_UP": "0"},
+    }
+    oauth_env = dict(_DOCTOR_ALL_PASS_ENV)
+    oauth_env.pop("CLAUDE_OAUTH")
+    single_fail_envs["CLAUDE_OAUTH"] = oauth_env
+    for failing, env in single_fail_envs.items():
+        proc = _doctor_run(context["doctor_target"], env_overrides=env)
+        agg = _doctor_aggregate_line(proc.stdout)
+        assert "[FAIL]" in agg, f"single fail of {failing!r} must drive overall FAIL: {agg!r}"
+        assert failing in agg, f"aggregate must name the failed check {failing!r}: {agg!r}"
+        assert proc.returncode != 0, (
+            f"single fail of {failing!r} must exit non-zero; got {proc.returncode}"
+        )
+        # The named failed check actually carries a [FAIL] line (derivation, not
+        # an independently computed verdict).
+        assert _doctor_status(_doctor_check_line(proc.stdout, failing)) == "fail"

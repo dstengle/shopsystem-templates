@@ -23,3 +23,11 @@ Feature: rendered bin/doctor operator diagnostic (lead shop, lead-q3r1) — the 
     Then "bin/doctor" emits a check line named for the Claude credential (a "CLAUDE_OAUTH" check) whose status is an explicit pass
     And the same check, run in a session where "CLAUDE_OAUTH" is absent, empty, or in a non-refreshable/disconnected state, emits that same named check line whose status is an explicit fail
     And the fail line carries a remediation hint naming the corrective action (re-run the approve-claude provisioning to restore a non-empty refreshable credential) rather than only reporting that the check failed
+
+  @scenario_hash:027a4d836bb1ae43 @bc:shopsystem-templates
+  Scenario: the rendered "bin/doctor" runs every credential and connection check and reports an aggregate pass/fail diagnosis with a non-zero exit on any failed check
+    Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops command "bin/doctor" that performs the messaging-DB, agent-vault, and Claude-credential checks
+    When the operator runs "bin/doctor" in a session where every individual check would pass
+    Then "bin/doctor" reports each named check line as a pass, reports an aggregate diagnosis of overall pass, and exits with code 0
+    And when "bin/doctor" is run in a session where at least one individual check would fail, it reports each check line with its own pass/fail status, reports an aggregate diagnosis of overall fail that names which check(s) failed, and exits non-zero
+    And the aggregate diagnosis is derived from the individual check results — overall pass requires every check to pass and any single failed check forces overall fail — so the operator gets one clear pass/fail verdict without ad-hoc diagnosing

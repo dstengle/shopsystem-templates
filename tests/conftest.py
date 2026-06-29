@@ -25289,6 +25289,237 @@ def then_leaf_invokes_gh_without_manual_export_b6f2(context: dict) -> None:
 
 
 # =======================================================================
+# Scenario @a0342b1700fe27e7 (lead-j8so / tmpl-18p) — the rendered shop-owned
+# bringup path bin/shop-shell delivers a non-empty, DB-reachable SHOPMSG_DSN
+# into the launched lead-shell session, DERIVED at shop-shell runtime from the
+# sourced ops-coordinates postgres coordinates (OPS_POSTGRES_CONTAINER /
+# OPS_POSTGRES_PORT on OPS_NETWORK, scenario 211 @0a3a8267109b5792), and passed
+# via the "-e SHOPMSG_DSN" PROCESS-ENV form — the same transport vehicle scenario
+# 200 (@7ce09202755b0503) uses for AGENT_VAULT_CA_PEM, because a runtime-derived
+# value belongs on the process-env path, not the static --env-file path that
+# scenario 201's (@0789db8bb7f3bc73) GH_TOKEN rides. So a freshly-launched lead
+# agent can run `shop-msg` against the product postgres on first use WITHOUT a
+# manual `export SHOPMSG_DSN=...`.
+#
+# Acceptance combines a render-fidelity body assertion (the body carries the
+# literal "-e SHOPMSG_DSN" and an override-aware default) with a BEHAVIORAL
+# bash-slice: the SHOPMSG_DSN-derivation lines are executed with SHOPMSG_DSN
+# UNSET and the postgres coordinates the ops-coordinates artifact would define
+# present in the environment, and the SHOPMSG_DSN value that reaches the launch
+# is recorded and asserted non-empty + coordinate-derived (carries the product
+# postgres container hostname and the sourced port), never empty/placeholder.
+#
+# ADDITIVE: preserves 200 (7ce09202755b0503), 201 (0789db8bb7f3bc73), and 211
+# (0a3a8267109b5792); retires no @scenario_hash.
+# =======================================================================
+
+
+def _j8so_shop_shell(slug: str = "acme") -> str:
+    from shop_templates.cli import render_ops_template
+
+    return render_ops_template("shop-shell", slug)
+
+
+def _j8so_derived_dsn(
+    body: str,
+    *,
+    slug: str = "acme",
+    container: str = "acme-postgres",
+    port: str = "5439",
+    network: str = "acme",
+) -> str:
+    """Execute the SHOPMSG_DSN-derivation lines of the rendered shop-shell in
+    isolation — with SHOPMSG_DSN UNSET and the postgres coordinates the
+    ops-coordinates artifact would define (OPS_SLUG / OPS_POSTGRES_CONTAINER /
+    OPS_POSTGRES_PORT / OPS_NETWORK) present in the environment — and return the
+    SHOPMSG_DSN value that reaches the launch (the value a freshly-launched lead
+    agent inheriting the launch env would see). Returns '' when the body derives
+    no SHOPMSG_DSN.
+
+    Only the derivation lines are run, not the `docker run` launch blocks: lines
+    that mention `docker` or the `-e SHOPMSG_DSN` docker flag are skipped so the
+    slice stays a pure env-derivation fragment."""
+    seeding = []
+    for raw in body.splitlines():
+        line = raw.strip()
+        if "SHOPMSG_DSN" not in line or line.startswith("#"):
+            continue
+        if "docker" in line or "-e SHOPMSG_DSN" in line:
+            continue
+        seeding.append(raw)
+    if not seeding:
+        return ""
+    harness = (
+        "set -uo pipefail\n"
+        "unset SHOPMSG_DSN\n"
+        f'OPS_SLUG="{slug}"\n'
+        f'OPS_POSTGRES_CONTAINER="{container}"\n'
+        f'OPS_POSTGRES_PORT="{port}"\n'
+        f'OPS_NETWORK="{network}"\n'
+        + "\n".join(seeding)
+        + "\n"
+        + 'printf "%s" "${SHOPMSG_DSN-}"'
+    )
+    proc = subprocess.run(["bash", "-c", harness], capture_output=True, text=True)
+    return proc.stdout.strip()
+
+
+@given(
+    parsers.parse(
+        'a "lead" shop bootstrapped by "shop-templates" with the rendered ops '
+        'script "bin/shop-shell" and the rendered single ops-coordinates '
+        'artifact "bin/ops-coordinates" carrying the product postgres '
+        "coordinates (OPS_POSTGRES_CONTAINER, OPS_POSTGRES_PORT, OPS_NETWORK)"
+    )
+)
+def given_lead_shop_shell_and_ops_coordinates_j8so(context: dict) -> None:
+    from shop_templates.cli import render_ops_template
+
+    context["shop_shell_j8so"] = render_ops_template("shop-shell", "acme")
+    coords = render_ops_template("ops-coordinates", "acme")
+    context["ops_coordinates_j8so"] = coords
+    # The single ops-coordinates artifact (scenario 211) defines the postgres
+    # coordinates the DSN derives from.
+    for key in ("OPS_POSTGRES_CONTAINER", "OPS_POSTGRES_PORT", "OPS_NETWORK"):
+        assert key in coords, f"ops-coordinates must define {key}"
+
+
+@given(
+    parsers.parse(
+        "the product postgres service is up and reachable on the shop docker "
+        "network at those coordinates"
+    )
+)
+def given_postgres_reachable_at_coordinates_j8so(context: dict) -> None:
+    # Premise: postgres listens at the sourced coordinates on OPS_NETWORK, so the
+    # DSN the script derives from those coordinates points at a reachable DB —
+    # not an empty or placeholder address.
+    assert context["shop_shell_j8so"]
+
+
+@when(
+    parsers.parse(
+        'the operator runs the rendered "bin/shop-shell" to launch the '
+        "lead-shell session"
+    )
+)
+def when_operator_runs_shop_shell_lead_session_j8so(context: dict) -> None:
+    pass
+
+
+@then(
+    parsers.parse(
+        'the rendered "bin/shop-shell" delivers a non-empty "SHOPMSG_DSN" into '
+        "the launched lead-shell session environment — its body passes "
+        '"SHOPMSG_DSN" set to a non-empty value into the launch (the body '
+        'contains the literal substring "-e SHOPMSG_DSN") rather than leaving '
+        '"SHOPMSG_DSN" unset'
+    )
+)
+def then_body_delivers_e_shopmsg_dsn_j8so(context: dict) -> None:
+    body = context["shop_shell_j8so"]
+    # Process-env transport: SHOPMSG_DSN rides the `-e SHOPMSG_DSN` form into the
+    # launch (like scenario 200's `-e AGENT_VAULT_CA_PEM`), not the static
+    # --env-file path.
+    assert "-e SHOPMSG_DSN" in body, (
+        "the rendered bin/shop-shell must pass SHOPMSG_DSN into the launch via "
+        "the process-env form (the body must contain the literal substring "
+        "'-e SHOPMSG_DSN'), not leave SHOPMSG_DSN unset"
+    )
+    value = _j8so_derived_dsn(body)
+    context["dsn_value_j8so"] = value
+    assert value != "", (
+        "the SHOPMSG_DSN value the rendered bin/shop-shell derives into the "
+        "launch env must be NON-EMPTY (a freshly-launched lead agent inheriting "
+        "the launch env must see a non-empty SHOPMSG_DSN), not empty/unset"
+    )
+
+
+@then(
+    parsers.parse(
+        'the "SHOPMSG_DSN" value reaching the launched session is derived from '
+        "the sourced ops-coordinates postgres coordinates (the product postgres "
+        "container and port on the shop docker network), not an empty or "
+        "placeholder address"
+    )
+)
+def then_dsn_derived_from_ops_coordinates_j8so(context: dict) -> None:
+    value = context["dsn_value_j8so"]
+    assert value != "", "the derived SHOPMSG_DSN must be non-empty"
+    # Derived from the sourced postgres coordinates: the DSN carries the product
+    # postgres container hostname and the port the ops-coordinates artifact
+    # defines (stubbed to acme-postgres:5439 in the behavioral slice).
+    assert "acme-postgres" in value, (
+        f"SHOPMSG_DSN must carry the product postgres container from the sourced "
+        f"ops-coordinates (OPS_POSTGRES_CONTAINER); got {value!r}"
+    )
+    assert "5439" in value, (
+        f"SHOPMSG_DSN must carry the postgres port from the sourced "
+        f"ops-coordinates (OPS_POSTGRES_PORT); got {value!r}"
+    )
+    # Not an empty or placeholder address.
+    low = value.lower()
+    for placeholder in (
+        "localhost",
+        "127.0.0.1",
+        "placeholder",
+        "example.com",
+        "changeme",
+        "your-",
+    ):
+        assert placeholder not in low, (
+            f"SHOPMSG_DSN must be a real coordinate-derived address, not a "
+            f"placeholder ({placeholder!r} in {value!r})"
+        )
+    # And the body DERIVES the host/port from the sourced OPS_* coordinates, not
+    # a baked literal.
+    deriv = [
+        l
+        for l in context["shop_shell_j8so"].splitlines()
+        if "SHOPMSG_DSN" in l and not l.strip().startswith("#") and "docker" not in l
+    ]
+    joined = "\n".join(deriv)
+    assert "OPS_POSTGRES_CONTAINER" in joined, (
+        "SHOPMSG_DSN must derive its host from $OPS_POSTGRES_CONTAINER (sourced "
+        "from ops-coordinates), not a baked literal"
+    )
+    assert "OPS_POSTGRES_PORT" in joined, (
+        "SHOPMSG_DSN must derive its port from $OPS_POSTGRES_PORT (sourced from "
+        "ops-coordinates), not a baked literal"
+    )
+
+
+@then(
+    parsers.parse(
+        'a freshly-launched lead-shell agent can therefore run "shop-msg" '
+        "against the product postgres on first use — the first invocation "
+        "reaches the database rather than exiting non-zero on an unset or "
+        'unreachable "SHOPMSG_DSN" — without the agent first self-diagnosing or '
+        'the operator first running "export SHOPMSG_DSN=..." by hand'
+    )
+)
+def then_first_use_reaches_db_j8so(context: dict) -> None:
+    body = context["shop_shell_j8so"]
+    value = context["dsn_value_j8so"]
+    # A freshly-launched lead agent inherits a non-empty, coordinate-derived DSN
+    # from the launch env (the `-e SHOPMSG_DSN` process-env value), so shop-msg's
+    # FIRST invocation has a real DSN pointing at the reachable postgres — it does
+    # not exit non-zero on an unset/unreachable SHOPMSG_DSN.
+    assert value != "" and "acme-postgres" in value and "5439" in value, (
+        "the launch env must carry a non-empty, coordinate-derived SHOPMSG_DSN "
+        "so shop-msg reaches the DB on first use"
+    )
+    # The body DEFAULTS SHOPMSG_DSN to the coordinate-derived value when the
+    # operator has not exported one — so no manual `export SHOPMSG_DSN=...` is
+    # required out of the box (an operator-exported override still wins).
+    assert "${SHOPMSG_DSN:-" in body, (
+        "bin/shop-shell must DEFAULT SHOPMSG_DSN to the coordinate-derived value "
+        "when the operator has not exported one (so no manual `export "
+        'SHOPMSG_DSN=...` is required), e.g. SHOPMSG_DSN="${SHOPMSG_DSN:-...}"'
+    )
+
+
+# =======================================================================
 # ADR-043 Phase 1 / ADR-046 (lead-ml51) — bin/shop-shell carries ZERO
 # product-specific literals: every product value is a single-sourced,
 # env-overridable shell-variable reference whose default lives ONLY in the

@@ -1,21 +1,55 @@
 #!/usr/bin/env bash
-# bin/agent-vault-approve-claude — approve the pending CLAUDE_OAUTH proposal
-# (shop-owned, lead-9s46 / WS-2). The ONE human step left by
-# bin/agent-vault-provision is approving the OAuth-typed CLAUDE_OAUTH
-# credential-slot proposal with the real Claude token. provision printed a
-# docker-exec string the adopter had to hand-edit; this script removes that
-# friction: it auto-resolves the broker container, the vault slug, and the
-# pending proposal number from the SAME slug-derived coordinates provision
-# uses, mints a vault-scoped session internally, and runs the scoped
-# `proposal approve` carrying the supplied token. The adopter only runs:
+# bin/agent-vault-approve-claude — approve the pending CLAUDE_OAUTH proposal AND
+# populate the refreshing CLAUDE_OAUTH credential (shop-owned, lead-9s46 / WS-2;
+# bugfix lead-al1r). The ONE human step left by bin/agent-vault-provision is
+# supplying the real Claude token. provision printed a docker-exec string the
+# adopter had to hand-edit; this script removes that friction: it auto-resolves
+# the broker container, the vault slug, and the pending proposal number from the
+# SAME slug-derived coordinates provision uses, mints a vault-scoped session
+# internally, runs the scoped `proposal approve`, AND then populates the oauth
+# credential via the supported cookie-authenticated endpoint. The adopter only
+# runs:
 #
-#     bin/agent-vault-approve-claude <claude-token>
+#     bin/agent-vault-approve-claude [<claude-token>]
 #
-# The token stays on the in-container argv and is NEVER echoed to stdout/stderr
-# nor written to a file.
+# WHY A SECOND STEP IS REQUIRED (bugfix lead-al1r, proven at the DB level
+# against a live agent-vault 0.32.0 broker). CLAUDE_OAUTH is an OAuth-TYPED
+# credential. `agent-vault vault proposal approve <n> CLAUDE_OAUTH='{...}' --yes`
+# SILENTLY DROPS the KEY=VALUE override for an oauth-typed credential — the
+# override only applies for type=static. The proposal-approve still APPROVES the
+# proposal and ensures the oauth SLOT exists (token_url + client_id), but the
+# token material never lands through it: credentials.ciphertext stays length 0
+# and credential_oauth.refresh_token_ct / token_expires_at / connected_at stay
+# NULL, so the credential reads back blank ("Claude tokens not in the UI"). The
+# agent-vault CLI exposes NO verb that populates an oauth credential's tokens.
+#
+# THE SUPPORTED MECHANISM (the same path the broker Web UI "Save Tokens" form
+# drives, verified live against agent-vault 0.32.0). OAuth credential tokens are
+# populated via the COOKIE-authenticated HTTP endpoints, NOT proposal-approve:
+#   - POST /v1/auth/login          -> Set-Cookie: av_session=...; HttpOnly
+#     (a member/owner browser-session cookie; NO Authorization header, and the
+#     CLI's av_sess_ vault-scoped Bearer is rejected "Member role required").
+#   - POST /v1/credentials/oauth/tokens  body {vault,key,access_token,
+#     refresh_token,token_url,client_id}. The broker validates the refresh
+#     token by performing a refresh-grant against token_url BEFORE persisting,
+#     so a success means the stored credential is refreshable by construction
+#     (refresh_token_ct non-NULL + connected_at set).
+#
+# PRESERVED INVARIANTS. broker/13 (1d08c456af08d577): this remains the SINGLE
+# operator approval handoff — the owner password is a lead-driveable env input
+# (the same one provision used), not a second human handoff. broker/11
+# (72af524bca85f59c): the real Claude OAuth secret is supplied ONLY at
+# approve-time by the operator running this command (read from the host's
+# ~/.claude/.credentials.json, or a positional override); no automated step
+# transports a real third-party credential. This bugfix changes only HOW the
+# operator-supplied tokens are persisted (an added populate step), not WHEN or
+# WHENCE the secret arrives.
+#
+# The token stays on the in-container argv / in shell memory / the request body
+# piped on stdin; it is NEVER echoed to stdout/stderr nor written to a file.
 #
 # PRODUCT-NEUTRAL (consistent with 166b86d779ecd0e7): every <product>-*
-# coordinate derives from {{OPS_SLUG}}; no shopsystem-*/fleet literal is baked
+# coordinate derives from {{OPS_SLUG}}; no cross-product/fleet literal is baked
 # in.
 set -euo pipefail
 
@@ -50,6 +84,11 @@ CRED_FILE="${CLAUDE_CREDENTIALS_FILE:-$HOME/.claude/.credentials.json}"
 OVERRIDE_TOKEN="${1:-}"
 if [[ -n "$OVERRIDE_TOKEN" ]]; then
   CLAUDE_OAUTH_VALUE="$OVERRIDE_TOKEN"
+  # Best-effort split of the override into access/refresh tokens for the oauth
+  # populate step below (a JSON object override is parsed; a raw token leaves the
+  # refresh token empty and the populate step then aborts rather than blank-write).
+  ACCESS_TOKEN="$(printf '%s' "$OVERRIDE_TOKEN" | jq -r '(.access_token // .accessToken) // empty' 2>/dev/null || true)"
+  REFRESH_TOKEN="$(printf '%s' "$OVERRIDE_TOKEN" | jq -r '(.refresh_token // .refreshToken) // empty' 2>/dev/null || true)"
 else
   if [[ ! -r "$CRED_FILE" ]]; then
     echo "agent-vault-approve-claude: cannot read the Claude credentials file '$CRED_FILE'." >&2
@@ -58,10 +97,12 @@ else
     echo "  explicit oauth value as the positional override argument." >&2
     exit 1
   fi
+  ACCESS_TOKEN="$(jq -r '.claudeAiOauth.accessToken // empty' "$CRED_FILE" 2>/dev/null || true)"
+  REFRESH_TOKEN="$(jq -r '.claudeAiOauth.refreshToken // empty' "$CRED_FILE" 2>/dev/null || true)"
   CLAUDE_OAUTH_VALUE="$(jq -ec '.claudeAiOauth | {access_token: .accessToken, refresh_token: .refreshToken, expires_at: .expiresAt}' "$CRED_FILE" 2>/dev/null || true)"
   if [[ -z "$CLAUDE_OAUTH_VALUE" ]] \
-     || [[ -z "$(printf '%s' "$CLAUDE_OAUTH_VALUE" | jq -r '.access_token // empty')" ]] \
-     || [[ -z "$(printf '%s' "$CLAUDE_OAUTH_VALUE" | jq -r '.refresh_token // empty')" ]]; then
+     || [[ -z "$ACCESS_TOKEN" ]] \
+     || [[ -z "$REFRESH_TOKEN" ]]; then
     echo "agent-vault-approve-claude: '$CRED_FILE' has no usable claudeAiOauth access/refresh tokens." >&2
     exit 1
   fi
@@ -119,11 +160,109 @@ fi
 
 # -----------------------------------------------------------------------
 # Approve: attach the supplied token as the CLAUDE_OAUTH credential value under
-# the vault-scoped session. The token rides the in-container argv ONLY; it is
-# never echoed to stdout/stderr nor written to any file.
+# the vault-scoped session. This APPROVES the proposal and ensures the oauth slot
+# exists. NOTE (lead-al1r): for an oauth-typed credential this KEY=VALUE override
+# is SILENTLY DROPPED by the broker, so this step alone leaves the token material
+# NULL — the OAUTH-TOKENS-POPULATE step below is what actually lands the
+# refreshable token. The token rides the in-container argv ONLY; it is never
+# echoed to stdout/stderr nor written to any file.
 # -----------------------------------------------------------------------
 "${DEXEC_SCOPED[@]}" agent-vault vault proposal approve "$PROPOSAL_NUM" \
   CLAUDE_OAUTH="$CLAUDE_OAUTH_VALUE" --yes --vault "$VAULT"
 
-echo "agent-vault-approve-claude: CLAUDE_OAUTH credential approved for vault '$VAULT' (broker '$CONTAINER', proposal #$PROPOSAL_NUM)."
+echo "agent-vault-approve-claude: CLAUDE_OAUTH proposal approved for vault '$VAULT' (broker '$CONTAINER', proposal #$PROPOSAL_NUM)."
+
+# OAUTH-TOKENS-POPULATE-BEGIN
+# -----------------------------------------------------------------------
+# (bugfix lead-al1r) POPULATE the refreshing CLAUDE_OAUTH credential via the
+# supported cookie-authenticated endpoint — the proposal-approve above DROPS the
+# oauth token material, so without this step the credential reads back blank.
+#
+# LOCAL-FIRST (lead-mrn2): the lead host reaches the broker HTTP API over the
+# product compose network at AGENT_VAULT_ADDR (the SAME address provision binds
+# its owner session to); plain HTTP on the API port (the MITM proxy is unrelated).
+# Owner login mints the member session cookie the oauth endpoint requires (the
+# CLI's vault-scoped av_sess_ Bearer is rejected "Member role required").
+# Parameterized oauth config shares provision's verified defaults so the two
+# scripts cannot drift.
+# -----------------------------------------------------------------------
+BROKER_ADDR="${AGENT_VAULT_ADDR:-$OPS_AGENT_VAULT_ADDR}"
+BROKER_ADDR="${BROKER_ADDR%/}"
+CLAUDE_OAUTH_TOKEN_URL="${CLAUDE_OAUTH_TOKEN_URL:-https://console.anthropic.com/v1/oauth/token}"
+CLAUDE_OAUTH_CLIENT_ID="${CLAUDE_OAUTH_CLIENT_ID:-9d1c250a-e61b-44d9-88ed-5944d1962f5e}"
+OWNER_EMAIL="${AGENT_VAULT_OWNER_EMAIL:-owner@${OPS_SLUG}.local}"
+OWNER_PASSWORD="${AGENT_VAULT_OWNER_PASSWORD:-}"
+
+# FAITHFULNESS GUARD — never POST a blank credential. A single token cannot
+# refresh; a blank/partial write is exactly the "tokens not in the UI" defect.
+if [[ -z "$ACCESS_TOKEN" || -z "$REFRESH_TOKEN" ]]; then
+  echo "agent-vault-approve-claude: no usable CLAUDE_OAUTH access/refresh tokens to populate." >&2
+  echo "  Refusing to POST a blank/partial oauth credential. Supply BOTH the accessToken" >&2
+  echo "  and the refreshToken (via '$CRED_FILE' or a JSON positional override)." >&2
+  exit 1
+fi
+if [[ -z "$OWNER_PASSWORD" ]]; then
+  echo "agent-vault-approve-claude: AGENT_VAULT_OWNER_PASSWORD is not set." >&2
+  echo "  Populating the oauth CLAUDE_OAUTH credential requires a member session cookie" >&2
+  echo "  minted by POST /v1/auth/login. Export the SAME owner password" >&2
+  echo "  bin/agent-vault-provision used (AGENT_VAULT_OWNER_PASSWORD), then re-run." >&2
+  exit 1
+fi
+
+# Private cookie jar for the session cookie (NOT the third-party secret); removed
+# on exit.
+_AV_COOKIE_JAR="$(mktemp)"
+chmod 600 "$_AV_COOKIE_JAR"
+trap 'rm -f "$_AV_COOKIE_JAR"' EXIT
+
+# (1) Owner login -> member session cookie. The owner password rides the request
+#     body on stdin (never on argv); the cookie is captured into the jar.
+export _AV_OWNER_PASSWORD="$OWNER_PASSWORD"
+_login_body="$(jq -nc --arg e "$OWNER_EMAIL" '{email:$e, password:env._AV_OWNER_PASSWORD}')"
+unset _AV_OWNER_PASSWORD
+_login_status="$(printf '%s' "$_login_body" \
+  | curl -sS -o /dev/null -w '%{http_code}' \
+      --cookie-jar "$_AV_COOKIE_JAR" \
+      -X POST "$BROKER_ADDR/v1/auth/login" \
+      -H 'Content-Type: application/json' \
+      --data-binary @- )"
+if [[ "$_login_status" != 2* ]]; then
+  echo "agent-vault-approve-claude: owner login failed (POST $BROKER_ADDR/v1/auth/login -> HTTP $_login_status)." >&2
+  echo "  Check AGENT_VAULT_OWNER_EMAIL/AGENT_VAULT_OWNER_PASSWORD and that the broker is" >&2
+  echo "  reachable at AGENT_VAULT_ADDR ('$BROKER_ADDR')." >&2
+  exit 1
+fi
+
+# (2) Populate the refreshing CLAUDE_OAUTH credential. The body carries the
+#     operator-supplied access+refresh tokens plus the refresh machinery
+#     (token_url + client_id); the broker validates the refresh token against
+#     token_url before persisting, so success means the credential is refreshable
+#     (refresh_token_ct non-NULL + connected_at set). The body rides stdin; the
+#     tokens never touch argv, stdout, stderr, or a file.
+export _AV_ACCESS="$ACCESS_TOKEN" _AV_REFRESH="$REFRESH_TOKEN"
+_tokens_body="$(jq -nc \
+  --arg v "$VAULT" \
+  --arg tu "$CLAUDE_OAUTH_TOKEN_URL" \
+  --arg ci "$CLAUDE_OAUTH_CLIENT_ID" \
+  '{vault:$v, key:"CLAUDE_OAUTH", access_token:env._AV_ACCESS, refresh_token:env._AV_REFRESH, token_url:$tu, client_id:$ci}')"
+unset _AV_ACCESS _AV_REFRESH
+_resp="$(printf '%s' "$_tokens_body" \
+  | curl -sS -w $'\n%{http_code}' \
+      --cookie "$_AV_COOKIE_JAR" \
+      -X POST "$BROKER_ADDR/v1/credentials/oauth/tokens" \
+      -H 'Content-Type: application/json' \
+      --data-binary @- )"
+_status="${_resp##*$'\n'}"
+_rbody="${_resp%$'\n'*}"
+if [[ "$_status" != 2* ]]; then
+  echo "agent-vault-approve-claude: populating CLAUDE_OAUTH failed (POST /v1/credentials/oauth/tokens -> HTTP $_status)." >&2
+  # The response body may carry the broker's diagnostic (e.g. a refresh-grant
+  # rejection); surface it. It does NOT contain the supplied secret.
+  [[ -n "$_rbody" ]] && echo "  broker: $_rbody" >&2
+  echo "  A refresh-grant rejection means the supplied refresh token is expired/invalid —" >&2
+  echo "  re-log in with the Claude CLI and re-run with a fresh token." >&2
+  exit 1
+fi
+echo "agent-vault-approve-claude: CLAUDE_OAUTH populated for vault '$VAULT' (broker '$BROKER_ADDR') — the credential is refreshable (refresh_token_ct + connected_at set)."
+# OAUTH-TOKENS-POPULATE-END
 exit 0

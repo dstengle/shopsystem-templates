@@ -27255,3 +27255,141 @@ def then_update_credential_refreshing(context: dict) -> None:
     assert "refreshable" in r.stdout.lower(), (
         f"the updated credential must remain refreshing/connected; stdout={r.stdout!r}"
     )
+
+
+# =======================================================================
+# lead-b2iz — starter bin/bootstrap baked-version VERIFY GATE before render.
+# Scenarios @scenario_hash:4457c8c280d4fbf4 (proceed >= floor) and
+# @scenario_hash:e9d64a8acc917efb (refuse < floor). The steps RUN the rendered
+# bin/bootstrap out-of-process against a PATH-stubbed docker (the harness in
+# tests/test_starter_bootstrap_version_gate.py) so the proof is behavioral.
+# =======================================================================
+
+
+@given(
+    parsers.parse(
+        'an adopter fork whose "bin/bootstrap" resolves the bc-lead/bc-base '
+        "image on a floating tag"
+    )
+)
+def given_b2iz_adopter_fork_floating_tag(context: dict) -> None:
+    context["b2iz_floor"] = "0.48.0"
+
+
+@given(
+    parsers.parse(
+        "the pulled image carries baked shop-templates provenance per PDR-026 — "
+        'the OCI label "shopsystem.shop-templates.version" and the container '
+        'ENV "SHOP_TEMPLATES_VERSION"'
+    )
+)
+def given_b2iz_provenance_present(context: dict) -> None:
+    context["b2iz_provenance"] = True
+
+
+@given(
+    parsers.parse(
+        "that baked shop-templates version is at or above the expected-minimum "
+        'shop-templates version known to "bin/bootstrap"'
+    )
+)
+def given_b2iz_baked_at_or_above_floor(context: dict) -> None:
+    context["b2iz_baked"] = context["b2iz_floor"]
+
+
+@given(
+    parsers.parse(
+        "the pull resolves a stale or cached image whose baked shop-templates "
+        'version — read from the PDR-026 "shopsystem.shop-templates.version" '
+        'label or "SHOP_TEMPLATES_VERSION" ENV — is below the expected-minimum '
+        'shop-templates version known to "bin/bootstrap"'
+    )
+)
+def given_b2iz_baked_below_floor(context: dict) -> None:
+    context["b2iz_baked"] = "0.10.0"
+
+
+def _b2iz_run(context: dict, tmp_path) -> None:
+    from test_starter_bootstrap_version_gate import run_bootstrap
+
+    context["b2iz_run"] = run_bootstrap(
+        tmp_path,
+        baked_version=context["b2iz_baked"],
+        floor=context["b2iz_floor"],
+    )
+
+
+@when(parsers.parse('the adopter runs "bin/bootstrap" and it pulls the image'))
+def when_b2iz_run_pulls_image(context: dict, tmp_path) -> None:
+    _b2iz_run(context, tmp_path)
+
+
+@when(parsers.parse('the adopter runs "bin/bootstrap" and it pulls that stale image'))
+def when_b2iz_run_pulls_stale_image(context: dict, tmp_path) -> None:
+    _b2iz_run(context, tmp_path)
+
+
+@then(
+    parsers.parse(
+        "bootstrap reads the baked shop-templates version from the pulled "
+        'image\'s provenance via a "docker image inspect" read of the '
+        '"shopsystem.shop-templates.version" label (or a "printenv '
+        'SHOP_TEMPLATES_VERSION" read of a container started from it), without '
+        'invoking "pip show" or any python in the image'
+    )
+)
+def then_b2iz_reads_via_provenance(context: dict) -> None:
+    run = context["b2iz_run"]
+    assert run.version_read_via_provenance(), (
+        "bootstrap must read the baked version via docker image inspect of the "
+        "PDR-026 label or printenv SHOP_TEMPLATES_VERSION"
+    )
+    assert not run.used_pip_or_python_in_image(), (
+        "bootstrap must not read the version via pip show or python in the image"
+    )
+
+
+@then(
+    parsers.parse(
+        "because the read version is at or above the expected minimum, "
+        'bootstrap proceeds to render the shop via the in-image "shop-templates '
+        'bootstrap"'
+    )
+)
+def then_b2iz_proceeds_to_render(context: dict) -> None:
+    run = context["b2iz_run"]
+    assert run.render_invoked(), (
+        "bootstrap must proceed to the in-image render when baked >= floor"
+    )
+
+
+@then(
+    parsers.parse(
+        'bootstrap does not invoke the in-image "shop-templates bootstrap" '
+        "render step against the stale image, so no shop is rendered from it"
+    )
+)
+def then_b2iz_no_render_on_stale(context: dict) -> None:
+    run = context["b2iz_run"]
+    assert not run.render_invoked(), (
+        "LOAD-BEARING: bootstrap must not invoke the in-image render below floor"
+    )
+
+
+@then(
+    parsers.parse(
+        "bootstrap exits non-zero with a diagnostic that names the stale baked "
+        "shop-templates version it read, the expected-minimum version it "
+        "required, and an actionable remediation for obtaining the current image"
+    )
+)
+def then_b2iz_refuses_loudly(context: dict) -> None:
+    run = context["b2iz_run"]
+    assert run.returncode != 0, "bootstrap must exit non-zero below floor"
+    err = run.stderr
+    assert context["b2iz_baked"] in err, "diagnostic must name the stale version"
+    assert context["b2iz_floor"] in err, "diagnostic must name the expected minimum"
+    low = err.lower()
+    assert ("docker pull" in low) or ("pull" in low and "image" in low), (
+        "diagnostic must give an actionable remediation for obtaining the image"
+    )

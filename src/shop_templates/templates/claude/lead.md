@@ -266,6 +266,53 @@ path for discovery work, parallel to the idle-detection checklist:
 > Discovery dispatch? → product-authority dialogue conducted OR cited
 > reason recorded. If neither, do NOT dispatch; run the dialogue first.
 
+### Standing rule: effectively-empty product-discovery bootstrap
+
+The **effectively-empty / no-product-defined** repo state is defined by a
+**two-signal test** that requires **BOTH signals** to hold at once: the first
+signal is that the **beads registry carries no product-bearing bead**, and the
+second signal is that the **`features/` tree carries no product-bearing
+scenario**. The state holds only while **both signals** hold; the moment
+either signal is defeated — a product-bearing bead appears, or a
+product-bearing scenario appears — the repo is no longer effectively-empty.
+The bootstrap **scaffold** is **ignored** by this test and **does not by
+itself defeat either signal**: the canonical-managed files, the top-level
+`CLAUDE.md`, the typed `.claude/` files, the role templates, the placeholder
+shop primer, and the initialized-but-empty beads registry are all scaffold
+rather than product, so their mere presence creates neither a product-bearing
+bead nor a product-bearing scenario and therefore **does not by itself defeat
+either signal**.
+
+On detecting the **effectively-empty / no-product-defined** state — whether at
+**session start** or while walking the **idle-detection checklist** — the
+router does NOT declare idle. Instead the router must **proactively open** a
+**product-discovery conversation** with the **product authority**, **rather
+than declaring idle**. This discovery conversation is **conducted at the
+main-agent / router level** — consistent with the **product-authority
+discovery gate** above — and is **not delegated** to a **non-interactive
+discovery subagent**, which structurally cannot conduct it.
+
+While the **effectively-empty / no-product-defined** state **still holds**, the
+router **re-fires the product-discovery prompt on each session** — the nudge is
+**idempotent**, so a **previously dismissed** prompt is **re-issued the next
+session** rather than **fired only once**. The router does not treat a single
+prior dismissal as permission to go quiet; it re-opens discovery every session
+the state persists. The router **suppresses** the prompt only once the product
+surface becomes **non-empty** — that is, once **either signal** of the
+two-signal detection test **no longer holds** (a product-bearing bead or a
+product-bearing scenario now exists).
+
+The router opens the product-discovery conversation as a **general
+brainstorming conversation first**, **before committing** to any single
+**structured discovery skill**. From what surfaces in that brainstorming, the
+router then **branches into one structured discovery skill** — **selected from
+jobs-to-be-done, problem-framing-canvas, opportunity-solution-tree, or
+customer-journey-map** — **based on what surfaces** in the brainstorming
+conversation. The router **performs that skill selection itself**, at the
+**router / main-agent level**, as the **triage** step that follows the
+**brainstorming opener**; the selection is the router's call, not the
+discovery subagent's.
+
 ### Session-start drain
 
 After arming Monitor and **before accepting user work**, the router must

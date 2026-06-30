@@ -28314,3 +28314,292 @@ def then_y1we_github_token_present_guarantee(context: dict) -> None:
         "footing must no longer inline a broker-local PAT credential set — the "
         "guarantee moved to provision"
     )
+
+
+# =======================================================================
+# lead-vglj (assign_scenarios, work_id lead-vglj) — the canonical lead
+# primer (read_claude_md_primer("lead")) teaches the router to detect the
+# effectively-empty / no-product-defined repo state and to proactively
+# open product discovery rather than declare idle. Four scenarios, one
+# contiguous block each, asserted against the rendered primer body served
+# through the public template-access surface.
+#
+# The Given / When / "a non-empty template body is returned" legs reuse
+# given_package_ships_canonical_primer, when_ask_for_that_canonical_primer_body,
+# and then_returned_body_non_empty above. "Contiguous block" reuses
+# _hdn3_paragraphs (a maximal run of non-blank lines). Each block is located
+# by a phrase unique to it so the assertions are discriminating: removing the
+# block removes the phrases and the scenario fails.
+# =======================================================================
+
+
+def _vglj_block_with(context: dict, *anchors: str) -> str:
+    """Return the single contiguous primer block (paragraph) that contains
+    every anchor phrase (case-insensitive), or fail naming the anchors.
+
+    Used to scope each scenario's assertions to ONE contiguous block so the
+    test fails if that block is absent."""
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        if all(a.lower() in low for a in anchors):
+            return block
+    assert False, (
+        "lead primer has no contiguous block containing all of: "
+        f"{anchors!r}"
+    )
+
+
+# --- Scenario 00bdd6985ab94756: two-signal empty-detection test ---------
+
+
+@then(
+    "the returned body contains a contiguous block defining an "
+    "effectively-empty / no-product-defined repo state as a two-signal test "
+    "requiring BOTH signals to hold"
+)
+def then_vglj_two_signal_block(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "effectively-empty", "two-signal", "no product-bearing bead"
+    )
+    low = block.lower()
+    assert "two-signal" in low, "block must name a two-signal test"
+    assert "both signals" in low, (
+        "block must require BOTH signals to hold for the state to hold"
+    )
+    assert "no-product-defined" in low or "no product defined" in low, (
+        "block must name the no-product-defined repo state"
+    )
+
+
+@then(
+    "that block names the first signal as the beads registry carrying no "
+    "product-bearing bead and the second signal as the \"features/\" tree "
+    "carrying no product-bearing scenario"
+)
+def then_vglj_two_signal_names(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "two-signal", "no product-bearing bead"
+    )
+    low = block.lower()
+    # First signal: beads registry carries no product-bearing bead.
+    assert "beads registry" in low and "no product-bearing bead" in low, (
+        "first signal must be the beads registry carrying no product-bearing bead"
+    )
+    # Second signal: features/ tree carries no product-bearing scenario.
+    assert "features/" in low and "no product-bearing scenario" in low, (
+        "second signal must be the features/ tree carrying no product-bearing scenario"
+    )
+
+
+@then(
+    "that block states the bootstrap scaffold — the canonical-managed files, "
+    "\"CLAUDE.md\", the typed \".claude/\" files, the role templates, the "
+    "placeholder shop primer, and the initialized-but-empty beads registry — "
+    "is ignored by the test and does not by itself defeat either signal"
+)
+def then_vglj_scaffold_ignored(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "two-signal", "no product-bearing bead", "scaffold"
+    )
+    low = block.lower()
+    # Each named scaffold element must appear in the block.
+    for token in (
+        "canonical-managed",
+        "claude.md",
+        ".claude/",
+        "role template",
+        "placeholder shop primer",
+        "initialized-but-empty beads registry",
+    ):
+        assert token in low, (
+            f"scaffold-ignored block must name {token!r} as scaffold"
+        )
+    assert "ignored" in low, "the scaffold must be stated as ignored by the test"
+    assert "does not by itself defeat either signal" in low, (
+        "the scaffold must be stated not to by itself defeat either signal"
+    )
+
+
+# --- Scenario 32b4fd22cfcf55d2: proactively open discovery, not idle -----
+
+
+@then(
+    "the returned body contains a contiguous block directing the router, on "
+    "detecting the effectively-empty / no-product-defined state at session "
+    "start or during the idle-detection checklist, to proactively open a "
+    "product-discovery conversation with the product authority rather than "
+    "declaring idle"
+)
+def then_vglj_proactively_open(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "proactively open", "product-discovery", "effectively-empty"
+    )
+    low = block.lower()
+    assert "session start" in low, "block must name session start as a trigger"
+    assert "idle-detection" in low, (
+        "block must name the idle-detection checklist as a trigger"
+    )
+    assert "product authority" in low, (
+        "the conversation must be opened with the product authority"
+    )
+    assert "rather than declar" in low and "idle" in low, (
+        "block must direct opening discovery RATHER THAN declaring idle"
+    )
+
+
+@then(
+    "that block states the discovery conversation is conducted at the "
+    "main-agent / router level — consistent with the product-authority "
+    "discovery gate — and is not delegated to a non-interactive discovery "
+    "subagent"
+)
+def then_vglj_main_agent_not_subagent(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "proactively open", "product-discovery"
+    )
+    low = block.lower()
+    assert "main-agent" in low or "main agent" in low, (
+        "the conversation must be conducted at the main-agent / router level"
+    )
+    assert "product-authority discovery gate" in low, (
+        "the block must tie this to the product-authority discovery gate"
+    )
+    assert "not delegated" in low, (
+        "the conversation must NOT be delegated to a discovery subagent"
+    )
+    assert "non-interactive discovery subagent" in low or (
+        "non-interactive" in low and "subagent" in low
+    ), "the block must name the non-interactive discovery subagent it is not delegated to"
+
+
+# --- Scenario bdba904f4f64f4a2: re-fire idempotently each session --------
+
+
+@then(
+    "the returned body contains a contiguous block directing the router to "
+    "re-fire the product-discovery prompt on each session while the "
+    "effectively-empty / no-product-defined state still holds"
+)
+def then_vglj_refire_each_session(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "re-fire", "each session", "product-discovery"
+    )
+    low = block.lower()
+    assert "re-fire" in low, "block must direct the router to re-fire the prompt"
+    assert "each session" in low, "block must re-fire on each session"
+    assert "still holds" in low and "effectively-empty" in low, (
+        "block must condition re-firing on the effectively-empty state still holding"
+    )
+
+
+@then(
+    "that block states the nudge is idempotent so that a previously dismissed "
+    "prompt is re-issued the next session rather than fired only once"
+)
+def then_vglj_idempotent_nudge(context: dict) -> None:
+    block = _vglj_block_with(context, "re-fire", "idempotent")
+    low = block.lower()
+    assert "idempotent" in low, "the nudge must be stated idempotent"
+    assert "previously dismissed" in low, (
+        "block must state a previously dismissed prompt is re-issued"
+    )
+    assert "re-issued" in low and "next session" in low, (
+        "block must state the prompt is re-issued the next session"
+    )
+    assert "only once" in low, (
+        "block must contrast with being fired only once"
+    )
+
+
+@then(
+    "that block states the router suppresses the prompt only once the product "
+    "surface becomes non-empty — that is, once either signal of the two-signal "
+    "detection test no longer holds"
+)
+def then_vglj_suppress_when_nonempty(context: dict) -> None:
+    block = _vglj_block_with(context, "re-fire", "suppress")
+    low = block.lower()
+    assert "suppress" in low, "block must state the router suppresses the prompt"
+    assert "non-empty" in low, (
+        "suppression fires only once the product surface becomes non-empty"
+    )
+    assert "either signal" in low, (
+        "suppression keys on either signal of the two-signal test"
+    )
+    assert "no longer holds" in low, (
+        "block must state suppression once either signal no longer holds"
+    )
+
+
+# --- Scenario 46afaafc507e7d6f: brainstorm-first, branch to one skill -----
+
+
+_VGLJ_DISCOVERY_SKILLS = (
+    "jobs-to-be-done",
+    "problem-framing-canvas",
+    "opportunity-solution-tree",
+    "customer-journey-map",
+)
+
+
+@then(
+    "the returned body contains a contiguous block directing the router to "
+    "open the product-discovery conversation as a general brainstorming "
+    "conversation first, before committing to any single structured discovery "
+    "skill"
+)
+def then_vglj_brainstorm_first(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "general brainstorming", "before committing"
+    )
+    low = block.lower()
+    assert "general brainstorming" in low and "first" in low, (
+        "block must open discovery as a general brainstorming conversation first"
+    )
+    assert "before committing" in low and "structured discovery skill" in low, (
+        "block must open brainstorming BEFORE committing to any single "
+        "structured discovery skill"
+    )
+
+
+@then(
+    "that block directs the router to then branch into one structured "
+    "discovery skill — selected from jobs-to-be-done, problem-framing-canvas, "
+    "opportunity-solution-tree, or customer-journey-map — based on what "
+    "surfaces in the brainstorming conversation"
+)
+def then_vglj_branch_to_one_skill(context: dict) -> None:
+    block = _vglj_block_with(context, "general brainstorming", "branch")
+    low = block.lower()
+    assert "branch" in low and "one structured discovery skill" in low, (
+        "block must direct branching into ONE structured discovery skill"
+    )
+    for skill in _VGLJ_DISCOVERY_SKILLS:
+        assert skill in low, (
+            f"block must name {skill!r} among the selectable discovery skills"
+        )
+    assert "based on what surfaces" in low, (
+        "the branch must be driven by what surfaces in the brainstorming"
+    )
+
+
+@then(
+    "that block states the router performs that skill selection itself, at the "
+    "router / main-agent level, as the triage step that follows the "
+    "brainstorming opener"
+)
+def then_vglj_router_selects(context: dict) -> None:
+    block = _vglj_block_with(context, "general brainstorming", "selection")
+    low = block.lower()
+    assert "selection" in low and ("router performs" in low or "router itself" in low
+                                   or "performs that skill selection itself" in low), (
+        "block must state the router performs the skill selection itself"
+    )
+    assert "main-agent" in low or "main agent" in low, (
+        "the selection happens at the router / main-agent level"
+    )
+    assert "triage" in low, "the selection is the triage step"
+    assert "brainstorming opener" in low, (
+        "the triage step follows the brainstorming opener"
+    )

@@ -131,7 +131,20 @@ version_ge() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" 
 if version_ge "$BAKED_SHOP_TEMPLATES_VERSION" "$EXPECTED_MIN_SHOP_TEMPLATES_VERSION"; then
   echo "bootstrap: pulled image baked shop-templates version '$BAKED_SHOP_TEMPLATES_VERSION' is at or above the expected minimum '$EXPECTED_MIN_SHOP_TEMPLATES_VERSION'; proceeding to render." >&2
 else
-  echo "bootstrap: pulled image is STALE — refusing to render against it." >&2
+  # REFUSE LOUDLY (scenario e9d64a8acc917efb): the pulled image is STALE. Do
+  # NOT fall through to the in-image render below — rendering from a stale image
+  # is the exact silent-ancient-shop bug this gate closes. Emit a diagnostic
+  # that NAMES (a) the stale version read, (b) the expected minimum required,
+  # and (c) an actionable remediation for obtaining the current image, then
+  # exit non-zero from here so no render is ever invoked against the stale image.
+  echo "bootstrap: REFUSING to render — the pulled image '$BC_BASE_IMAGE' is STALE." >&2
+  echo "  baked shop-templates version read from the image (PDR-026 provenance): '${BAKED_SHOP_TEMPLATES_VERSION:-<unreadable>}'" >&2
+  echo "  expected-minimum shop-templates version required by bin/bootstrap:    '$EXPECTED_MIN_SHOP_TEMPLATES_VERSION'" >&2
+  echo "  Rendering from this stale image would produce an ANCIENT shop (e.g. no AGENT_VAULT_CA_PEM, a hardcoded product name); refusing." >&2
+  echo "  REMEDIATION — obtain the current image, then re-run ./bin/bootstrap:" >&2
+  echo "      docker pull $BC_BASE_IMAGE" >&2
+  echo "      docker pull $BC_LEAD_IMAGE" >&2
+  echo "  (the floating tag resolved to a cached/stale digest; a fresh pull of the published image obtains the current shop-templates build). Aborting." >&2
   exit 1
 fi
 

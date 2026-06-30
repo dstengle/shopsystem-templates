@@ -266,6 +266,23 @@ path for discovery work, parallel to the idle-detection checklist:
 > Discovery dispatch? → product-authority dialogue conducted OR cited
 > reason recorded. If neither, do NOT dispatch; run the dialogue first.
 
+### Standing rule: effectively-empty product-discovery bootstrap
+
+The **effectively-empty / no-product-defined** repo state is defined by a
+**two-signal test** that requires **BOTH signals** to hold at once: the first
+signal is that the **beads registry carries no product-bearing bead**, and the
+second signal is that the **`features/` tree carries no product-bearing
+scenario**. The state holds only while **both signals** hold; the moment
+either signal is defeated — a product-bearing bead appears, or a
+product-bearing scenario appears — the repo is no longer effectively-empty.
+The bootstrap **scaffold** is **ignored** by this test and **does not by
+itself defeat either signal**: the canonical-managed files, the top-level
+`CLAUDE.md`, the typed `.claude/` files, the role templates, the placeholder
+shop primer, and the initialized-but-empty beads registry are all scaffold
+rather than product, so their mere presence creates neither a product-bearing
+bead nor a product-bearing scenario and therefore **does not by itself defeat
+either signal**.
+
 ### Session-start drain
 
 After arming Monitor and **before accepting user work**, the router must

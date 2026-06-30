@@ -1,6 +1,6 @@
 Feature: shopsystem-templates — CLI surface and role-discipline structure
 
-  @scenario_hash:1758fe166d638cda @bc:shopsystem-templates
+  @scenario_hash:3314ed2e84ad54c5 @bc:shopsystem-templates
   Scenario: bc-implementer template carries the structural sections that BC implementation discipline depends on
     When I read the bc-implementer template via "shop-templates show bc-implementer"
     Then the content contains a "## Your default posture: SEEK CLARITY" section header

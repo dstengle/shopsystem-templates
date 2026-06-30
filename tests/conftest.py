@@ -28419,3 +28419,55 @@ def then_vglj_scaffold_ignored(context: dict) -> None:
     assert "does not by itself defeat either signal" in low, (
         "the scaffold must be stated not to by itself defeat either signal"
     )
+
+
+# --- Scenario 32b4fd22cfcf55d2: proactively open discovery, not idle -----
+
+
+@then(
+    "the returned body contains a contiguous block directing the router, on "
+    "detecting the effectively-empty / no-product-defined state at session "
+    "start or during the idle-detection checklist, to proactively open a "
+    "product-discovery conversation with the product authority rather than "
+    "declaring idle"
+)
+def then_vglj_proactively_open(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "proactively open", "product-discovery", "effectively-empty"
+    )
+    low = block.lower()
+    assert "session start" in low, "block must name session start as a trigger"
+    assert "idle-detection" in low, (
+        "block must name the idle-detection checklist as a trigger"
+    )
+    assert "product authority" in low, (
+        "the conversation must be opened with the product authority"
+    )
+    assert "rather than declar" in low and "idle" in low, (
+        "block must direct opening discovery RATHER THAN declaring idle"
+    )
+
+
+@then(
+    "that block states the discovery conversation is conducted at the "
+    "main-agent / router level — consistent with the product-authority "
+    "discovery gate — and is not delegated to a non-interactive discovery "
+    "subagent"
+)
+def then_vglj_main_agent_not_subagent(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "proactively open", "product-discovery"
+    )
+    low = block.lower()
+    assert "main-agent" in low or "main agent" in low, (
+        "the conversation must be conducted at the main-agent / router level"
+    )
+    assert "product-authority discovery gate" in low, (
+        "the block must tie this to the product-authority discovery gate"
+    )
+    assert "not delegated" in low, (
+        "the conversation must NOT be delegated to a discovery subagent"
+    )
+    assert "non-interactive discovery subagent" in low or (
+        "non-interactive" in low and "subagent" in low
+    ), "the block must name the non-interactive discovery subagent it is not delegated to"

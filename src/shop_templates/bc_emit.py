@@ -49,18 +49,31 @@ Preconditions (lead-m56e):
                   refuses, naming the tag-lineage-anchors-work_id precondition,
                   the offending tag, and the work_id.
 
-  Check 3 — scenario-hash match (hash ea9c1bbd9be87d72)
-      Recompute each candidate scenario hash by delegating IN-PROCESS to
+  Check 3 — scenario-hash staleness, WORK-SCOPED (hashes ea9c1bbd9be87d72,
+            aabbc009bad6fe86)
+      The staleness scan is SCOPED to the dispatch's OWN assigned set — the
+      scenario blocks under features/ that CARRY one of the payload
+      `--scenario-hash` values. A block whose carried `@scenario_hash` is NOT
+      one this dispatch named is owned by a SEPARATE work item: it is NEITHER
+      recomputed NOR allowed to refuse the emit (scenario 225, aabbc009bad6fe86,
+      mirroring scenario 212's deliverable-scope of Check 1). This REPLACES the
+      earlier GLOBAL scan, which recomputed every `@scenario_hash` under
+      features/ and refused on ANY divergence anywhere — the over-refuse that
+      forced reviewers onto `--force`. For each in-scope block, recompute the
+      candidate hash by delegating IN-PROCESS to
       `scenarios.hash.compute_scenario_hash` using scenario-BLOCK-ONLY
-      canonicalization (the enclosing `Feature:` header line is NOT part of
-      the hashed text). Compare the recomputed set against the payload's
-      `--scenario-hash` set; classify any divergent member as stale
-      (carried hash whose recompute differs), missing (a features/-present
-      dispatched scenario block with no carried hash), or orphan (a carried
-      hash matching no features/ block). On divergence the error names the
-      precondition, the classification, the affected hash value, and the
-      scenario. The recompute uses ONLY the block-only delegate, never the
-      Feature-line-included canonicalization carried on the wire.
+      canonicalization (the enclosing `Feature:` header line is NOT part of the
+      hashed text). Classify any divergent member — FOR IN-SCOPE SCENARIOS ONLY
+      (scenario 179, ea9c1bbd9be87d72, preserved) — as stale (in-scope carried
+      hash whose recompute differs), missing (a dispatched scenario block whose
+      recompute is named but which carries no @scenario_hash tag), or orphan (a
+      payload hash matching no committed features/ block). On divergence the
+      error names the scenario-hash staleness check (Check 3) as the cause, the
+      in-scope work_id, the classification, the affected hash value, and the
+      scenario; a stale refusal names the in-scope work_id, the stale on-disk
+      value, and the recomputed value. The recompute uses ONLY the block-only
+      delegate, never the Feature-line-included canonicalization carried on the
+      wire.
 
 Self-resolve messaging (hash 4a6133f7b5f061a2): every refusal's named-cause
 error directs the BC to fix its OWN state and re-invoke `bc-emit work-done`;
@@ -399,25 +412,48 @@ def _scenario_blocks(feature_text: str) -> list[tuple[str, str | None]]:
 
 
 def check_scenario_hashes(
-    repo: Path, payload_hashes: list[str]
+    repo: Path, work_id: str, payload_hashes: list[str]
 ) -> None:
-    """Check 3 — scenario-hash match via block-only in-process recompute.
+    """Check 3 — scenario-hash staleness, WORK-SCOPED to the dispatch's OWN
+    assigned set (scenario 225, hash aabbc009bad6fe86).
 
-    Recomputes each scenario block under features/ with the BLOCK-ONLY
-    canonical hash (scenarios.hash.compute_scenario_hash; the Feature header
-    is excluded). Compares the recomputed set against the payload's
-    --scenario-hash set and classifies any divergent member:
+    The staleness scan evaluates ONLY the scenario blocks in the dispatch's own
+    assigned set — the blocks under features/ that CARRY one of the payload
+    `--scenario-hash` values (`payload_hashes`). A scenario block whose carried
+    `@scenario_hash` is NOT one this dispatch named is owned by a SEPARATE work
+    item; it is NEITHER recomputed NOR allowed to refuse the emit. This mirrors
+    scenario 212 (cba037e97c6a8325), which scoped Check 1 (clean-tree) to
+    deliverable paths.
 
-      stale   — a block carries an @scenario_hash tag whose recompute differs
-                from the carried value (the body drifted under the pinned tag).
-      missing — a features/-present scenario block whose recomputed hash is in
-                neither the payload nor carried-and-matching, i.e. a dispatched
-                scenario block with no carried hash echoed in the payload.
-      orphan  — a payload hash matching no recomputed scenario block under
-                features/.
+    This REPLACES the earlier GLOBAL scan, which recomputed every
+    `@scenario_hash` grep-able under features/ and refused on ANY divergence
+    anywhere in the tree — including unrelated work items' tags. For a narrow
+    (e.g. single-scenario) dispatch that global scan refused on essentially
+    every unrelated block (the old "missing" arm fired for every features/-
+    present block whose recompute was not echoed in the narrow payload),
+    forcing reviewers onto the bare `--force` escape valve. The scope of the
+    refusal — NOT its classifications — is what changed: stale, missing, and
+    orphan all still hold, now FOR IN-SCOPE SCENARIOS ONLY (scenario 179,
+    ea9c1bbd9be87d72, preserved):
 
-    On any divergence: raise PreconditionRefusal naming the precondition, the
-    classification, the affected hash value, and the scenario.
+      stale   — a block in the dispatch's own set (its carried @scenario_hash is
+                one this dispatch named) whose block-only recompute differs from
+                the carried value (the body drifted under the pinned tag).
+      missing — a dispatched scenario block present under features/ whose
+                block-only recompute IS one this dispatch named but which
+                carries NO @scenario_hash tag (the pin is missing).
+      orphan  — a payload hash the dispatch named that NO committed scenario
+                block under features/ carries.
+
+    On any divergence: raise PreconditionRefusal naming the scenario-hash
+    staleness check (Check 3) as the cause, the in-scope work_id, the
+    classification, the affected hash value, and the scenario; for a stale
+    block it names the in-scope work_id, the stale on-disk value, and the
+    recomputed value.
+
+    The recompute uses ONLY the block-only delegate
+    (scenarios.hash.compute_scenario_hash), never the Feature-line-included
+    canonicalization carried on the wire.
     """
     # Lazy import (lead-ld7i / tmpl-20n): scenarios is only needed on this
     # work-done hash-check path, so it is imported here rather than at module
@@ -427,58 +463,88 @@ def check_scenario_hashes(
     # installs.
     from scenarios.hash import compute_scenario_hash
 
+    payload_set = list(payload_hashes)
+    payload_lookup = set(payload_set)
     features_dir = repo / "features"
-    recomputed: dict[str, str] = {}  # recomputed_hash -> scenario title
     feature_files = (
         sorted(features_dir.glob("*.feature"))
         if features_dir.is_dir()
         else []
     )
+
+    accounted: set[str] = set()  # payload hashes carried by an in-scope block
+    # Untagged blocks are collected but NOT recomputed up front — they are only
+    # recomputed if an unaccounted payload hash forces the missing/orphan
+    # distinction below. This keeps the happy path from recomputing any
+    # out-of-set block at all.
+    untagged_blocks: list[tuple[str, str]] = []  # (block_text, "title in file")
+
     for fpath in feature_files:
         text = fpath.read_text()
         for block_text, carried in _scenario_blocks(text):
-            recompute = compute_scenario_hash(block_text)
             title = _scenario_title(block_text)
-            recomputed.setdefault(recompute, title)
-            # stale: the block carries a hash that no longer matches its body.
-            if carried is not None and carried != recompute:
+            if carried is None:
+                untagged_blocks.append((block_text, f"{title!r} in {fpath.name}"))
+                continue
+            if carried not in payload_lookup:
+                # OUT OF SCOPE: this block's carried @scenario_hash is owned by
+                # a separate work item the dispatch never named. Do NOT
+                # recompute it and do NOT refuse on it (scenario 225 arm a).
+                continue
+            # IN SCOPE: recompute the block-only canonical hash and compare to
+            # the carried (== dispatch-named) value.
+            recompute = compute_scenario_hash(block_text)
+            if carried != recompute:
                 raise PreconditionRefusal(
-                    "refused: the scenario_hashes-match precondition failed "
-                    "(classification: STALE). The scenario block "
-                    f"{title!r} in {fpath.name} carries @scenario_hash "
-                    f"{carried} but its scenario-block-only recompute is "
-                    f"{recompute}. (Recomputed in-process via "
+                    "refused: the scenario-hash staleness check (Check 3) — "
+                    "the scenario_hashes-match precondition — "
+                    f"failed for work_id {work_id} (classification: STALE). The "
+                    f"scenario block {title!r} in {fpath.name} is in the "
+                    "dispatch's own assigned scenario set (its carried "
+                    f"@scenario_hash {carried} is one this dispatch named) but "
+                    f"its scenario-block-only recompute is {recompute}. "
+                    f"In-scope work_id: {work_id}; stale on-disk @scenario_hash "
+                    f"value: {carried}; recomputed value: {recompute}. "
+                    "(Recomputed in-process via "
                     "scenarios.hash.compute_scenario_hash, the block-only "
                     "canonicalization — never the Feature-line-included wire "
                     f"form.) {_SELF_RESOLVE}"
                 )
+            accounted.add(carried)
 
-    payload_set = list(payload_hashes)
-    # orphan: a payload hash with no matching recomputed block.
-    for h in payload_set:
-        if h not in recomputed:
+    # For any payload hash NOT accounted for by an in-scope carrying block,
+    # distinguish MISSING (the dispatched scenario is present but untagged) from
+    # ORPHAN (no such scenario exists). Only NOW do we recompute the untagged
+    # blocks, and only to resolve this in-scope question — out-of-set TAGGED
+    # blocks are never recomputed.
+    unaccounted = [h for h in payload_set if h not in accounted]
+    if unaccounted:
+        untagged_recompute: dict[str, str] = {}
+        for block_text, where in untagged_blocks:
+            untagged_recompute.setdefault(compute_scenario_hash(block_text), where)
+        for h in unaccounted:
+            where = untagged_recompute.get(h)
+            if where is not None:
+                raise PreconditionRefusal(
+                    "refused: the scenario-hash staleness check (Check 3) — "
+                    "the scenario_hashes-match precondition — "
+                    f"failed for work_id {work_id} (classification: MISSING). "
+                    f"The dispatched scenario block {where} is present under "
+                    "features/ with scenario-block-only recompute "
+                    f"{h} (one this dispatch named) but carries NO "
+                    "@scenario_hash tag — the pin is missing. (Recomputed via "
+                    "scenarios.hash.compute_scenario_hash, block-only "
+                    "canonicalization, never the Feature-line wire form.) "
+                    f"{_SELF_RESOLVE}"
+                )
             raise PreconditionRefusal(
-                "refused: the scenario_hashes-match precondition failed "
-                "(classification: ORPHAN). The payload --scenario-hash "
-                f"{h} matches no scenario block under features/ when "
-                "recomputed via scenarios.hash.compute_scenario_hash "
-                "(block-only canonicalization, never the Feature-line wire "
-                f"form). {_SELF_RESOLVE}"
-            )
-    # missing: a features/-present recomputed scenario hash not echoed in the
-    # payload (a dispatched scenario block with no carried hash in the
-    # payload set).
-    payload_lookup = set(payload_set)
-    for recompute, title in recomputed.items():
-        if recompute not in payload_lookup:
-            raise PreconditionRefusal(
-                "refused: the scenario_hashes-match precondition failed "
-                "(classification: MISSING). The scenario block "
-                f"{title!r} is present under features/ with recomputed "
-                f"scenario-block-only hash {recompute} (via "
-                "scenarios.hash.compute_scenario_hash) but that hash is "
-                "absent from the payload --scenario-hash set. "
-                f"{_SELF_RESOLVE}"
+                "refused: the scenario-hash staleness check (Check 3) — the "
+                "scenario_hashes-match precondition — failed "
+                f"for work_id {work_id} (classification: ORPHAN). The payload "
+                f"--scenario-hash {h} matches no scenario block under features/ "
+                "— no committed block carries it. (Block-only canonicalization "
+                "via scenarios.hash.compute_scenario_hash, never the "
+                f"Feature-line wire form.) {_SELF_RESOLVE}"
             )
 
 
@@ -757,8 +823,9 @@ def _cmd_work_done(args: argparse.Namespace) -> int:
             check_tag_reachable(repo, args.work_id, args.tag)
         else:
             check_commit_reachable(repo, args.work_id)
-        # Check 3 — scenario-hash match (block-only recompute).
-        check_scenario_hashes(repo, list(args.scenario_hash or []))
+        # Check 3 — scenario-hash staleness, WORK-SCOPED to the dispatch's own
+        # assigned set (the --scenario-hash set the emit carries).
+        check_scenario_hashes(repo, args.work_id, list(args.scenario_hash or []))
         # Check 4 + durability — bd plan decomposition, against the BC's own bd
         # registry. Run ONLY when an umbrella bead is named: a non-scenario /
         # flat-maintenance emit carries no decomposition and is unaffected.

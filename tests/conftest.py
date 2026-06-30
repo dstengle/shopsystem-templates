@@ -16057,6 +16057,217 @@ def then_recompute_block_only_not_wire(context: dict) -> None:
     )
 
 
+# ---- Scenario aabbc009bad6fe86 — Check 3 staleness scan WORK-SCOPED to the
+#      dispatch's OWN assigned set (mirrors scenario 212's deliverable-scope of
+#      Check 1). Arm (a): an all-clean own set passes Check 3 even when an
+#      unrelated stale @scenario_hash tag exists elsewhere under features/ (the
+#      out-of-set block is never recomputed). Arm (b): a stale tag WITHIN the
+#      own set still refuses, naming the staleness check + in-scope work_id +
+#      stale value + recomputed value. -----------------------------------------
+
+_WORKSCOPE_OWN_BLOCK = (
+    "  @scenario_hash:{h} @bc:shopsystem-templates\n"
+    "  Scenario: the dispatch's own assigned scenario\n"
+    "    Given some precondition in the own set\n"
+    "    When the behavior runs\n"
+    "    Then the outcome holds\n"
+)
+_WORKSCOPE_UNRELATED_BLOCK = (
+    "  @scenario_hash:{h} @bc:shopsystem-templates\n"
+    "  Scenario: an unrelated scenario owned by a separate work item\n"
+    "    Given a precondition that belongs to a different dispatch\n"
+    "    When that other work is eventually dispatched\n"
+    "    Then its own owner reconciles it\n"
+)
+
+
+@given(
+    parsers.parse(
+        "a dispatched work_id whose assigned scenario set is exactly the "
+        'scenario blocks committed under "features/" that the dispatch named, '
+        'each carrying an "@scenario_hash:<hex>" tag whose value the "bc-emit '
+        'work-done" wrapper recomputes via scenario-block-only canonicalization'
+    )
+)
+def given_workscope_own_assigned_set(context: dict, tmp_path: Path) -> None:
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    feats = clone / "features"
+    feats.mkdir()
+    # Author the own block; its block-only recompute (the tag line is dropped)
+    # is the value a CLEAN tag must carry.
+    own_hash = _csh(_WORKSCOPE_OWN_BLOCK.format(h="PLACEHOLDER"))
+    (feats / "own.feature").write_text(
+        "Feature: own deliverable\n\n" + _WORKSCOPE_OWN_BLOCK.format(h=own_hash)
+    )
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["ws_own_hash"] = own_hash
+    context["ws_work_id"] = "lead-test"
+    context["ws_tmp"] = tmp_path
+    recorder, log = _make_recorder(tmp_path)
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+
+
+@given(
+    parsers.parse(
+        "every scenario block in the dispatch's own assigned set is clean — for "
+        "each, the recomputed scenario-block-only canonical hash equals the "
+        'on-disk "@scenario_hash:<hex>" tag'
+    )
+)
+def given_workscope_own_set_clean(context: dict) -> None:
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    own_hash = context["ws_own_hash"]
+    # Premise guard: the on-disk own block is clean (recompute == carried tag).
+    assert _csh(_WORKSCOPE_OWN_BLOCK.format(h=own_hash)) == own_hash, (
+        "own assigned block fixture is not clean"
+    )
+
+
+@given(
+    parsers.parse(
+        'a DIFFERENT scenario block elsewhere under "features/", owned by a '
+        "separate work item and never named by this dispatch, carries a stale "
+        '"@scenario_hash:<hex>" tag whose on-disk value no longer equals the '
+        'hash "scenarios hash" recomputes against its as-committed body'
+    )
+)
+def given_workscope_unrelated_stale(context: dict) -> None:
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    clone = context["bc_repo"]
+    feats = clone / "features"
+    stale_tag = "0000000000000000"  # NOT in this dispatch's payload set
+    unrelated_block = _WORKSCOPE_UNRELATED_BLOCK.format(h=stale_tag)
+    recompute = _csh(unrelated_block)
+    assert recompute != stale_tag, "unrelated block fixture must be stale"
+    (feats / "unrelated.feature").write_text(
+        "Feature: unrelated deliverable\n\n" + unrelated_block
+    )
+    context["ws_unrelated_stale_tag"] = stale_tag
+    context["ws_unrelated_recompute"] = recompute
+    context["ws_unrelated_title"] = (
+        "an unrelated scenario owned by a separate work item"
+    )
+    # Commit BOTH feature files so the working tree is clean and a work_id
+    # commit lands on origin/main (Check 1 + Check 2 pass; Check 3 is isolated).
+    _git_in(clone, "add", "features/own.feature", "features/unrelated.feature")
+    _git_in(
+        clone, "commit", "-q", "-m",
+        "feat: deliver own + unrelated (work_id: lead-test)",
+    )
+    _git_in(clone, "push", "-q", "origin", "main")
+
+
+@then(
+    parsers.parse(
+        "the wrapper's scenario-hash staleness check (Check 3) evaluates ONLY "
+        "the scenario blocks in the dispatch's own assigned set, does NOT scan "
+        'the unrelated scenario block elsewhere under "features/", does not '
+        "refuse on the staleness check, and proceeds to the remaining "
+        "preconditions"
+    )
+)
+def then_workscope_passes_despite_unrelated_stale(context: dict) -> None:
+    clone = context["bc_repo"]
+    arm_a = context["ws_tmp"] / "arm_a"
+    arm_a.mkdir()
+    recorder, log = _make_recorder(arm_a)
+    # The dispatch's own assigned set is exactly [own_hash]; the unrelated stale
+    # tag is NOT named. Check 3 must evaluate only the own set.
+    result = _run_bc_emit(
+        clone, recorder,
+        "--work-id", context["ws_work_id"],
+        "--scenario-hash", context["ws_own_hash"],
+        "--status", "complete",
+    )
+    # Check 3 did NOT refuse, and the out-of-set stale block was neither scanned
+    # nor named.
+    assert "staleness check (Check 3)" not in result.stderr, (
+        f"Check 3 wrongly refused the otherwise-clean emit: {result.stderr!r}"
+    )
+    assert context["ws_unrelated_stale_tag"] not in result.stderr, (
+        "the unrelated OUT-OF-SET stale @scenario_hash was scanned/named by "
+        f"Check 3: {result.stderr!r}"
+    )
+    assert context["ws_unrelated_title"] not in result.stderr, result.stderr
+    # Proceeds past Check 3: with a reachable work_id commit and a clean own
+    # set, the wrapper passes every precondition and invokes respond.
+    assert _respond_was_invoked(log), (
+        "expected the wrapper to proceed past Check 3 and invoke respond; "
+        f"rc={result.returncode} stderr={result.stderr!r}"
+    )
+    assert result.returncode == 0, (
+        f"expected a clean zero exit; rc={result.returncode} "
+        f"stderr={result.stderr!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        "the same wrapper, run for a dispatch one of whose OWN assigned scenario "
+        'blocks carries a stale "@scenario_hash:<hex>" tag — the recomputed '
+        "scenario-block-only canonical hash differs from the on-disk value — "
+        'exits non-zero, does not invoke "shop-msg respond work_done", names '
+        "the scenario-hash staleness check as the cause, and names the in-scope "
+        "work_id, the stale hash value, and the recomputed value"
+    )
+)
+def then_workscope_stale_in_own_set_refuses(context: dict) -> None:
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    sub = context["ws_tmp"] / "arm_b"
+    sub.mkdir()
+    clone, origin = _init_bare_origin_and_clone(sub)
+    feats = clone / "features"
+    feats.mkdir()
+    # The dispatch named intended_hash; the on-disk own block carries it but its
+    # body has drifted, so its block-only recompute differs — STALE within the
+    # dispatch's OWN assigned set.
+    intended_hash = _csh(_WORKSCOPE_OWN_BLOCK.format(h="PLACEHOLDER"))
+    drifted_block = (
+        "  @scenario_hash:{h} @bc:shopsystem-templates\n"
+        "  Scenario: the dispatch's own assigned scenario\n"
+        "    Given some precondition in the own set\n"
+        "    When the behavior runs differently now\n"  # body drift
+        "    Then the outcome holds\n"
+    ).format(h=intended_hash)
+    recompute = _csh(drifted_block)
+    assert recompute != intended_hash, "drifted own block fixture must be stale"
+    (feats / "own.feature").write_text(
+        "Feature: own deliverable\n\n" + drifted_block
+    )
+    _git_in(clone, "add", "features/own.feature")
+    _git_in(
+        clone, "commit", "-q", "-m",
+        "feat: deliver own drifted (work_id: lead-test)",
+    )
+    _git_in(clone, "push", "-q", "origin", "main")
+    recorder, log = _make_recorder(sub)
+    result = _run_bc_emit(
+        clone, recorder,
+        "--work-id", "lead-test",
+        "--scenario-hash", intended_hash,
+        "--status", "complete",
+    )
+    assert result.returncode != 0, (
+        "a stale tag WITHIN the dispatch's own set must refuse; "
+        f"rc={result.returncode} stderr={result.stderr!r}"
+    )
+    assert not _respond_was_invoked(log), (
+        f"shop-msg respond was invoked despite a stale own-set tag: "
+        f"{log.read_text()!r}"
+    )
+    assert "scenario-hash staleness check" in result.stderr, result.stderr
+    assert "lead-test" in result.stderr, result.stderr  # in-scope work_id
+    assert intended_hash in result.stderr, result.stderr  # stale on-disk value
+    assert recompute in result.stderr, result.stderr  # recomputed value
+
+
 # ---- Scenario 4a6133f7b5f061a2 — self-resolve messaging on refusal --------
 
 @given(

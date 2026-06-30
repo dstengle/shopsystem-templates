@@ -64,7 +64,7 @@ OPS_LEAD_BEADS_REPO="${OPS_LEAD_BEADS_REPO:-{{OPS_SLUG}}-lead-beads}"
 # silently no-ops. Keep the literal OUTSIDE any ${...} expansion via a conditional
 # default: a non-empty exported override is honored and skips the assignment;
 # otherwise the single-quoted literal — which preserves "{bc}" verbatim — is used.
-OPS_BC_BEADS_REPO_FMT="${OPS_BC_BEADS_REPO_FMT-}"; [ -n "$OPS_BC_BEADS_REPO_FMT" ] || OPS_BC_BEADS_REPO_FMT='{{OPS_SLUG}}-{bc}-beads'
+OPS_BC_BEADS_REPO_FMT="${OPS_BC_BEADS_REPO_FMT-}"; [ -n "$OPS_BC_BEADS_REPO_FMT" ] || OPS_BC_BEADS_REPO_FMT='{{OPS_SLUG}}-product-{bc}-beads'
 # Back-compat ALIAS (lead-ow4d) for the older single OPS_BEADS_REPO name (the lead
 # repo); resolves to OPS_LEAD_BEADS_REPO so the literal stays defined exactly once.
 OPS_BEADS_REPO="${OPS_BEADS_REPO:-$OPS_LEAD_BEADS_REPO}"

@@ -27782,6 +27782,118 @@ def then_refreshed_fmt_intact_and_image_nonempty(
     )
 
 
+# ===========================================================================
+# lead-320l / scenario 213 (@scenario_hash:4c646ae20a1540e3) — "shop-templates
+# update" CREATES bin/ops-coordinates when ABSENT (the pre-artifact adoption
+# state of a repo bootstrapped before the artifact existed), byte-equal to the
+# bootstrap render-tokens body (scenario 211 @scenario_hash:0a3a8267109b5792),
+# and the sourced OPS_BC_BEADS_REPO_FMT resolves to "shopsystem-{bc}-beads" with
+# the literal "{bc}" placeholder intact (the corrected final Then, 211 slug-strip
+# consistent — supersedes the prior 213 pin dd82193e56e52d95). Create-if-absent
+# is the same single unconditional re-render that handles the drifted-refresh
+# case (228 8e5955d5fb5bb9c8); these step defs are ADDITIVE and reuse the 211
+# _source_ops_coordinates helper and the shared "not under .claude/" Then.
+# ===========================================================================
+
+
+@given(
+    parsers.parse(
+        'the target directory contains no file at "{path}" (the pre-artifact '
+        'adoption state of a repo bootstrapped before the artifact existed)'
+    )
+)
+def given_ops_coordinates_absent(path: str, context: dict) -> None:
+    """213 create-if-absent pre-state: a repo bootstrapped before the
+    ops-coordinates artifact existed has NO bin/ops-coordinates on disk. The
+    test-setup bootstrap renders one, so remove it to faithfully reproduce the
+    pre-adoption absent state the create-if-absent path must handle."""
+    real = _resolve_single_target(context)
+    target_file = real / path
+    if target_file.exists():
+        target_file.unlink()
+    assert not target_file.exists(), (
+        f"premise of Given violated: {target_file!s} still present after "
+        f"establishing the absent pre-state"
+    )
+
+
+@then(
+    parsers.parse(
+        'the byte contents of "{path}" equal what the "shop-templates" '
+        'bootstrap render-tokens path writes to "{path_again}" for shop type '
+        '"{shop_type}" and shop name "{shop_name}" — the same ADR-043 D2 '
+        'content contract pinned by scenario 211 '
+        '(@scenario_hash:0a3a8267109b5792)'
+    )
+)
+def then_created_ops_coordinates_bytes_equal_bootstrap_render(
+    path: str,
+    path_again: str,
+    shop_type: str,
+    shop_name: str,
+    context: dict,
+) -> None:
+    assert path == path_again, (
+        f"scenario inconsistency: {path!r} vs {path_again!r}"
+    )
+    from shop_templates.cli import render_ops_template, _ops_slug
+
+    real = context["last_invocation_target"]
+    actual = (real / path).read_text()
+    slug = _ops_slug(shop_name)
+    expected = render_ops_template("ops-coordinates", slug)
+    assert actual == expected, (
+        f"after update, the CREATED {path!r} is not byte-equal to the "
+        f"bootstrap render-tokens body for shop type {shop_type!r} / shop "
+        f"name {shop_name!r} (slug {slug!r}); create-if-absent did not adopt "
+        f"the canonical ADR-043 D2 content contract pinned by scenario 211"
+    )
+
+
+@then(
+    parsers.re(
+        r'after sourcing with no override environment set, OPS_BC_BEADS_REPO_FMT '
+        r'resolves to "(?P<fmt>[^"]+)" \(the slug-strip contract of scenario '
+        r'211.*'
+    )
+)
+def then_created_fmt_intact_and_image_nonempty(
+    fmt: str, context: dict
+) -> None:
+    # The scenario's expected FMT is the 211-slug-strip-consistent value
+    # "shopsystem-{bc}-beads" (literal "{bc}" intact). This assertion is
+    # DISCRIMINATING: it FAILS if the sourced FMT resolved to the
+    # pre-correction "shopsystem-product-{bc}-beads" (no slug strip) or to a
+    # "{bc}"-destroyed value.
+    assert "{bc}" in fmt, (
+        "scenario's expected OPS_BC_BEADS_REPO_FMT value must carry the "
+        "literal '{bc}' placeholder; got " + repr(fmt)
+    )
+    coords = _ops_coordinates_file(context)
+    assert coords.is_file(), f"bin/ops-coordinates not created at {coords!s}"
+    src_rc, values = _source_ops_coordinates(coords)
+    assert src_rc == 0, (
+        f"sourcing the created bin/ops-coordinates exited {src_rc}, not 0"
+    )
+    actual_fmt = values.get("OPS_BC_BEADS_REPO_FMT", _OPS_211_UNSET)
+    assert actual_fmt == fmt, (
+        "after sourcing the created artifact with no override, "
+        "OPS_BC_BEADS_REPO_FMT=" + repr(actual_fmt) + ", expected " + repr(fmt)
+        + " (211 slug-strip consistent); a value like "
+        "'shopsystem-product-{bc}-beads' means _ops_slug failed to strip the "
+        "trailing '-product'"
+    )
+    assert "{bc}" in actual_fmt, (
+        "OPS_BC_BEADS_REPO_FMT=" + repr(actual_fmt) + " lost its literal "
+        "'{bc}' placeholder during sourcing of the created artifact"
+    )
+    image = values.get("OPS_FRAMEWORK_IMAGE", _OPS_211_UNSET)
+    assert image not in ("", _OPS_211_UNSET), (
+        "OPS_FRAMEWORK_IMAGE must resolve to a non-empty value after sourcing "
+        "the created artifact; got " + repr(image)
+    )
+
+
 # =======================================================================
 # lead-y1we (plan tmpl-1dj / PDR-022 Phase A) — footing DELEGATES broker
 # provisioning to bin/agent-vault-provision; provision performs the

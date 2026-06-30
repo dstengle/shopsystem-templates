@@ -27393,3 +27393,125 @@ def then_b2iz_refuses_loudly(context: dict) -> None:
     assert ("docker pull" in low) or ("pull" in low and "image" in low), (
         "diagnostic must give an actionable remediation for obtaining the image"
     )
+
+
+# =======================================================================
+# lead-y1we (plan tmpl-1dj / PDR-022 Phase A) — footing DELEGATES broker
+# provisioning to bin/agent-vault-provision; provision performs the
+# broker-local docker-exec vault-create (NO --address, lead-4sg9) and the
+# broker-local docker-exec GITHUB_TOKEN credential store (NEVER an owner
+# remote vault-scoped session, lead-0j60 / PDR-022 D3), sourcing the single
+# bin/ops-coordinates artifact (ADR-043). Scenarios 229.1 b3a0a0b6b1fbd217,
+# 229.2 5ee9de8b3f9ab137, 230.1 fc35c1cd8a891dff, 230.2 c3381f4763c74361.
+#
+# Hermetic render-shape assertions over the rendered ops bodies — there is no
+# live broker in the BC env. The final broker round-trip Thens of 230.1/230.2
+# ("the <slug> vault exists in the broker" / "the GITHUB_TOKEN credential is
+# present in the <slug> vault") are LEAD live-verify; the BC scopes its
+# demonstration to the SCRIPT-SHAPE guarantee the rendered body encodes (the
+# broker-local docker-exec that, against a real broker, lands the vault /
+# credential). See the dispatch demonstration boundary.
+# =======================================================================
+
+
+def _y1we_render(template_name: str, slug: str = "shopsystem") -> str:
+    from shop_templates.cli import render_ops_template
+
+    return render_ops_template(template_name, slug)
+
+
+def _y1we_exec_lines(body: str) -> list[str]:
+    """The script's EXECUTABLE shell lines — comment lines and any text inside
+    a ``cat <<EOF ... EOF`` heredoc (operator-facing prose) are excluded, so a
+    ``vault create`` mentioned in a comment or a heredoc banner is never
+    mistaken for an inlined CLI call."""
+    out: list[str] = []
+    in_heredoc = False
+    for line in body.splitlines():
+        stripped = line.strip()
+        if in_heredoc:
+            if stripped == "EOF":
+                in_heredoc = False
+            continue
+        if re.search(r"<<-?\s*['\"]?EOF['\"]?", line):
+            in_heredoc = True
+            continue
+        if not stripped or stripped.startswith("#"):
+            continue
+        out.append(line)
+    return out
+
+
+def _y1we_exec_text(body: str) -> str:
+    return "\n".join(_y1we_exec_lines(body))
+
+
+# -- Scenario 229.1 (@scenario_hash:b3a0a0b6b1fbd217) ------------------
+
+
+@given(
+    parsers.parse(
+        'a "lead" shop whose rendered "bin/footing" runway has reached its '
+        "provisioning step with the broker ready, the owner password "
+        "generated, and the GitHub PAT collected"
+    )
+)
+def given_y1we_footing_at_provisioning_step(context: dict) -> None:
+    context["y1we_footing"] = _y1we_render("footing")
+
+
+@when(parsers.parse('"bin/footing" runs through its provisioning step'))
+def when_y1we_footing_runs_provisioning(context: dict) -> None:
+    context.setdefault("y1we_footing", _y1we_render("footing"))
+
+
+@then(
+    parsers.parse(
+        'it invokes the rendered "bin/agent-vault-provision", passing the '
+        "owner password and the GitHub PAT, to perform owner registration, "
+        "vault creation, the GitHub credential set, service wiring, the "
+        'fleet-agent-token mint, the CA fetch, and the ".env" writeback'
+    )
+)
+def then_y1we_footing_invokes_provision(context: dict) -> None:
+    body = context["y1we_footing"]
+    code = _y1we_exec_text(body)
+    # footing EXECUTES an invocation of the rendered bin/agent-vault-provision
+    # (a real command line, e.g. `bash "$REPO_ROOT/bin/agent-vault-provision"`)
+    # — not merely a comment/heredoc mention.
+    assert re.search(
+        r"(?:bash\s+|exec\s+|\.\s+|source\s+)?[\"']?(?:\.?/|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/)*bin/agent-vault-provision",
+        code,
+    ), "footing must INVOKE bin/agent-vault-provision (executable line) at its provisioning step"
+    # footing makes the collected GitHub PAT and the generated owner password
+    # available to provision (provision reads them from the environment).
+    assert "GITHUB_TOKEN" in body, (
+        "footing must pass the collected GitHub PAT (GITHUB_TOKEN) to provision"
+    )
+    assert "AGENT_VAULT_OWNER_PASSWORD" in body, (
+        "footing must pass the generated owner password to provision"
+    )
+
+
+@then(
+    parsers.parse(
+        '"bin/footing" itself performs no inlined "vault create" and no '
+        'inlined broker-local GitHub PAT "credential set" — those '
+        'provisioning operations exist only inside "bin/agent-vault-provision"'
+    )
+)
+def then_y1we_footing_no_inline(context: dict) -> None:
+    code = _y1we_exec_text(context["y1we_footing"])
+    assert "vault create" not in code, (
+        "footing must NOT inline a `vault create` — it is delegated to provision"
+    )
+    assert "credential set" not in code, (
+        "footing must NOT inline a broker-local GitHub PAT `credential set` — "
+        "it is delegated to provision"
+    )
+    # the delegate (provision) is where those provisioning ops actually live.
+    prov = _y1we_exec_text(_y1we_render("agent-vault-provision"))
+    assert "vault create" in prov and "credential set" in prov, (
+        "the vault-create and GitHub credential-set ops must exist inside "
+        "bin/agent-vault-provision (the delegate)"
+    )

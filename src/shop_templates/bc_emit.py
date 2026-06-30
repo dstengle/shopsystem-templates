@@ -49,8 +49,23 @@ Preconditions (lead-m56e):
                   refuses, naming the tag-lineage-anchors-work_id precondition,
                   the offending tag, and the work_id.
 
-  Check 3 — scenario-hash staleness, WORK-SCOPED (hashes ea9c1bbd9be87d72,
-            aabbc009bad6fe86)
+  Check 3 — scenario-hash staleness, WORK-SCOPED + SOURCE-FRESH (hashes
+            ea9c1bbd9be87d72, aabbc009bad6fe86, 613ddd886f6dc431)
+      SOURCE-FRESH (scenario 227, 613ddd886f6dc431): the staleness scan reads the
+      scenario blocks from the FETCHED `origin/main` tree (after a `git fetch
+      origin`), NOT from the BC primary checkout's possibly-lagging LOCAL working
+      tree — mirroring the Check 2 reachability posture (scenario 177), which
+      likewise fetches and reasons about origin/main. This removes the false
+      refusal lead-b2iz observed: when local main lagged origin/main, a scenario
+      already reconciled on origin/main still carried its OLD body/tag locally,
+      the local recompute mismatched, and the wrapper refused — misnaming a
+      scenario-hash recompute-mismatch and misdirecting toward `--force` or
+      hand-editing an already-correct scenario. The INVARIANT holds: a block
+      genuinely stale on origin/main (its on-disk tag does not reproduce against
+      its as-committed origin/main body) still refuses, naming the staleness
+      check. Only WHICH TREE is read changed — distinct from scenario 225, which
+      changed WHICH scenarios are scanned.
+
       The staleness scan is SCOPED to the dispatch's OWN assigned set — the
       scenario blocks under features/ that CARRY one of the payload
       `--scenario-hash` values. A block whose carried `@scenario_hash` is NOT
@@ -367,6 +382,62 @@ def check_tag_reachable(repo: Path, work_id: str, tag: str) -> None:
     # consulting origin/main HEAD.
 
 
+def _local_feature_texts(repo: Path) -> dict[str, str]:
+    """Read `features/*.feature` from the repo's LOCAL working tree.
+
+    This is the source `check_scenario_hashes` falls back to when no explicit
+    `feature_texts` is supplied (e.g. a direct unit-test call). The CLI work-done
+    path does NOT use it — it injects the fetched origin/main tree instead
+    (scenario 227); see `fetch_origin_main_feature_texts`. Keyed by file basename,
+    mirroring the prior `fpath.name`-keyed error messages.
+    """
+    features_dir = repo / "features"
+    if not features_dir.is_dir():
+        return {}
+    return {
+        p.name: p.read_text() for p in sorted(features_dir.glob("*.feature"))
+    }
+
+
+def fetch_origin_main_feature_texts(repo: Path) -> dict[str, str]:
+    """Check 3 SOURCE-FRESHNESS (scenario 227, hash 613ddd886f6dc431).
+
+    Performs a `git fetch origin` and returns the `features/*.feature` texts as
+    they stand on the FETCHED `origin/main` tree — NOT the (possibly lagging)
+    local working tree. This mirrors the Check 2 reachability posture (scenario
+    177, hash 461d6066ef7dca0a), which likewise `git fetch origin`s and reasons
+    about `origin/main` HEAD rather than the local checkout.
+
+    Motivation (lead-b2iz mechanism observation): the earlier Check 3 recomputed
+    the in-scope `@scenario_hash` tags against the BC primary checkout's LOCAL
+    working tree. When local main lagged `origin/main`, a scenario block that was
+    already reconciled on `origin/main` still carried its OLD body/tag locally;
+    the local recompute mismatched; and the wrapper FALSE-refused — naming a
+    scenario-hash recompute-mismatch and misdirecting the BC toward `--force` or
+    toward hand-editing an already-correct scenario. Reading the fetched
+    `origin/main` tree removes that false-refuse: a block consistent on
+    `origin/main` but stale only in the lagging local checkout no longer refuses.
+    The INVARIANT is preserved — a block genuinely stale on `origin/main` (its
+    on-disk tag does not reproduce against its as-committed `origin/main` body)
+    still recomputes to a divergent value here and still refuses.
+
+    Returns a {basename: file-text} mapping, the same shape
+    `check_scenario_hashes` consumes from `_local_feature_texts`, so the scan,
+    work-scoping (scenario 225), and block-only canonicalization (scenario 179)
+    are entirely unchanged — only the TREE the text is read from changes.
+    """
+    _git(repo, "fetch", "origin")
+    ls = _git(repo, "ls-tree", "-r", "--name-only", "origin/main", "features/")
+    texts: dict[str, str] = {}
+    for path in ls.stdout.splitlines():
+        path = path.strip()
+        if not path.endswith(".feature"):
+            continue
+        show = _git(repo, "show", f"origin/main:{path}")
+        texts[path.rsplit("/", 1)[-1]] = show.stdout
+    return texts
+
+
 def _scenario_blocks(feature_text: str) -> list[tuple[str, str | None]]:
     """Split a feature file into (block_text, carried_hash) per scenario.
 
@@ -412,7 +483,11 @@ def _scenario_blocks(feature_text: str) -> list[tuple[str, str | None]]:
 
 
 def check_scenario_hashes(
-    repo: Path, work_id: str, payload_hashes: list[str]
+    repo: Path,
+    work_id: str,
+    payload_hashes: list[str],
+    *,
+    feature_texts: dict[str, str] | None = None,
 ) -> None:
     """Check 3 — scenario-hash staleness, WORK-SCOPED to the dispatch's OWN
     assigned set (scenario 225, hash aabbc009bad6fe86).
@@ -454,6 +529,14 @@ def check_scenario_hashes(
     The recompute uses ONLY the block-only delegate
     (scenarios.hash.compute_scenario_hash), never the Feature-line-included
     canonicalization carried on the wire.
+
+    SOURCE (scenario 227, 613ddd886f6dc431): `feature_texts` supplies the
+    {basename: file-text} tree the scan reads. The CLI work-done path injects the
+    FETCHED origin/main tree (fetch_origin_main_feature_texts) so a scenario
+    reconciled on origin/main but stale only in a lagging local checkout does NOT
+    false-refuse. When `feature_texts` is None (direct callers / unit tests), the
+    LOCAL working tree is read instead. The scan, work-scoping, classifications,
+    and block-only canonicalization are identical regardless of source tree.
     """
     # Lazy import (lead-ld7i / tmpl-20n): scenarios is only needed on this
     # work-done hash-check path, so it is imported here rather than at module
@@ -465,12 +548,16 @@ def check_scenario_hashes(
 
     payload_set = list(payload_hashes)
     payload_lookup = set(payload_set)
-    features_dir = repo / "features"
-    feature_files = (
-        sorted(features_dir.glob("*.feature"))
-        if features_dir.is_dir()
-        else []
-    )
+    # SOURCE-FRESHNESS (scenario 227, 613ddd886f6dc431): the staleness scan
+    # evaluates the feature texts from a SUPPLIED tree. The CLI work-done path
+    # injects the FETCHED origin/main tree (fetch_origin_main_feature_texts) so a
+    # scenario consistent on origin/main but stale only in a lagging local
+    # checkout does NOT false-refuse. When no tree is supplied (direct callers /
+    # unit tests), fall back to the LOCAL working tree. The scan, work-scoping
+    # (scenario 225), and block-only canonicalization (scenario 179) are
+    # identical regardless of which tree supplied the text.
+    if feature_texts is None:
+        feature_texts = _local_feature_texts(repo)
 
     accounted: set[str] = set()  # payload hashes carried by an in-scope block
     # Untagged blocks are collected but NOT recomputed up front — they are only
@@ -479,12 +566,11 @@ def check_scenario_hashes(
     # out-of-set block at all.
     untagged_blocks: list[tuple[str, str]] = []  # (block_text, "title in file")
 
-    for fpath in feature_files:
-        text = fpath.read_text()
+    for fname, text in sorted(feature_texts.items()):
         for block_text, carried in _scenario_blocks(text):
             title = _scenario_title(block_text)
             if carried is None:
-                untagged_blocks.append((block_text, f"{title!r} in {fpath.name}"))
+                untagged_blocks.append((block_text, f"{title!r} in {fname}"))
                 continue
             if carried not in payload_lookup:
                 # OUT OF SCOPE: this block's carried @scenario_hash is owned by
@@ -499,7 +585,7 @@ def check_scenario_hashes(
                     "refused: the scenario-hash staleness check (Check 3) — "
                     "the scenario_hashes-match precondition — "
                     f"failed for work_id {work_id} (classification: STALE). The "
-                    f"scenario block {title!r} in {fpath.name} is in the "
+                    f"scenario block {title!r} in {fname} is in the "
                     "dispatch's own assigned scenario set (its carried "
                     f"@scenario_hash {carried} is one this dispatch named) but "
                     f"its scenario-block-only recompute is {recompute}. "
@@ -824,8 +910,18 @@ def _cmd_work_done(args: argparse.Namespace) -> int:
         else:
             check_commit_reachable(repo, args.work_id)
         # Check 3 — scenario-hash staleness, WORK-SCOPED to the dispatch's own
-        # assigned set (the --scenario-hash set the emit carries).
-        check_scenario_hashes(repo, args.work_id, list(args.scenario_hash or []))
+        # assigned set (the --scenario-hash set the emit carries) and SOURCE-FRESH
+        # (scenario 227): evaluated against the FETCHED origin/main tree, NOT the
+        # possibly-lagging local checkout, mirroring Check 2's fetch/reachability
+        # posture. A scenario reconciled on origin/main but stale only in a
+        # lagging local working tree does not false-refuse; a scenario genuinely
+        # stale on origin/main still refuses.
+        check_scenario_hashes(
+            repo,
+            args.work_id,
+            list(args.scenario_hash or []),
+            feature_texts=fetch_origin_main_feature_texts(repo),
+        )
         # Check 4 + durability — bd plan decomposition, against the BC's own bd
         # registry. Run ONLY when an umbrella bead is named: a non-scenario /
         # flat-maintenance emit carries no decomposition and is unaffected.

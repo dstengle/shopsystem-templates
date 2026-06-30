@@ -16268,6 +16268,232 @@ def then_workscope_stale_in_own_set_refuses(context: dict) -> None:
     assert recompute in result.stderr, result.stderr  # recomputed value
 
 
+# ---- Scenario 613ddd886f6dc431 — Check 3 SOURCE-FRESHNESS: evaluated against
+#      the FETCHED origin/main tree, not the lagging local checkout (PRIMARY
+#      fetch arm). A scenario reconciled on origin/main but stale only in a
+#      lagging local working tree does NOT false-refuse; the disjunctive
+#      secondary arm (name local-behind + sync) is satisfied vacuously when the
+#      primary arm holds; and a scenario genuinely stale ON origin/main STILL
+#      refuses naming the staleness check. DISTINCT from 225 (which tree, not
+#      which scenarios). ----------------------------------------------------
+
+_SF_RECONCILED_BLOCK = (
+    "  @scenario_hash:{h} @bc:shopsystem-templates\n"
+    "  Scenario: the dispatch's own scenario reconciled on origin/main\n"
+    "    Given a precondition reconciled on origin/main\n"
+    "    When the behavior runs\n"
+    "    Then the origin/main body reproduces its pinned tag\n"
+)
+# Same Scenario title, a DIFFERENT (older) body — so under the SAME pinned tag
+# its block-only recompute differs, i.e. it is stale.
+_SF_STALE_LOCAL_BLOCK = (
+    "  @scenario_hash:{h} @bc:shopsystem-templates\n"
+    "  Scenario: the dispatch's own scenario reconciled on origin/main\n"
+    "    Given a precondition NOT YET reconciled in the lagging local checkout\n"
+    "    When the behavior runs\n"
+    "    Then the lagging-local body does not reproduce the pinned tag\n"
+)
+
+_SF_GIVEN_RECONCILED_ON_ORIGIN = (
+    """a dispatched work_id whose own assigned scenario set is committed and """
+    """reconciled on the BC's "origin/main" — each block's on-disk """
+    """"@scenario_hash:<hex>" tag reproduces against its as-committed body on """
+    """"origin/main" via scenario-block-only canonicalization"""
+)
+_SF_GIVEN_LOCAL_BEHIND = (
+    """the BC's primary checkout local main is behind "origin/main" — its HEAD """
+    """is an ancestor of "origin/main" HEAD — so the local working tree carries """
+    """a STALE version of one or more of those scenario blocks whose on-disk """
+    """"@scenario_hash:<hex>" tag does not reproduce against the stale local """
+    """body"""
+)
+_SF_THEN_FETCH_NO_FALSE_REFUSE = (
+    """the wrapper performs a "git fetch origin" and evaluates the """
+    """scenario-hash staleness check (Check 3) against the fetched "origin/main" """
+    """tree — mirroring the Check 2 reachability posture (scenario 177) — and """
+    """does NOT refuse on a scenario block that is consistent on "origin/main" """
+    """but stale only in the lagging local checkout"""
+)
+_SF_THEN_SECONDARY_DISJUNCT = (
+    """if the wrapper instead refuses, its named-cause error identifies """
+    """local-main-behind-origin/main as the primary cause and directs the BC to """
+    """fast-forward (sync) its OWN local main to "origin/main" and re-emit — it """
+    """does NOT name the scenario-hash recompute-mismatch as the cause, and does """
+    """NOT direct the BC toward "--force" or toward editing the already-reconciled """
+    """scenario"""
+)
+_SF_THEN_GENUINE_STALE_INVARIANT = (
+    """a scenario block in the dispatch's own assigned set that is genuinely """
+    """stale on "origin/main" — its on-disk "@scenario_hash:<hex>" tag does not """
+    """reproduce against its as-committed body on "origin/main" HEAD — still """
+    """exits non-zero, does not invoke "shop-msg respond work_done", and names """
+    """the scenario-hash staleness check as the cause, not masked by the """
+    """local-staleness handling"""
+)
+
+
+@given(parsers.parse(_SF_GIVEN_RECONCILED_ON_ORIGIN))
+def given_sf_reconciled_on_origin(context: dict, tmp_path: Path) -> None:
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    clone, origin = _init_bare_origin_and_clone(tmp_path)
+    feats = clone / "features"
+    feats.mkdir()
+    # T is the block-only hash of the RECONCILED body — the pin that is both
+    # carried and consistent on origin/main.
+    T = _csh(_SF_RECONCILED_BLOCK.format(h="PLACEHOLDER"))
+    # Commit A: the OLDER, lagging-local body under the SAME pinned tag T (stale).
+    (feats / "x.feature").write_text(
+        "Feature: source-freshness deliverable\n\n"
+        + _SF_STALE_LOCAL_BLOCK.format(h=T)
+    )
+    _git_in(clone, "add", "features/x.feature")
+    _git_in(clone, "commit", "-q", "-m", "feat: WIP lagging (work_id: lead-test)")
+    commit_a = _git_in(clone, "rev-parse", "HEAD").stdout.strip()
+    # Commit B: the reconciled body under tag T (consistent on origin/main).
+    (feats / "x.feature").write_text(
+        "Feature: source-freshness deliverable\n\n"
+        + _SF_RECONCILED_BLOCK.format(h=T)
+    )
+    _git_in(clone, "add", "features/x.feature")
+    _git_in(
+        clone, "commit", "-q", "-m",
+        "feat: reconcile on origin/main (work_id: lead-test)",
+    )
+    _git_in(clone, "push", "-q", "origin", "main")
+    # Premise guard: the block on origin/main HEAD (B) reproduces its tag.
+    assert _csh(_SF_RECONCILED_BLOCK.format(h=T)) == T, (
+        "origin/main fixture must be consistent (tag reproduces body)"
+    )
+    context["bc_repo"] = clone
+    context["bc_origin"] = origin
+    context["sf_payload_hash"] = T
+    context["sf_commit_a"] = commit_a
+    context["sf_tmp"] = tmp_path
+    # The shared "for that work_id" When step (when_invoke_wrapper_for_that_work_id)
+    # threads these from context; set them so the wrapper is invoked with this
+    # dispatch's own assigned scenario-hash on the default commit-deliverable.
+    context["bc_work_id"] = "lead-test"
+    context["payload_scenario_hashes"] = [T]
+    recorder, log = _make_recorder(tmp_path)
+    context["respond_recorder"] = recorder
+    context["respond_log"] = log
+
+
+@given(parsers.parse(_SF_GIVEN_LOCAL_BEHIND))
+def given_sf_local_behind_origin(context: dict) -> None:
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    clone = context["bc_repo"]
+    T = context["sf_payload_hash"]
+    # Local main falls behind origin/main: reset HEAD to commit A. The working
+    # tree now carries the STALE lagging-local block; HEAD (A) is an ancestor of
+    # origin/main HEAD (B).
+    _git_in(clone, "reset", "--hard", "-q", context["sf_commit_a"])
+    # Premise guard: local HEAD is an ancestor of origin/main HEAD.
+    anc = _git_in(
+        clone, "merge-base", "--is-ancestor", "HEAD", "origin/main", check=False
+    )
+    assert anc.returncode == 0, "local HEAD must be an ancestor of origin/main"
+    # Premise guard: the local working-tree block is genuinely stale (its on-disk
+    # tag does not reproduce against the lagging-local body).
+    assert _csh(_SF_STALE_LOCAL_BLOCK.format(h=T)) != T, (
+        "lagging-local fixture must be stale"
+    )
+
+
+@then(parsers.parse(_SF_THEN_FETCH_NO_FALSE_REFUSE))
+def then_sf_does_not_false_refuse(context: dict) -> None:
+    result = context["bc_emit_result"]
+    # PRIMARY arm: Check 3, evaluated against the fetched origin/main tree, does
+    # NOT refuse the lagging-but-consistent emit — even though the LOCAL working
+    # tree carries a stale block that would (wrongly) refuse if read.
+    assert "staleness check (Check 3)" not in result.stderr, (
+        "Check 3 false-refused on a scenario consistent on origin/main but "
+        f"stale only in the lagging local checkout: {result.stderr!r}"
+    )
+    assert result.returncode == 0, (
+        "expected a clean zero exit (Check 3 read origin/main, not local); "
+        f"rc={result.returncode} stderr={result.stderr!r}"
+    )
+    assert _respond_was_invoked(context["respond_log"]), (
+        "expected the wrapper to proceed past Check 3 and invoke respond; "
+        f"rc={result.returncode} stderr={result.stderr!r}"
+    )
+
+
+@then(parsers.parse(_SF_THEN_SECONDARY_DISJUNCT))
+def then_sf_secondary_disjunct_or_vacuous(context: dict) -> None:
+    # Disjunctive Then: this arm's antecedent is "if the wrapper instead
+    # refuses". The PRIMARY (fetch) arm is implemented, so the wrapper does NOT
+    # refuse — the antecedent is false and the conditional holds vacuously. We
+    # still assert: IF some refusal occurred, it would have to name
+    # local-main-behind + sync, NOT a scenario-hash recompute-mismatch, and must
+    # NOT direct toward --force or editing the reconciled scenario.
+    result = context["bc_emit_result"]
+    if result.returncode != 0:
+        low = result.stderr.lower()
+        assert "behind" in low and "origin/main" in low, result.stderr
+        assert ("sync" in low or "fast-forward" in low), result.stderr
+        assert "recompute-mismatch" not in low and "staleness check (check 3)" not in low, (
+            f"secondary-arm refusal must not name the hash recompute-mismatch: "
+            f"{result.stderr!r}"
+        )
+        assert "--force" not in result.stderr, result.stderr
+        assert "editing" not in low, result.stderr
+    else:
+        # Primary arm satisfied — no refusal to characterize.
+        assert _respond_was_invoked(context["respond_log"]), result.stderr
+
+
+@then(parsers.parse(_SF_THEN_GENUINE_STALE_INVARIANT))
+def then_sf_genuine_stale_on_origin_still_refuses(context: dict) -> None:
+    from scenarios.hash import compute_scenario_hash as _csh
+
+    # INVARIANT: build a fresh repo whose origin/main HEAD itself carries a
+    # genuinely stale in-scope block (its on-disk tag does not reproduce against
+    # its as-committed origin/main body). The wrapper must STILL refuse, naming
+    # the scenario-hash staleness check — not masked by the local-staleness
+    # source-freshness handling.
+    sub = context["sf_tmp"] / "invariant"
+    sub.mkdir()
+    clone, origin = _init_bare_origin_and_clone(sub)
+    feats = clone / "features"
+    feats.mkdir()
+    T = _csh(_SF_RECONCILED_BLOCK.format(h="PLACEHOLDER"))
+    # origin/main carries the STALE body under tag T (recompute != T).
+    stale_block = _SF_STALE_LOCAL_BLOCK.format(h=T)
+    recompute = _csh(stale_block)
+    assert recompute != T, "invariant fixture must be stale on origin/main"
+    (feats / "x.feature").write_text(
+        "Feature: source-freshness deliverable\n\n" + stale_block
+    )
+    _git_in(clone, "add", "features/x.feature")
+    _git_in(
+        clone, "commit", "-q", "-m",
+        "feat: deliver stale-on-origin (work_id: lead-test)",
+    )
+    _git_in(clone, "push", "-q", "origin", "main")
+    recorder, log = _make_recorder(sub)
+    result = _run_bc_emit(
+        clone, recorder,
+        "--work-id", "lead-test",
+        "--scenario-hash", T,
+        "--status", "complete",
+    )
+    assert result.returncode != 0, (
+        "a block genuinely stale on origin/main must STILL refuse; "
+        f"rc={result.returncode} stderr={result.stderr!r}"
+    )
+    assert not _respond_was_invoked(log), (
+        f"shop-msg respond was invoked despite a genuine origin/main staleness: "
+        f"{log.read_text()!r}"
+    )
+    assert "scenario-hash staleness check" in result.stderr, result.stderr
+    assert T in result.stderr, result.stderr          # stale on-disk value
+    assert recompute in result.stderr, result.stderr  # block-only recompute
+
+
 # ---- Scenario 4a6133f7b5f061a2 — self-resolve messaging on refusal --------
 
 @given(

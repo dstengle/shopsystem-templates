@@ -13,3 +13,11 @@ Feature: footing delegates broker provisioning to bin/agent-vault-provision (PDR
     When "bin/agent-vault-provision" returns control to "bin/footing"
     Then the product slug's fleet agent-token has been minted and the github-git, github-api, and claude services are wired in the broker
     And the run's ".env" carries non-empty "AGENT_VAULT_TOKEN", "AGENT_VAULT_VAULT", and "AGENT_VAULT_CA_PEM" values, so that "bin/shop-shell" and the subsequent BC launches read them rather than finding them absent
+
+  @scenario_hash:fc35c1cd8a891dff @bc:shopsystem-templates
+  Scenario: bin/agent-vault-provision creates the product-slug vault broker-locally as part of its provisioning sequence
+    Given a running agent-vault broker that holds no vault for the product slug
+    And the rendered "bin/agent-vault-provision" sourcing the single "bin/ops-coordinates" artifact for the slug, broker container, and vault name rather than re-deriving them
+    When the lead or "bin/footing" runs "bin/agent-vault-provision"
+    Then it creates the "<slug>" vault via a broker-local "docker exec" "vault create" that passes no "--address" flag
+    And after the run the "<slug>" vault exists in the broker — the vault-create guarantee moved out of the now-removed footing-inlined vault-create

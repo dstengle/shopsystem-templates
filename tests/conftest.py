@@ -27605,3 +27605,116 @@ def then_y1we_env_writeback_nonempty(context: dict) -> None:
     assert any(
         re.search(r"-z\s+\"?\$\{?FLEET_TOKEN\b", ln) for ln in exec_lines
     ), "provision must guard against an empty FLEET_TOKEN before the writeback"
+
+
+# -- Shared: locate provision's broker-local docker-exec helper + a
+#    `vault create` / `credential set` invocation line ------------------
+
+
+def _y1we_dexec_local_def(exec_lines: list[str]) -> str:
+    """Return the line defining provision's broker-local docker-exec array
+    (e.g. ``DEXEC_LOCAL=(docker exec -i "$CONTAINER")``), or "" if absent."""
+    for ln in exec_lines:
+        if re.search(r"DEXEC_LOCAL=\(", ln):
+            return ln
+    return ""
+
+
+def _y1we_invocation_line(exec_lines: list[str], verb: str) -> str:
+    """Return the executable line carrying the ``agent-vault <verb>`` call
+    (verb e.g. 'vault create' / 'vault credential set'), or "" if absent."""
+    for ln in exec_lines:
+        if f"agent-vault {verb}" in ln:
+            return ln
+    return ""
+
+
+def _y1we_sources_ops_coordinates(body: str) -> bool:
+    return bool(re.search(r"source\s+\"?\$\(dirname[^\n]*\)/ops-coordinates", body))
+
+
+# -- Scenario 230.1 (@scenario_hash:fc35c1cd8a891dff) ------------------
+
+
+@given(
+    parsers.parse("a running agent-vault broker that holds no vault for the product slug")
+)
+def given_y1we_broker_no_vault(context: dict) -> None:
+    context["y1we_provision"] = _y1we_render("agent-vault-provision")
+
+
+@given(
+    parsers.parse(
+        'the rendered "bin/agent-vault-provision" sourcing the single '
+        '"bin/ops-coordinates" artifact for the slug, broker container, and '
+        "vault name rather than re-deriving them"
+    )
+)
+def given_y1we_provision_sources_coords_slug_container_vault(context: dict) -> None:
+    body = context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+    assert _y1we_sources_ops_coordinates(body), (
+        "provision must `source` the single bin/ops-coordinates artifact"
+    )
+    # slug / container / vault are resolved FROM the sourced OPS_* coordinates,
+    # not re-derived from the slug independently.
+    assert re.search(r"SLUG=\"?\$\{?OPS_SLUG", body), "SLUG must come from OPS_SLUG"
+    assert re.search(r"OPS_AGENT_VAULT_CONTAINER", body), (
+        "the broker container must come from OPS_AGENT_VAULT_CONTAINER"
+    )
+    assert re.search(r"OPS_VAULT_NAME", body), "the vault name must come from OPS_VAULT_NAME"
+
+
+@when(parsers.parse('the lead or "bin/footing" runs "bin/agent-vault-provision"'))
+def when_y1we_run_provision(context: dict) -> None:
+    context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+
+
+@then(
+    parsers.parse(
+        'it creates the "<slug>" vault via a broker-local "docker exec" '
+        '"vault create" that passes no "--address" flag'
+    )
+)
+def then_y1we_vault_create_dockerexec_no_address(context: dict) -> None:
+    exec_lines = _y1we_exec_lines(context["y1we_provision"])
+    # the broker-local docker-exec helper is defined as `docker exec` into the
+    # broker container.
+    dexec = _y1we_dexec_local_def(exec_lines)
+    assert dexec, "provision must define a broker-local docker-exec helper (DEXEC_LOCAL=(...))"
+    assert re.search(r"docker\s+exec\b", dexec) and "$CONTAINER" in dexec, (
+        "the broker-local helper must be `docker exec` into the $CONTAINER broker"
+    )
+    # the vault-create invocation runs THROUGH that broker-local docker-exec
+    # helper and passes NO --address flag (encodes the lead-4sg9 durable fix).
+    create_ln = _y1we_invocation_line(exec_lines, "vault create")
+    assert create_ln, "provision must invoke `agent-vault vault create`"
+    assert "DEXEC_LOCAL" in create_ln or re.search(r"docker\s+exec\b", create_ln), (
+        "the vault-create must run broker-locally (via the docker-exec helper)"
+    )
+    assert "--address" not in create_ln, (
+        "the broker-local vault-create must pass NO --address flag (lead-4sg9)"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the run the "<slug>" vault exists in the broker — the '
+        "vault-create guarantee moved out of the now-removed footing-inlined "
+        "vault-create"
+    )
+)
+def then_y1we_vault_exists_guarantee(context: dict) -> None:
+    # The live broker round-trip ("the <slug> vault exists in the broker") is
+    # LEAD live-verify (no broker in the BC env); the BC demonstrates the
+    # SCRIPT-SHAPE guarantee that, run against a real broker, lands the vault:
+    # provision carries the broker-local vault-create, and footing no longer
+    # inlines its own vault-create (the guarantee moved onto provision).
+    prov_exec = _y1we_exec_text(context["y1we_provision"])
+    assert "agent-vault vault create" in prov_exec, (
+        "the vault-create guarantee must live in provision"
+    )
+    footing_exec = _y1we_exec_text(_y1we_render("footing"))
+    assert "vault create" not in footing_exec, (
+        "footing must no longer inline a vault-create — the guarantee moved to "
+        "provision"
+    )

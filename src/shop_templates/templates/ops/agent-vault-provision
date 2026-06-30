@@ -152,7 +152,7 @@ fi
 echo "agent-vault-provision: ensuring vault '$VAULT' exists on '$CONTAINER' (broker-local)."
 # `vault create` is idempotent for our purposes: a re-run on an existing
 # vault is non-fatal (we still need it to exist). Broker-local docker-exec.
-"${DEXEC_LOCAL[@]}" agent-vault vault create "$VAULT" 2>/dev/null || true
+"${DEXEC_LOCAL[@]}" agent-vault vault create "$VAULT" --address "$AGENT_VAULT_ADDR" 2>/dev/null || true
 
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 if [[ -n "$GITHUB_TOKEN" ]]; then

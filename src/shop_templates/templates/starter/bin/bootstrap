@@ -95,6 +95,46 @@ else
 fi
 echo "bootstrap: recorded resolved image '$RESOLVED_DIGEST' in $RUN_ENV." >&2
 
+# =======================================================================
+# (PDR-026 / lead-b2iz) BAKED-VERSION VERIFY GATE — runs BEFORE the in-image
+# render below. A stale or cached :latest (or a silent pull/auth fallback to
+# cache) would otherwise render an ANCIENT shop (no AGENT_VAULT_CA_PEM,
+# hardcoded product name) with NO signal. Guard against it: read the PULLED
+# image's baked shop-templates version from its PDR-026 provenance and refuse
+# to render anything older than the expected minimum.
+#
+# PROVENANCE READ ONLY: the version is read from the OCI label
+# "shopsystem.shop-templates.version" via `docker image inspect`, falling back
+# to `printenv SHOP_TEMPLATES_VERSION` of a container started from the image.
+# We invoke NEITHER `pip show` NOR any python inside the image — the version is
+# baked provenance, not a runtime package query.
+#
+# FLOOR SOURCING: the expected minimum is an env-overridable literal kept
+# CURRENT with the shop-templates version — a packaging-currency guard ties the
+# default to pyproject [project].version, so each shop-templates release bump
+# carries the floor forward and it tracks the framework rather than freezing.
+# (Override via EXPECTED_MIN_SHOP_TEMPLATES_VERSION for local testing.)
+# =======================================================================
+EXPECTED_MIN_SHOP_TEMPLATES_VERSION="${EXPECTED_MIN_SHOP_TEMPLATES_VERSION:-0.48.0}"
+echo "bootstrap: verifying the pulled image's baked shop-templates version against the expected minimum '$EXPECTED_MIN_SHOP_TEMPLATES_VERSION' (PDR-026 provenance) before rendering." >&2
+BAKED_SHOP_TEMPLATES_VERSION="$(docker image inspect \
+  --format '{{ index .Config.Labels "shopsystem.shop-templates.version" }}' \
+  "$RESOLVED_DIGEST" 2>/dev/null || true)"
+if [[ -z "$BAKED_SHOP_TEMPLATES_VERSION" || "$BAKED_SHOP_TEMPLATES_VERSION" == "<no value>" ]]; then
+  # Label absent — fall back to the container ENV via `printenv` (still PDR-026
+  # provenance; still NOT pip show / python).
+  BAKED_SHOP_TEMPLATES_VERSION="$(docker run --rm "$RESOLVED_DIGEST" printenv SHOP_TEMPLATES_VERSION 2>/dev/null || true)"
+fi
+# version_ge A B — succeeds iff A is at or above B, ordering versions with
+# `sort -V` (an empty/unreadable A sorts below any real floor and is refused).
+version_ge() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]; }
+if version_ge "$BAKED_SHOP_TEMPLATES_VERSION" "$EXPECTED_MIN_SHOP_TEMPLATES_VERSION"; then
+  echo "bootstrap: pulled image baked shop-templates version '$BAKED_SHOP_TEMPLATES_VERSION' is at or above the expected minimum '$EXPECTED_MIN_SHOP_TEMPLATES_VERSION'; proceeding to render." >&2
+else
+  echo "bootstrap: pulled image is STALE — refusing to render against it." >&2
+  exit 1
+fi
+
 # Resolve the floating bc-LEAD image (the footing-launch image) the same way
 # (ADR-040 D3): pull, capture the digest, and record it so the footing-launch
 # run is reproducible even though the committed default floats on :latest.

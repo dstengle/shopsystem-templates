@@ -292,6 +292,16 @@ main-agent / router level** — consistent with the **product-authority
 discovery gate** above — and is **not delegated** to a **non-interactive
 discovery subagent**, which structurally cannot conduct it.
 
+While the **effectively-empty / no-product-defined** state **still holds**, the
+router **re-fires the product-discovery prompt on each session** — the nudge is
+**idempotent**, so a **previously dismissed** prompt is **re-issued the next
+session** rather than **fired only once**. The router does not treat a single
+prior dismissal as permission to go quiet; it re-opens discovery every session
+the state persists. The router **suppresses** the prompt only once the product
+surface becomes **non-empty** — that is, once **either signal** of the
+two-signal detection test **no longer holds** (a product-bearing bead or a
+product-bearing scenario now exists).
+
 ### Session-start drain
 
 After arming Monitor and **before accepting user work**, the router must

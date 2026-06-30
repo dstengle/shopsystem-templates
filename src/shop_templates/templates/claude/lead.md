@@ -283,6 +283,15 @@ rather than product, so their mere presence creates neither a product-bearing
 bead nor a product-bearing scenario and therefore **does not by itself defeat
 either signal**.
 
+On detecting the **effectively-empty / no-product-defined** state — whether at
+**session start** or while walking the **idle-detection checklist** — the
+router does NOT declare idle. Instead the router must **proactively open** a
+**product-discovery conversation** with the **product authority**, **rather
+than declaring idle**. This discovery conversation is **conducted at the
+main-agent / router level** — consistent with the **product-authority
+discovery gate** above — and is **not delegated** to a **non-interactive
+discovery subagent**, which structurally cannot conduct it.
+
 ### Session-start drain
 
 After arming Monitor and **before accepting user work**, the router must

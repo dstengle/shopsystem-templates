@@ -28314,3 +28314,108 @@ def then_y1we_github_token_present_guarantee(context: dict) -> None:
         "footing must no longer inline a broker-local PAT credential set — the "
         "guarantee moved to provision"
     )
+
+
+# =======================================================================
+# lead-vglj (assign_scenarios, work_id lead-vglj) — the canonical lead
+# primer (read_claude_md_primer("lead")) teaches the router to detect the
+# effectively-empty / no-product-defined repo state and to proactively
+# open product discovery rather than declare idle. Four scenarios, one
+# contiguous block each, asserted against the rendered primer body served
+# through the public template-access surface.
+#
+# The Given / When / "a non-empty template body is returned" legs reuse
+# given_package_ships_canonical_primer, when_ask_for_that_canonical_primer_body,
+# and then_returned_body_non_empty above. "Contiguous block" reuses
+# _hdn3_paragraphs (a maximal run of non-blank lines). Each block is located
+# by a phrase unique to it so the assertions are discriminating: removing the
+# block removes the phrases and the scenario fails.
+# =======================================================================
+
+
+def _vglj_block_with(context: dict, *anchors: str) -> str:
+    """Return the single contiguous primer block (paragraph) that contains
+    every anchor phrase (case-insensitive), or fail naming the anchors.
+
+    Used to scope each scenario's assertions to ONE contiguous block so the
+    test fails if that block is absent."""
+    body = _hdn3_body(context)
+    for block in _hdn3_paragraphs(body):
+        low = block.lower()
+        if all(a.lower() in low for a in anchors):
+            return block
+    assert False, (
+        "lead primer has no contiguous block containing all of: "
+        f"{anchors!r}"
+    )
+
+
+# --- Scenario 00bdd6985ab94756: two-signal empty-detection test ---------
+
+
+@then(
+    "the returned body contains a contiguous block defining an "
+    "effectively-empty / no-product-defined repo state as a two-signal test "
+    "requiring BOTH signals to hold"
+)
+def then_vglj_two_signal_block(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "effectively-empty", "two-signal", "no product-bearing bead"
+    )
+    low = block.lower()
+    assert "two-signal" in low, "block must name a two-signal test"
+    assert "both signals" in low, (
+        "block must require BOTH signals to hold for the state to hold"
+    )
+    assert "no-product-defined" in low or "no product defined" in low, (
+        "block must name the no-product-defined repo state"
+    )
+
+
+@then(
+    "that block names the first signal as the beads registry carrying no "
+    "product-bearing bead and the second signal as the \"features/\" tree "
+    "carrying no product-bearing scenario"
+)
+def then_vglj_two_signal_names(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "two-signal", "no product-bearing bead"
+    )
+    low = block.lower()
+    # First signal: beads registry carries no product-bearing bead.
+    assert "beads registry" in low and "no product-bearing bead" in low, (
+        "first signal must be the beads registry carrying no product-bearing bead"
+    )
+    # Second signal: features/ tree carries no product-bearing scenario.
+    assert "features/" in low and "no product-bearing scenario" in low, (
+        "second signal must be the features/ tree carrying no product-bearing scenario"
+    )
+
+
+@then(
+    "that block states the bootstrap scaffold — the canonical-managed files, "
+    "\"CLAUDE.md\", the typed \".claude/\" files, the role templates, the "
+    "placeholder shop primer, and the initialized-but-empty beads registry — "
+    "is ignored by the test and does not by itself defeat either signal"
+)
+def then_vglj_scaffold_ignored(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "two-signal", "no product-bearing bead", "scaffold"
+    )
+    low = block.lower()
+    # Each named scaffold element must appear in the block.
+    for token in (
+        "canonical-managed",
+        "claude.md",
+        ".claude/",
+        "role template",
+        "placeholder shop primer",
+        "initialized-but-empty beads registry",
+    ):
+        assert token in low, (
+            f"scaffold-ignored block must name {token!r} as scaffold"
+        )
+    assert "ignored" in low, "the scaffold must be stated as ignored by the test"
+    assert "does not by itself defeat either signal" in low, (
+        "the scaffold must be stated not to by itself defeat either signal"
+    )

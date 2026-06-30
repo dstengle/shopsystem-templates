@@ -36,3 +36,12 @@ Feature: Lead primer drives effectively-empty detection and proactive product di
     And the returned body contains a contiguous block directing the router to re-fire the product-discovery prompt on each session while the effectively-empty / no-product-defined state still holds
     And that block states the nudge is idempotent so that a previously dismissed prompt is re-issued the next session rather than fired only once
     And that block states the router suppresses the prompt only once the product surface becomes non-empty — that is, once either signal of the two-signal detection test no longer holds
+
+  @scenario_hash:46afaafc507e7d6f @bc:shopsystem-templates
+  Scenario: the canonical lead primer directs the router to open product discovery as a general brainstorming conversation first, then branch into one router-selected structured discovery skill based on what surfaces
+    Given the "shop-templates" package ships a canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
+    When I ask the package for that canonical primer body for shop type "lead"
+    Then a non-empty template body is returned
+    And the returned body contains a contiguous block directing the router to open the product-discovery conversation as a general brainstorming conversation first, before committing to any single structured discovery skill
+    And that block directs the router to then branch into one structured discovery skill — selected from jobs-to-be-done, problem-framing-canvas, opportunity-solution-tree, or customer-journey-map — based on what surfaces in the brainstorming conversation
+    And that block states the router performs that skill selection itself, at the router / main-agent level, as the triage step that follows the brainstorming opener

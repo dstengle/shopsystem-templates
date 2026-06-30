@@ -28530,3 +28530,76 @@ def then_vglj_suppress_when_nonempty(context: dict) -> None:
     assert "no longer holds" in low, (
         "block must state suppression once either signal no longer holds"
     )
+
+
+# --- Scenario 46afaafc507e7d6f: brainstorm-first, branch to one skill -----
+
+
+_VGLJ_DISCOVERY_SKILLS = (
+    "jobs-to-be-done",
+    "problem-framing-canvas",
+    "opportunity-solution-tree",
+    "customer-journey-map",
+)
+
+
+@then(
+    "the returned body contains a contiguous block directing the router to "
+    "open the product-discovery conversation as a general brainstorming "
+    "conversation first, before committing to any single structured discovery "
+    "skill"
+)
+def then_vglj_brainstorm_first(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "general brainstorming", "before committing"
+    )
+    low = block.lower()
+    assert "general brainstorming" in low and "first" in low, (
+        "block must open discovery as a general brainstorming conversation first"
+    )
+    assert "before committing" in low and "structured discovery skill" in low, (
+        "block must open brainstorming BEFORE committing to any single "
+        "structured discovery skill"
+    )
+
+
+@then(
+    "that block directs the router to then branch into one structured "
+    "discovery skill — selected from jobs-to-be-done, problem-framing-canvas, "
+    "opportunity-solution-tree, or customer-journey-map — based on what "
+    "surfaces in the brainstorming conversation"
+)
+def then_vglj_branch_to_one_skill(context: dict) -> None:
+    block = _vglj_block_with(context, "general brainstorming", "branch")
+    low = block.lower()
+    assert "branch" in low and "one structured discovery skill" in low, (
+        "block must direct branching into ONE structured discovery skill"
+    )
+    for skill in _VGLJ_DISCOVERY_SKILLS:
+        assert skill in low, (
+            f"block must name {skill!r} among the selectable discovery skills"
+        )
+    assert "based on what surfaces" in low, (
+        "the branch must be driven by what surfaces in the brainstorming"
+    )
+
+
+@then(
+    "that block states the router performs that skill selection itself, at the "
+    "router / main-agent level, as the triage step that follows the "
+    "brainstorming opener"
+)
+def then_vglj_router_selects(context: dict) -> None:
+    block = _vglj_block_with(context, "general brainstorming", "selection")
+    low = block.lower()
+    assert "selection" in low and ("router performs" in low or "router itself" in low
+                                   or "performs that skill selection itself" in low), (
+        "block must state the router performs the skill selection itself"
+    )
+    assert "main-agent" in low or "main agent" in low, (
+        "the selection happens at the router / main-agent level"
+    )
+    assert "triage" in low, "the selection is the triage step"
+    assert "brainstorming opener" in low, (
+        "the triage step follows the brainstorming opener"
+    )

@@ -27718,3 +27718,100 @@ def then_y1we_vault_exists_guarantee(context: dict) -> None:
         "footing must no longer inline a vault-create — the guarantee moved to "
         "provision"
     )
+
+
+# -- Scenario 230.2 (@scenario_hash:c3381f4763c74361) ------------------
+
+
+@given(
+    parsers.parse(
+        'a running agent-vault broker with the "<slug>" vault created and the '
+        "GitHub username and PAT supplied to provision via environment or "
+        "arguments"
+    )
+)
+def given_y1we_broker_vault_pat(context: dict) -> None:
+    context["y1we_provision"] = _y1we_render("agent-vault-provision")
+
+
+@given(
+    parsers.parse(
+        'the rendered "bin/agent-vault-provision" sourcing the single '
+        '"bin/ops-coordinates" artifact for the broker container name rather '
+        "than re-deriving it"
+    )
+)
+def given_y1we_provision_sources_coords_container(context: dict) -> None:
+    body = context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+    assert _y1we_sources_ops_coordinates(body), (
+        "provision must `source` the single bin/ops-coordinates artifact"
+    )
+    assert re.search(r"OPS_AGENT_VAULT_CONTAINER", body), (
+        "the broker container name must come from OPS_AGENT_VAULT_CONTAINER"
+    )
+
+
+@when(parsers.parse('"bin/agent-vault-provision" runs its GitHub credential step'))
+def when_y1we_provision_github_step(context: dict) -> None:
+    context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+
+
+@then(
+    parsers.parse(
+        'it stores the GitHub PAT as the "GITHUB_TOKEN" credential through a '
+        'broker-local "docker exec" into the broker container, never through '
+        "an owner remote vault-scoped session"
+    )
+)
+def then_y1we_github_token_dockerexec_not_remote(context: dict) -> None:
+    body = context["y1we_provision"]
+    exec_lines = _y1we_exec_lines(body)
+    # the broker-local docker-exec helper is `docker exec` into the broker.
+    dexec = _y1we_dexec_local_def(exec_lines)
+    assert dexec and re.search(r"docker\s+exec\b", dexec) and "$CONTAINER" in dexec, (
+        "provision must define a broker-local `docker exec` helper into $CONTAINER"
+    )
+    # the GITHUB_TOKEN credential-set runs THROUGH that broker-local docker-exec
+    # helper — not the owner remote vault-scoped session (DEXEC_SCOPED).
+    cred_ln = _y1we_invocation_line(exec_lines, "vault credential set")
+    assert cred_ln, "provision must invoke `agent-vault vault credential set`"
+    assert "DEXEC_LOCAL" in cred_ln or re.search(r"docker\s+exec\b", cred_ln), (
+        "the GITHUB_TOKEN credential-set must run broker-locally (docker exec), "
+        "not through the owner remote vault-scoped session (lead-0j60 / PDR-022 D3)"
+    )
+    assert "DEXEC_SCOPED" not in cred_ln, (
+        "the credential-set must NOT run under the owner remote vault-scoped "
+        "session (DEXEC_SCOPED) — that fails Member-role on agent-vault 0.32.0"
+    )
+    # the credential stored is GITHUB_TOKEN (the authoritative SCREAMING_SNAKE key).
+    assert "GITHUB_TOKEN=" in body, (
+        "provision must store the PAT under the GITHUB_TOKEN credential key"
+    )
+    # belt-and-suspenders: NO `vault credential set` anywhere runs via DEXEC_SCOPED.
+    assert not any(
+        "vault credential set" in ln and "DEXEC_SCOPED" in ln for ln in exec_lines
+    ), "no credential-set may run through the owner remote vault-scoped session"
+
+
+@then(
+    parsers.parse(
+        'after the run the "GITHUB_TOKEN" credential is present in the '
+        '"<slug>" vault — the credential-set guarantee moved out of the '
+        "now-removed footing-inlined PAT store"
+    )
+)
+def then_y1we_github_token_present_guarantee(context: dict) -> None:
+    # The live broker round-trip ("the GITHUB_TOKEN credential is present in
+    # the <slug> vault") is LEAD live-verify (no broker in the BC env); the BC
+    # demonstrates the SCRIPT-SHAPE guarantee that, run against a real broker,
+    # lands the credential: provision carries the broker-local GITHUB_TOKEN
+    # credential-set, and footing no longer inlines its own PAT store.
+    prov_exec = _y1we_exec_text(context["y1we_provision"])
+    assert "vault credential set" in prov_exec and "GITHUB_TOKEN=" in context[
+        "y1we_provision"
+    ], "the GITHUB_TOKEN credential-set guarantee must live in provision"
+    footing_exec = _y1we_exec_text(_y1we_render("footing"))
+    assert "credential set" not in footing_exec, (
+        "footing must no longer inline a broker-local PAT credential set — the "
+        "guarantee moved to provision"
+    )

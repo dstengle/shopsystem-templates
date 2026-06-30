@@ -160,9 +160,10 @@ if [[ -n "$GITHUB_TOKEN" ]]; then
   # `vault credential set <key=value> ...` — the github username + token are
   # stored under the live fleet vault's AUTHORITATIVE SCREAMING_SNAKE keys, via
   # broker-local docker-exec (NOT the owner remote scoped session — Member-role).
-  "${DEXEC_LOCAL[@]}" agent-vault vault credential set \
+  agent-vault vault credential set \
     "GITHUB_USERNAME=${GITHUB_USERNAME}" \
     "GITHUB_TOKEN=${GITHUB_TOKEN}" \
+    --address "$AGENT_VAULT_ADDR" \
     --vault "$VAULT"
 
   echo "agent-vault-provision: wiring github-git (github.com Basic) over the MITM proxy (:$PROXY_PORT)."

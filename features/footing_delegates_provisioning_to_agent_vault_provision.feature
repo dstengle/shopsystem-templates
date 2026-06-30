@@ -21,3 +21,11 @@ Feature: footing delegates broker provisioning to bin/agent-vault-provision (PDR
     When the lead or "bin/footing" runs "bin/agent-vault-provision"
     Then it creates the "<slug>" vault via a broker-local "docker exec" "vault create" that passes no "--address" flag
     And after the run the "<slug>" vault exists in the broker — the vault-create guarantee moved out of the now-removed footing-inlined vault-create
+
+  @scenario_hash:c3381f4763c74361 @bc:shopsystem-templates
+  Scenario: bin/agent-vault-provision sets the GITHUB_TOKEN credential broker-locally via docker exec
+    Given a running agent-vault broker with the "<slug>" vault created and the GitHub username and PAT supplied to provision via environment or arguments
+    And the rendered "bin/agent-vault-provision" sourcing the single "bin/ops-coordinates" artifact for the broker container name rather than re-deriving it
+    When "bin/agent-vault-provision" runs its GitHub credential step
+    Then it stores the GitHub PAT as the "GITHUB_TOKEN" credential through a broker-local "docker exec" into the broker container, never through an owner remote vault-scoped session
+    And after the run the "GITHUB_TOKEN" credential is present in the "<slug>" vault — the credential-set guarantee moved out of the now-removed footing-inlined PAT store

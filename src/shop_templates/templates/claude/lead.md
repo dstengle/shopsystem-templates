@@ -302,6 +302,17 @@ surface becomes **non-empty** — that is, once **either signal** of the
 two-signal detection test **no longer holds** (a product-bearing bead or a
 product-bearing scenario now exists).
 
+The router opens the product-discovery conversation as a **general
+brainstorming conversation first**, **before committing** to any single
+**structured discovery skill**. From what surfaces in that brainstorming, the
+router then **branches into one structured discovery skill** — **selected from
+jobs-to-be-done, problem-framing-canvas, opportunity-solution-tree, or
+customer-journey-map** — **based on what surfaces** in the brainstorming
+conversation. The router **performs that skill selection itself**, at the
+**router / main-agent level**, as the **triage** step that follows the
+**brainstorming opener**; the selection is the router's call, not the
+discovery subagent's.
+
 ### Session-start drain
 
 After arming Monitor and **before accepting user work**, the router must

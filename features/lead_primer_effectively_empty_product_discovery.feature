@@ -27,3 +27,12 @@ Feature: Lead primer drives effectively-empty detection and proactive product di
     Then a non-empty template body is returned
     And the returned body contains a contiguous block directing the router, on detecting the effectively-empty / no-product-defined state at session start or during the idle-detection checklist, to proactively open a product-discovery conversation with the product authority rather than declaring idle
     And that block states the discovery conversation is conducted at the main-agent / router level — consistent with the product-authority discovery gate — and is not delegated to a non-interactive discovery subagent
+
+  @scenario_hash:bdba904f4f64f4a2 @bc:shopsystem-templates
+  Scenario: the canonical lead primer directs the router to re-fire the product-discovery prompt on each session while the effectively-empty state holds, and to suppress it only once the product surface is non-empty
+    Given the "shop-templates" package ships a canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
+    When I ask the package for that canonical primer body for shop type "lead"
+    Then a non-empty template body is returned
+    And the returned body contains a contiguous block directing the router to re-fire the product-discovery prompt on each session while the effectively-empty / no-product-defined state still holds
+    And that block states the nudge is idempotent so that a previously dismissed prompt is re-issued the next session rather than fired only once
+    And that block states the router suppresses the prompt only once the product surface becomes non-empty — that is, once either signal of the two-signal detection test no longer holds

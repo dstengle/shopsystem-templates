@@ -28471,3 +28471,62 @@ def then_vglj_main_agent_not_subagent(context: dict) -> None:
     assert "non-interactive discovery subagent" in low or (
         "non-interactive" in low and "subagent" in low
     ), "the block must name the non-interactive discovery subagent it is not delegated to"
+
+
+# --- Scenario bdba904f4f64f4a2: re-fire idempotently each session --------
+
+
+@then(
+    "the returned body contains a contiguous block directing the router to "
+    "re-fire the product-discovery prompt on each session while the "
+    "effectively-empty / no-product-defined state still holds"
+)
+def then_vglj_refire_each_session(context: dict) -> None:
+    block = _vglj_block_with(
+        context, "re-fire", "each session", "product-discovery"
+    )
+    low = block.lower()
+    assert "re-fire" in low, "block must direct the router to re-fire the prompt"
+    assert "each session" in low, "block must re-fire on each session"
+    assert "still holds" in low and "effectively-empty" in low, (
+        "block must condition re-firing on the effectively-empty state still holding"
+    )
+
+
+@then(
+    "that block states the nudge is idempotent so that a previously dismissed "
+    "prompt is re-issued the next session rather than fired only once"
+)
+def then_vglj_idempotent_nudge(context: dict) -> None:
+    block = _vglj_block_with(context, "re-fire", "idempotent")
+    low = block.lower()
+    assert "idempotent" in low, "the nudge must be stated idempotent"
+    assert "previously dismissed" in low, (
+        "block must state a previously dismissed prompt is re-issued"
+    )
+    assert "re-issued" in low and "next session" in low, (
+        "block must state the prompt is re-issued the next session"
+    )
+    assert "only once" in low, (
+        "block must contrast with being fired only once"
+    )
+
+
+@then(
+    "that block states the router suppresses the prompt only once the product "
+    "surface becomes non-empty — that is, once either signal of the two-signal "
+    "detection test no longer holds"
+)
+def then_vglj_suppress_when_nonempty(context: dict) -> None:
+    block = _vglj_block_with(context, "re-fire", "suppress")
+    low = block.lower()
+    assert "suppress" in low, "block must state the router suppresses the prompt"
+    assert "non-empty" in low, (
+        "suppression fires only once the product surface becomes non-empty"
+    )
+    assert "either signal" in low, (
+        "suppression keys on either signal of the two-signal test"
+    )
+    assert "no longer holds" in low, (
+        "block must state suppression once either signal no longer holds"
+    )

@@ -6,3 +6,10 @@ Feature: footing delegates broker provisioning to bin/agent-vault-provision (PDR
     When "bin/footing" runs through its provisioning step
     Then it invokes the rendered "bin/agent-vault-provision", passing the owner password and the GitHub PAT, to perform owner registration, vault creation, the GitHub credential set, service wiring, the fleet-agent-token mint, the CA fetch, and the ".env" writeback
     And "bin/footing" itself performs no inlined "vault create" and no inlined broker-local GitHub PAT "credential set" — those provisioning operations exist only inside "bin/agent-vault-provision"
+
+  @scenario_hash:5ee9de8b3f9ab137 @bc:shopsystem-templates
+  Scenario: after delegating to provision the footing path carries the fleet-agent-token, the service wiring, and the AGENT_VAULT .env writeback that downstream launches need
+    Given a "lead" shop whose rendered "bin/footing" has invoked "bin/agent-vault-provision" at its provisioning step
+    When "bin/agent-vault-provision" returns control to "bin/footing"
+    Then the product slug's fleet agent-token has been minted and the github-git, github-api, and claude services are wired in the broker
+    And the run's ".env" carries non-empty "AGENT_VAULT_TOKEN", "AGENT_VAULT_VAULT", and "AGENT_VAULT_CA_PEM" values, so that "bin/shop-shell" and the subsequent BC launches read them rather than finding them absent

@@ -274,7 +274,6 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     AGENT_VAULT_ADDR=*)   printf 'AGENT_VAULT_ADDR=%s\n' "$BROKER_ADDR";   _av_found_addr=1 ;;
     AGENT_VAULT_TOKEN=*)  printf 'AGENT_VAULT_TOKEN=%s\n' "$FLEET_TOKEN";  _av_found_token=1 ;;
     AGENT_VAULT_VAULT=*)  printf 'AGENT_VAULT_VAULT=%s\n' "$VAULT";        _av_found_vault=1 ;;
-    AGENT_VAULT_CA_PEM=*) printf 'AGENT_VAULT_CA_PEM=%s\n' "$CA_PEM_FILE"; _av_found_ca=1 ;;
     *)                    printf '%s\n' "$line" ;;
   esac
 done < "$ENV_FILE" > "$tmp_env"
@@ -283,7 +282,6 @@ done < "$ENV_FILE" > "$tmp_env"
 [[ -n "$_av_found_addr"  ]] || printf 'AGENT_VAULT_ADDR=%s\n'   "$BROKER_ADDR" >> "$tmp_env"
 [[ -n "$_av_found_token" ]] || printf 'AGENT_VAULT_TOKEN=%s\n'  "$FLEET_TOKEN" >> "$tmp_env"
 [[ -n "$_av_found_vault" ]] || printf 'AGENT_VAULT_VAULT=%s\n'  "$VAULT" >> "$tmp_env"
-[[ -n "$_av_found_ca"    ]] || printf 'AGENT_VAULT_CA_PEM=%s\n' "$CA_PEM_FILE" >> "$tmp_env"
 mv "$tmp_env" "$ENV_FILE"
 
 # -----------------------------------------------------------------------

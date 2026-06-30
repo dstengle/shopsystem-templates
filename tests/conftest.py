@@ -27515,3 +27515,93 @@ def then_y1we_footing_no_inline(context: dict) -> None:
         "the vault-create and GitHub credential-set ops must exist inside "
         "bin/agent-vault-provision (the delegate)"
     )
+
+
+# -- Scenario 229.2 (@scenario_hash:5ee9de8b3f9ab137) ------------------
+
+
+@given(
+    parsers.parse(
+        'a "lead" shop whose rendered "bin/footing" has invoked '
+        '"bin/agent-vault-provision" at its provisioning step'
+    )
+)
+def given_y1we_footing_invoked_provision(context: dict) -> None:
+    context["y1we_provision"] = _y1we_render("agent-vault-provision")
+
+
+@when(parsers.parse('"bin/agent-vault-provision" returns control to "bin/footing"'))
+def when_y1we_provision_returns(context: dict) -> None:
+    context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+
+
+@then(
+    parsers.parse(
+        "the product slug's fleet agent-token has been minted and the "
+        "github-git, github-api, and claude services are wired in the broker"
+    )
+)
+def then_y1we_fleet_token_and_services(context: dict) -> None:
+    body = context["y1we_provision"]
+    code = _y1we_exec_text(body)
+    # fleet agent-token mint (slug-derived agent, --token-only capture)
+    assert "agent-vault agent create" in code, "provision must mint the fleet agent token"
+    assert "shopsystem-fleet" in code, (
+        "the minted agent must be the slug-derived <slug>-fleet (shopsystem-fleet)"
+    )
+    assert "--token-only" in code, "the fleet agent must be created --token-only"
+    # service wiring: github-git, github-api, and the three claude services
+    for svc in (
+        "github-git",
+        "github-api",
+        "claude-api",
+        "claude-platform",
+        "claude-mcp-proxy",
+    ):
+        assert re.search(rf"--name\s+{re.escape(svc)}\b", code), (
+            f"provision must wire the {svc} service (vault service add --name {svc})"
+        )
+
+
+@then(
+    parsers.parse(
+        'the run\'s ".env" carries non-empty "AGENT_VAULT_TOKEN", '
+        '"AGENT_VAULT_VAULT", and "AGENT_VAULT_CA_PEM" values, so that '
+        '"bin/shop-shell" and the subsequent BC launches read them rather '
+        "than finding them absent"
+    )
+)
+def then_y1we_env_writeback_nonempty(context: dict) -> None:
+    body = context["y1we_provision"]
+    exec_lines = _y1we_exec_lines(body)
+    # Each key must be WRITTEN to .env with a non-empty value source — the
+    # minted fleet token, the resolved vault name, and the fetched CA path —
+    # i.e. printed from a script variable expansion, never a bare empty value.
+    # The writeback uses both a rewrite-when-present branch and an
+    # append-when-absent (upsert) line; require the key to be sourced from its
+    # value variable on at least two lines (rewrite + append), so a
+    # pre-created .env lacking the placeholder still lands a non-empty value.
+    key_to_var = {
+        "AGENT_VAULT_TOKEN": "FLEET_TOKEN",
+        "AGENT_VAULT_VAULT": "VAULT",
+        "AGENT_VAULT_CA_PEM": "CA_PEM_FILE",
+    }
+    for key, var in key_to_var.items():
+        sourced = [
+            ln
+            for ln in exec_lines
+            if f"{key}=%s" in ln and re.search(rf"\$\{{?{var}\b", ln)
+        ]
+        assert sourced, (
+            f"provision must write a non-empty {key} to .env, sourced from "
+            f"${var} (its minted/resolved value), never a blank"
+        )
+        assert len(sourced) >= 2, (
+            f"provision must land {key} both when present (rewrite) and when "
+            f"absent (append/upsert), so a pre-created .env still gets a "
+            f"non-empty {key}"
+        )
+    # provision aborts rather than writing a blank fleet token (non-empty guard).
+    assert any(
+        re.search(r"-z\s+\"?\$\{?FLEET_TOKEN\b", ln) for ln in exec_lines
+    ), "provision must guard against an empty FLEET_TOKEN before the writeback"

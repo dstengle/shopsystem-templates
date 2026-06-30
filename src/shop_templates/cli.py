@@ -1661,9 +1661,41 @@ def _cmd_update(args: argparse.Namespace) -> int:
     # scenario 89). BC shops own NO ops scaffolding, so this is gated on
     # shop_type == "lead".
     if shop_type == "lead":
+        _refresh_lead_ops_coordinates(target)
         _advise_ops_scaffolding_drift(target)
 
     return 0
+
+
+def _refresh_lead_ops_coordinates(target: Path) -> None:
+    """Refresh the lead-shop bin/ops-coordinates managed-render artifact on the
+    update path so its on-disk body is byte-equal to the current canonical
+    bootstrap render (scenario 228 @scenario_hash:8e5955d5fb5bb9c8, the
+    update-path counterpart of the bootstrap render scenario 211
+    @scenario_hash:0a3a8267109b5792 and the create-if-absent update path
+    scenario 213 @scenario_hash:dd82193e56e52d95).
+
+    Unlike the shop-owned ops scaffolding (compose.yaml, bin/shop-shell, and the
+    bin/ ops tools enumerated by `_LEAD_OPS_FILES`), bin/ops-coordinates is a
+    DERIVED single-source managed-render artifact whose only customization path
+    is environment override — so update OWNS its refresh exactly as it re-pours
+    the managed agent files (scenarios 35/36) and the managed lead skill group
+    (scenarios 162-164). It is therefore NOT subject to the shop-owned
+    drift-advisory contract `_advise_ops_scaffolding_drift` applies to
+    compose.yaml and bin/shop-shell (scenarios 139/140) — and `_LEAD_OPS_FILES`
+    correctly excludes bin/ops-coordinates, so this refresh stays disjoint from
+    that advisory loop.
+
+    The refresh re-renders through the SAME bootstrap path
+    (`_render_lead_ops_coordinates`) with the SAME `_ops_slug`-derived product
+    slug read from the single identity source `.claude/shop/name.md`, so the
+    refreshed body is byte-equal to what bootstrap writes. A single
+    unconditional overwrite covers both the create-if-absent case (213, absent →
+    created) and the drifted-refresh case (228, stale → refreshed)."""
+    name_file = target / ".claude" / "shop" / "name.md"
+    shop_name = name_file.read_text().rstrip("\n") if name_file.exists() else ""
+    slug = _ops_slug(shop_name)
+    _render_lead_ops_coordinates(target, slug)
 
 
 def _advise_ops_scaffolding_drift(target: Path) -> None:

@@ -331,8 +331,7 @@ echo "footing: agent-vault broker is ready at '$AGENT_VAULT_ADDR'." >&2
 # addr from the SAME sourced ops-coordinates artifact (ADR-043), so footing
 # passes no divergent coordinate set.
 export GITHUB_USERNAME="${GITHUB_USERNAME:-x-access-token}"
-agent-vault vault create "$AGENT_VAULT_VAULT"
-agent-vault vault credential set "GITHUB_TOKEN=${GITHUB_TOKEN}" --vault "$AGENT_VAULT_VAULT"
+bash "$REPO_ROOT/bin/agent-vault-provision"
 
 # Human APPROVES the CLAUDE_OAUTH proposal provision created — the ONE human
 # action left in the footing run (D4). Present the host-runnable approve command

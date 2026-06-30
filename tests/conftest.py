@@ -27780,3 +27780,425 @@ def then_refreshed_fmt_intact_and_image_nonempty(
         "OPS_FRAMEWORK_IMAGE must resolve to a non-empty value after sourcing "
         "the refreshed artifact; got " + repr(image)
     )
+
+
+# =======================================================================
+# lead-y1we (plan tmpl-1dj / PDR-022 Phase A) — footing DELEGATES broker
+# provisioning to bin/agent-vault-provision; provision performs the
+# broker-local docker-exec vault-create (NO --address, lead-4sg9) and the
+# broker-local docker-exec GITHUB_TOKEN credential store (NEVER an owner
+# remote vault-scoped session, lead-0j60 / PDR-022 D3), sourcing the single
+# bin/ops-coordinates artifact (ADR-043). Scenarios 229.1 b3a0a0b6b1fbd217,
+# 229.2 5ee9de8b3f9ab137, 230.1 fc35c1cd8a891dff, 230.2 c3381f4763c74361.
+#
+# Hermetic render-shape assertions over the rendered ops bodies — there is no
+# live broker in the BC env. The final broker round-trip Thens of 230.1/230.2
+# ("the <slug> vault exists in the broker" / "the GITHUB_TOKEN credential is
+# present in the <slug> vault") are LEAD live-verify; the BC scopes its
+# demonstration to the SCRIPT-SHAPE guarantee the rendered body encodes (the
+# broker-local docker-exec that, against a real broker, lands the vault /
+# credential). See the dispatch demonstration boundary.
+# =======================================================================
+
+
+def _y1we_render(template_name: str, slug: str = "shopsystem") -> str:
+    from shop_templates.cli import render_ops_template
+
+    return render_ops_template(template_name, slug)
+
+
+def _y1we_exec_lines(body: str) -> list[str]:
+    """The script's EXECUTABLE shell lines — comment lines and any text inside
+    a ``cat <<EOF ... EOF`` heredoc (operator-facing prose) are excluded, so a
+    ``vault create`` mentioned in a comment or a heredoc banner is never
+    mistaken for an inlined CLI call."""
+    out: list[str] = []
+    in_heredoc = False
+    for line in body.splitlines():
+        stripped = line.strip()
+        if in_heredoc:
+            if stripped == "EOF":
+                in_heredoc = False
+            continue
+        if re.search(r"<<-?\s*['\"]?EOF['\"]?", line):
+            in_heredoc = True
+            continue
+        if not stripped or stripped.startswith("#"):
+            continue
+        out.append(line)
+    return out
+
+
+def _y1we_exec_text(body: str) -> str:
+    return "\n".join(_y1we_exec_lines(body))
+
+
+# -- Scenario 229.1 (@scenario_hash:b3a0a0b6b1fbd217) ------------------
+
+
+@given(
+    parsers.parse(
+        'a "lead" shop whose rendered "bin/footing" runway has reached its '
+        "provisioning step with the broker ready, the owner password "
+        "generated, and the GitHub PAT collected"
+    )
+)
+def given_y1we_footing_at_provisioning_step(context: dict) -> None:
+    context["y1we_footing"] = _y1we_render("footing")
+
+
+@when(parsers.parse('"bin/footing" runs through its provisioning step'))
+def when_y1we_footing_runs_provisioning(context: dict) -> None:
+    context.setdefault("y1we_footing", _y1we_render("footing"))
+
+
+@then(
+    parsers.parse(
+        'it invokes the rendered "bin/agent-vault-provision", passing the '
+        "owner password and the GitHub PAT, to perform owner registration, "
+        "vault creation, the GitHub credential set, service wiring, the "
+        'fleet-agent-token mint, the CA fetch, and the ".env" writeback'
+    )
+)
+def then_y1we_footing_invokes_provision(context: dict) -> None:
+    body = context["y1we_footing"]
+    code = _y1we_exec_text(body)
+    # footing EXECUTES an invocation of the rendered bin/agent-vault-provision
+    # (a real command line, e.g. `bash "$REPO_ROOT/bin/agent-vault-provision"`)
+    # — not merely a comment/heredoc mention.
+    assert re.search(
+        r"(?:bash\s+|exec\s+|\.\s+|source\s+)?[\"']?(?:\.?/|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/)*bin/agent-vault-provision",
+        code,
+    ), "footing must INVOKE bin/agent-vault-provision (executable line) at its provisioning step"
+    # footing makes the collected GitHub PAT and the generated owner password
+    # available to provision (provision reads them from the environment).
+    assert "GITHUB_TOKEN" in body, (
+        "footing must pass the collected GitHub PAT (GITHUB_TOKEN) to provision"
+    )
+    assert "AGENT_VAULT_OWNER_PASSWORD" in body, (
+        "footing must pass the generated owner password to provision"
+    )
+
+
+@then(
+    parsers.parse(
+        '"bin/footing" itself performs no inlined "vault create" and no '
+        'inlined broker-local GitHub PAT "credential set" — those '
+        'provisioning operations exist only inside "bin/agent-vault-provision"'
+    )
+)
+def then_y1we_footing_no_inline(context: dict) -> None:
+    code = _y1we_exec_text(context["y1we_footing"])
+    assert "vault create" not in code, (
+        "footing must NOT inline a `vault create` — it is delegated to provision"
+    )
+    assert "credential set" not in code, (
+        "footing must NOT inline a broker-local GitHub PAT `credential set` — "
+        "it is delegated to provision"
+    )
+    # the delegate (provision) is where those provisioning ops actually live.
+    prov = _y1we_exec_text(_y1we_render("agent-vault-provision"))
+    assert "vault create" in prov and "credential set" in prov, (
+        "the vault-create and GitHub credential-set ops must exist inside "
+        "bin/agent-vault-provision (the delegate)"
+    )
+
+
+# -- Scenario 229.2 (@scenario_hash:5ee9de8b3f9ab137) ------------------
+
+
+@given(
+    parsers.parse(
+        'a "lead" shop whose rendered "bin/footing" has invoked '
+        '"bin/agent-vault-provision" at its provisioning step'
+    )
+)
+def given_y1we_footing_invoked_provision(context: dict) -> None:
+    context["y1we_provision"] = _y1we_render("agent-vault-provision")
+
+
+@when(parsers.parse('"bin/agent-vault-provision" returns control to "bin/footing"'))
+def when_y1we_provision_returns(context: dict) -> None:
+    context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+
+
+@then(
+    parsers.parse(
+        "the product slug's fleet agent-token has been minted and the "
+        "github-git, github-api, and claude services are wired in the broker"
+    )
+)
+def then_y1we_fleet_token_and_services(context: dict) -> None:
+    body = context["y1we_provision"]
+    code = _y1we_exec_text(body)
+    # fleet agent-token mint (slug-derived agent, --token-only capture)
+    assert "agent-vault agent create" in code, "provision must mint the fleet agent token"
+    assert "shopsystem-fleet" in code, (
+        "the minted agent must be the slug-derived <slug>-fleet (shopsystem-fleet)"
+    )
+    assert "--token-only" in code, "the fleet agent must be created --token-only"
+    # service wiring: github-git, github-api, and the three claude services
+    for svc in (
+        "github-git",
+        "github-api",
+        "claude-api",
+        "claude-platform",
+        "claude-mcp-proxy",
+    ):
+        assert re.search(rf"--name\s+{re.escape(svc)}\b", code), (
+            f"provision must wire the {svc} service (vault service add --name {svc})"
+        )
+
+
+@then(
+    parsers.parse(
+        'the run\'s ".env" carries non-empty "AGENT_VAULT_TOKEN", '
+        '"AGENT_VAULT_VAULT", and "AGENT_VAULT_CA_PEM" values, so that '
+        '"bin/shop-shell" and the subsequent BC launches read them rather '
+        "than finding them absent"
+    )
+)
+def then_y1we_env_writeback_nonempty(context: dict) -> None:
+    body = context["y1we_provision"]
+    exec_lines = _y1we_exec_lines(body)
+    # Each key must be WRITTEN to .env with a non-empty value source — the
+    # minted fleet token, the resolved vault name, and the fetched CA path —
+    # i.e. printed from a script variable expansion, never a bare empty value.
+    # The writeback uses both a rewrite-when-present branch and an
+    # append-when-absent (upsert) line; require the key to be sourced from its
+    # value variable on at least two lines (rewrite + append), so a
+    # pre-created .env lacking the placeholder still lands a non-empty value.
+    key_to_var = {
+        "AGENT_VAULT_TOKEN": "FLEET_TOKEN",
+        "AGENT_VAULT_VAULT": "VAULT",
+        "AGENT_VAULT_CA_PEM": "CA_PEM_FILE",
+    }
+    for key, var in key_to_var.items():
+        sourced = [
+            ln
+            for ln in exec_lines
+            if f"{key}=%s" in ln and re.search(rf"\$\{{?{var}\b", ln)
+        ]
+        assert sourced, (
+            f"provision must write a non-empty {key} to .env, sourced from "
+            f"${var} (its minted/resolved value), never a blank"
+        )
+        assert len(sourced) >= 2, (
+            f"provision must land {key} both when present (rewrite) and when "
+            f"absent (append/upsert), so a pre-created .env still gets a "
+            f"non-empty {key}"
+        )
+    # provision aborts rather than writing a blank fleet token (non-empty guard).
+    assert any(
+        re.search(r"-z\s+\"?\$\{?FLEET_TOKEN\b", ln) for ln in exec_lines
+    ), "provision must guard against an empty FLEET_TOKEN before the writeback"
+
+
+# -- Shared: locate provision's broker-local docker-exec helper + a
+#    `vault create` / `credential set` invocation line ------------------
+
+
+def _y1we_dexec_local_def(exec_lines: list[str]) -> str:
+    """Return the line defining provision's broker-local docker-exec array
+    (e.g. ``DEXEC_LOCAL=(docker exec -i "$CONTAINER")``), or "" if absent."""
+    for ln in exec_lines:
+        if re.search(r"DEXEC_LOCAL=\(", ln):
+            return ln
+    return ""
+
+
+def _y1we_invocation_line(exec_lines: list[str], verb: str) -> str:
+    """Return the executable line carrying the ``agent-vault <verb>`` call
+    (verb e.g. 'vault create' / 'vault credential set'), or "" if absent."""
+    for ln in exec_lines:
+        if f"agent-vault {verb}" in ln:
+            return ln
+    return ""
+
+
+def _y1we_sources_ops_coordinates(body: str) -> bool:
+    return bool(re.search(r"source\s+\"?\$\(dirname[^\n]*\)/ops-coordinates", body))
+
+
+# -- Scenario 230.1 (@scenario_hash:fc35c1cd8a891dff) ------------------
+
+
+@given(
+    parsers.parse("a running agent-vault broker that holds no vault for the product slug")
+)
+def given_y1we_broker_no_vault(context: dict) -> None:
+    context["y1we_provision"] = _y1we_render("agent-vault-provision")
+
+
+@given(
+    parsers.parse(
+        'the rendered "bin/agent-vault-provision" sourcing the single '
+        '"bin/ops-coordinates" artifact for the slug, broker container, and '
+        "vault name rather than re-deriving them"
+    )
+)
+def given_y1we_provision_sources_coords_slug_container_vault(context: dict) -> None:
+    body = context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+    assert _y1we_sources_ops_coordinates(body), (
+        "provision must `source` the single bin/ops-coordinates artifact"
+    )
+    # slug / container / vault are resolved FROM the sourced OPS_* coordinates,
+    # not re-derived from the slug independently.
+    assert re.search(r"SLUG=\"?\$\{?OPS_SLUG", body), "SLUG must come from OPS_SLUG"
+    assert re.search(r"OPS_AGENT_VAULT_CONTAINER", body), (
+        "the broker container must come from OPS_AGENT_VAULT_CONTAINER"
+    )
+    assert re.search(r"OPS_VAULT_NAME", body), "the vault name must come from OPS_VAULT_NAME"
+
+
+@when(parsers.parse('the lead or "bin/footing" runs "bin/agent-vault-provision"'))
+def when_y1we_run_provision(context: dict) -> None:
+    context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+
+
+@then(
+    parsers.parse(
+        'it creates the "<slug>" vault via a broker-local "docker exec" '
+        '"vault create" that passes no "--address" flag'
+    )
+)
+def then_y1we_vault_create_dockerexec_no_address(context: dict) -> None:
+    exec_lines = _y1we_exec_lines(context["y1we_provision"])
+    # the broker-local docker-exec helper is defined as `docker exec` into the
+    # broker container.
+    dexec = _y1we_dexec_local_def(exec_lines)
+    assert dexec, "provision must define a broker-local docker-exec helper (DEXEC_LOCAL=(...))"
+    assert re.search(r"docker\s+exec\b", dexec) and "$CONTAINER" in dexec, (
+        "the broker-local helper must be `docker exec` into the $CONTAINER broker"
+    )
+    # the vault-create invocation runs THROUGH that broker-local docker-exec
+    # helper and passes NO --address flag (encodes the lead-4sg9 durable fix).
+    create_ln = _y1we_invocation_line(exec_lines, "vault create")
+    assert create_ln, "provision must invoke `agent-vault vault create`"
+    assert "DEXEC_LOCAL" in create_ln or re.search(r"docker\s+exec\b", create_ln), (
+        "the vault-create must run broker-locally (via the docker-exec helper)"
+    )
+    assert "--address" not in create_ln, (
+        "the broker-local vault-create must pass NO --address flag (lead-4sg9)"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the run the "<slug>" vault exists in the broker — the '
+        "vault-create guarantee moved out of the now-removed footing-inlined "
+        "vault-create"
+    )
+)
+def then_y1we_vault_exists_guarantee(context: dict) -> None:
+    # The live broker round-trip ("the <slug> vault exists in the broker") is
+    # LEAD live-verify (no broker in the BC env); the BC demonstrates the
+    # SCRIPT-SHAPE guarantee that, run against a real broker, lands the vault:
+    # provision carries the broker-local vault-create, and footing no longer
+    # inlines its own vault-create (the guarantee moved onto provision).
+    prov_exec = _y1we_exec_text(context["y1we_provision"])
+    assert "agent-vault vault create" in prov_exec, (
+        "the vault-create guarantee must live in provision"
+    )
+    footing_exec = _y1we_exec_text(_y1we_render("footing"))
+    assert "vault create" not in footing_exec, (
+        "footing must no longer inline a vault-create — the guarantee moved to "
+        "provision"
+    )
+
+
+# -- Scenario 230.2 (@scenario_hash:c3381f4763c74361) ------------------
+
+
+@given(
+    parsers.parse(
+        'a running agent-vault broker with the "<slug>" vault created and the '
+        "GitHub username and PAT supplied to provision via environment or "
+        "arguments"
+    )
+)
+def given_y1we_broker_vault_pat(context: dict) -> None:
+    context["y1we_provision"] = _y1we_render("agent-vault-provision")
+
+
+@given(
+    parsers.parse(
+        'the rendered "bin/agent-vault-provision" sourcing the single '
+        '"bin/ops-coordinates" artifact for the broker container name rather '
+        "than re-deriving it"
+    )
+)
+def given_y1we_provision_sources_coords_container(context: dict) -> None:
+    body = context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+    assert _y1we_sources_ops_coordinates(body), (
+        "provision must `source` the single bin/ops-coordinates artifact"
+    )
+    assert re.search(r"OPS_AGENT_VAULT_CONTAINER", body), (
+        "the broker container name must come from OPS_AGENT_VAULT_CONTAINER"
+    )
+
+
+@when(parsers.parse('"bin/agent-vault-provision" runs its GitHub credential step'))
+def when_y1we_provision_github_step(context: dict) -> None:
+    context.setdefault("y1we_provision", _y1we_render("agent-vault-provision"))
+
+
+@then(
+    parsers.parse(
+        'it stores the GitHub PAT as the "GITHUB_TOKEN" credential through a '
+        'broker-local "docker exec" into the broker container, never through '
+        "an owner remote vault-scoped session"
+    )
+)
+def then_y1we_github_token_dockerexec_not_remote(context: dict) -> None:
+    body = context["y1we_provision"]
+    exec_lines = _y1we_exec_lines(body)
+    # the broker-local docker-exec helper is `docker exec` into the broker.
+    dexec = _y1we_dexec_local_def(exec_lines)
+    assert dexec and re.search(r"docker\s+exec\b", dexec) and "$CONTAINER" in dexec, (
+        "provision must define a broker-local `docker exec` helper into $CONTAINER"
+    )
+    # the GITHUB_TOKEN credential-set runs THROUGH that broker-local docker-exec
+    # helper — not the owner remote vault-scoped session (DEXEC_SCOPED).
+    cred_ln = _y1we_invocation_line(exec_lines, "vault credential set")
+    assert cred_ln, "provision must invoke `agent-vault vault credential set`"
+    assert "DEXEC_LOCAL" in cred_ln or re.search(r"docker\s+exec\b", cred_ln), (
+        "the GITHUB_TOKEN credential-set must run broker-locally (docker exec), "
+        "not through the owner remote vault-scoped session (lead-0j60 / PDR-022 D3)"
+    )
+    assert "DEXEC_SCOPED" not in cred_ln, (
+        "the credential-set must NOT run under the owner remote vault-scoped "
+        "session (DEXEC_SCOPED) — that fails Member-role on agent-vault 0.32.0"
+    )
+    # the credential stored is GITHUB_TOKEN (the authoritative SCREAMING_SNAKE key).
+    assert "GITHUB_TOKEN=" in body, (
+        "provision must store the PAT under the GITHUB_TOKEN credential key"
+    )
+    # belt-and-suspenders: NO `vault credential set` anywhere runs via DEXEC_SCOPED.
+    assert not any(
+        "vault credential set" in ln and "DEXEC_SCOPED" in ln for ln in exec_lines
+    ), "no credential-set may run through the owner remote vault-scoped session"
+
+
+@then(
+    parsers.parse(
+        'after the run the "GITHUB_TOKEN" credential is present in the '
+        '"<slug>" vault — the credential-set guarantee moved out of the '
+        "now-removed footing-inlined PAT store"
+    )
+)
+def then_y1we_github_token_present_guarantee(context: dict) -> None:
+    # The live broker round-trip ("the GITHUB_TOKEN credential is present in
+    # the <slug> vault") is LEAD live-verify (no broker in the BC env); the BC
+    # demonstrates the SCRIPT-SHAPE guarantee that, run against a real broker,
+    # lands the credential: provision carries the broker-local GITHUB_TOKEN
+    # credential-set, and footing no longer inlines its own PAT store.
+    prov_exec = _y1we_exec_text(context["y1we_provision"])
+    assert "vault credential set" in prov_exec and "GITHUB_TOKEN=" in context[
+        "y1we_provision"
+    ], "the GITHUB_TOKEN credential-set guarantee must live in provision"
+    footing_exec = _y1we_exec_text(_y1we_render("footing"))
+    assert "credential set" not in footing_exec, (
+        "footing must no longer inline a broker-local PAT credential set — the "
+        "guarantee moved to provision"
+    )

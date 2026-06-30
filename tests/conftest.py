@@ -27619,3 +27619,164 @@ def then_b2iz_refuses_loudly(context: dict) -> None:
     assert ("docker pull" in low) or ("pull" in low and "image" in low), (
         "diagnostic must give an actionable remediation for obtaining the image"
     )
+
+
+# ===========================================================================
+# lead-k7aq / scenario 228 (@scenario_hash:8e5955d5fb5bb9c8) — "shop-templates
+# update" REFRESHES a DRIFTED bin/ops-coordinates in place, overwriting the
+# stale on-disk body with the current canonical render-tokens body (byte-equal
+# to the bootstrap render, scenario 211 @scenario_hash:0a3a8267109b5792). The
+# update-path counterpart of bootstrap render (211) and create-if-absent (213).
+# These step defs are ADDITIVE to the existing ops-scaffolding step set; they
+# do not touch the 139/140 shop-owned drift-advisory steps (which exclude
+# bin/ops-coordinates). The post-update sourcing assertions reuse the 211
+# _source_ops_coordinates helper defined earlier in this module.
+# ===========================================================================
+
+
+@given(
+    parsers.parse(
+        'the target directory contains a file at "{path}" whose byte contents '
+        'differ from the current canonical "{path_again}" render-tokens body '
+        'for shop type "{shop_type}" and shop name "{shop_name}" (the '
+        'stale/drifted adoption state of a repo bootstrapped before the '
+        'current canonical artifact existed)'
+    )
+)
+def given_ops_coordinates_drifted(
+    path: str,
+    path_again: str,
+    shop_type: str,
+    shop_name: str,
+    context: dict,
+) -> None:
+    assert path == path_again, (
+        f"scenario inconsistency: {path!r} vs {path_again!r}"
+    )
+    from shop_templates.cli import render_ops_template, _ops_slug
+
+    real = _resolve_single_target(context)
+    target_file = real / path
+    assert target_file.is_file(), (
+        f"premise of Given violated: {target_file!s} does not exist "
+        f"(target must have been previously bootstrapped with the ops artifact)"
+    )
+    slug = _ops_slug(shop_name)
+    canonical = render_ops_template("ops-coordinates", slug)
+    # Simulate the stale/drifted adoption state: an older-canonical body that
+    # is NOT byte-equal to the current canonical render. Prepending a stale
+    # marker comment is sufficient to drift the bytes while leaving the file a
+    # plausible pre-current artifact.
+    drifted = "# STALE pre-current ops-coordinates body (drifted)\n" + canonical
+    assert drifted != canonical, "drift setup did not change the bytes"
+    target_file.write_text(drifted)
+    # Sanity: the on-disk body now genuinely differs from canonical.
+    assert target_file.read_text() != canonical, (
+        "premise of Given violated: on-disk bin/ops-coordinates still matches "
+        "the canonical render after the drift mutation"
+    )
+
+
+@given(
+    parsers.parse(
+        'I record the byte contents of the file at "{path}" before the '
+        'invocation'
+    )
+)
+def given_record_single_file_pre_no_target_phrase(
+    path: str, context: dict
+) -> None:
+    real = _resolve_single_target(context)
+    target_file = real / path
+    context.setdefault("k7aq_pre_bytes", {})[path] = target_file.read_bytes()
+
+
+@then(
+    parsers.parse(
+        'after the invocation the byte contents of "{path}" are not equal to '
+        'the recorded byte contents, so the stale on-disk body was replaced '
+        'rather than preserved or merely advised on'
+    )
+)
+def then_ops_coordinates_bytes_replaced(path: str, context: dict) -> None:
+    snap = context.get("k7aq_pre_bytes", {})
+    assert path in snap, (
+        f"no recorded pre-invocation bytes for {path!r}; the 'I record the "
+        f"byte contents of the file at ... before the invocation' Given must "
+        f"run first"
+    )
+    real = context["last_invocation_target"]
+    actual = (real / path).read_bytes()
+    assert actual != snap[path], (
+        f"byte contents of {path!r} were NOT replaced across the update "
+        f"invocation; the drifted stale body was preserved or merely advised "
+        f"on rather than refreshed in place"
+    )
+
+
+@then(
+    parsers.parse(
+        'after the invocation the byte contents of "{path}" equal what the '
+        '"shop-templates" bootstrap render-tokens path writes to "{path_again}" '
+        'for shop type "{shop_type}" and shop name "{shop_name}" — the same '
+        'ADR-043 D2 content contract pinned by scenario 211 '
+        '(@scenario_hash:0a3a8267109b5792)'
+    )
+)
+def then_ops_coordinates_bytes_equal_bootstrap_render(
+    path: str,
+    path_again: str,
+    shop_type: str,
+    shop_name: str,
+    context: dict,
+) -> None:
+    assert path == path_again, (
+        f"scenario inconsistency: {path!r} vs {path_again!r}"
+    )
+    from shop_templates.cli import render_ops_template, _ops_slug
+
+    real = context["last_invocation_target"]
+    actual = (real / path).read_text()
+    slug = _ops_slug(shop_name)
+    expected = render_ops_template("ops-coordinates", slug)
+    assert actual == expected, (
+        f"after update, {path!r} is not byte-equal to the bootstrap "
+        f"render-tokens body for shop type {shop_type!r} / shop name "
+        f"{shop_name!r} (slug {slug!r}); the refresh did not adopt the "
+        f"canonical ADR-043 D2 content contract pinned by scenario 211"
+    )
+
+
+@then(
+    parsers.re(
+        r'after sourcing the refreshed artifact with no override environment '
+        r'set, OPS_BC_BEADS_REPO_FMT resolves to "(?P<fmt>[^"]+)" with the '
+        r'literal .*'
+    )
+)
+def then_refreshed_fmt_intact_and_image_nonempty(
+    fmt: str, context: dict
+) -> None:
+    assert "{bc}" in fmt, (
+        "scenario's expected OPS_BC_BEADS_REPO_FMT value must carry the "
+        "literal '{bc}' placeholder; got " + repr(fmt)
+    )
+    coords = _ops_coordinates_file(context)
+    assert coords.is_file(), f"bin/ops-coordinates not present at {coords!s}"
+    src_rc, values = _source_ops_coordinates(coords)
+    assert src_rc == 0, f"sourcing the refreshed bin/ops-coordinates exited {src_rc}, not 0"
+    actual_fmt = values.get("OPS_BC_BEADS_REPO_FMT", _OPS_211_UNSET)
+    assert actual_fmt == fmt, (
+        "after sourcing the refreshed artifact with no override, "
+        "OPS_BC_BEADS_REPO_FMT=" + repr(actual_fmt) + ", expected " + repr(fmt)
+        + " with the literal '{bc}' placeholder intact"
+    )
+    assert "{bc}" in actual_fmt, (
+        "OPS_BC_BEADS_REPO_FMT=" + repr(actual_fmt) + " lost its literal "
+        "'{bc}' placeholder during sourcing of the refreshed artifact"
+    )
+    image = values.get("OPS_FRAMEWORK_IMAGE", _OPS_211_UNSET)
+    assert image not in ("", _OPS_211_UNSET), (
+        "OPS_FRAMEWORK_IMAGE must resolve to a non-empty value after sourcing "
+        "the refreshed artifact; got " + repr(image)
+    )

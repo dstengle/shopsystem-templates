@@ -14,7 +14,7 @@ Feature: skills provenance marker (PDR-023) — the pour decides what to overwri
 #
 # Supersedes the by-name classification in scenario 159 (9a064e8f6ed915e3):
 # membership is now read from the marker, not from the directory name set.
-@scenario_hash:7d26f690420ab676
+@scenario_hash:33e542727a5fc32d
 Scenario: shop-templates update re-pours a CANONICAL-marked skill from package data and preserves a LOCAL-marked skill byte-for-byte
   Given an existing git repository at a target directory "/tmp/example-lead-shop" previously bootstrapped as a "lead" shop
   And the target contains a skill directory ".claude/skills/bring-up-bc/" whose ".provenance" marker declares the skill CANONICAL and whose "SKILL.md" holds an older version of the canonical "bring-up-bc" body that differs from current package data
@@ -33,7 +33,7 @@ Scenario: shop-templates update re-pours a CANONICAL-marked skill from package d
 # OVERRIDES the name and protects the skill: the pour decides from the marker,
 # not the name (PDR-023 points 1 and 2). This is the silent hole the marker
 # closes.
-@scenario_hash:57be6ade9019d8b8
+@scenario_hash:c0645464d9a04a5a
 Scenario: a LOCAL-marked skill whose directory name collides with a canonical member survives a re-pour byte-for-byte
   Given an existing git repository at a target directory "/tmp/example-lead-shop" previously bootstrapped as a "lead" shop
   And "bring-up-bc" is a canonical lead skill-group member shipped in package data
@@ -51,7 +51,7 @@ Scenario: a LOCAL-marked skill whose directory name collides with a canonical me
 # lifecycle of the PM discovery skills that were collaterally deleted twice
 # (v0.13.0 re-pour b573851 + 84df061 sweep). This scenario pins that such a
 # skill — LOCAL-marked and absent from canonical package data — survives.
-@scenario_hash:3838086f0d1b23da
+@scenario_hash:ff8d5c94f42a5f73
 Scenario: an experiment skill that is LOCAL-marked and absent from canonical package data persists byte-for-byte across a re-pour
   Given an existing git repository at a target directory "/tmp/example-lead-shop" previously bootstrapped as a "lead" shop
   And the target contains a skill directory ".claude/skills/opportunity-solution-tree/" whose ".provenance" marker declares the skill LOCAL
@@ -68,7 +68,7 @@ Scenario: an experiment skill that is LOCAL-marked and absent from canonical pac
 # ".provenance" marker to CANONICAL. After the flip the pour MANAGES it like any
 # other canonical member — subsequent update re-pours it from package data. This
 # makes the PDR-014 graduation path executable at the marker level.
-@scenario_hash:fd9cbdc0d7a09c63
+@scenario_hash:0d4d39cedacaff0b
 Scenario: a LOCAL skill graduated by adding it to package data and flipping its marker to CANONICAL is thereafter re-poured and managed by update
   Given an existing git repository at a target directory "/tmp/example-lead-shop" previously bootstrapped as a "lead" shop
   And the skill "work-splitting" has been added to the canonical lead skill-group package data with a canonical "SKILL.md" body

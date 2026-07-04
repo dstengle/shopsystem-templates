@@ -138,7 +138,7 @@ Feature: shop-templates bootstrap CLI surface (brief 002, items A-E)
     Then the exit code is 0
     And after the invocation every file under the target directory has byte-for-byte the same on-disk contents as before the invocation
 
-  @scenario_hash:72d33907cfe309be
+  @scenario_hash:f2007072d03e9ee0
   Scenario: update brings the set of bootstrap-managed agent files in the target directory into alignment with the current canonical role set for the shop type — adding canonical files that are missing and removing managed files whose canonical template no longer exists
     Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "bc" shop named "example-shop"
     And the current canonical role set for shop type "bc" is exactly the names listed by "shop-templates list" filtered to those that the bootstrap surface treats as "bc" roles
@@ -188,7 +188,7 @@ Feature: shop-templates bootstrap CLI surface (brief 002, items A-E)
     And after the invocation each of those four files has byte-for-byte the same on-disk contents as before the invocation
     And after the invocation the target directory contains no path that did not exist before the invocation other than paths inside ".claude/agents/"
 
-  @scenario_hash:caec3c45d1a58281
+  @scenario_hash:c5707df6da77ae73
   Scenario: update overwrites hand-edits made to a bootstrap-managed agent file, restoring it to the current canonical template content
     Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "bc" shop named "example-shop"
     And the file at ".claude/agents/bc-implementer.md" in the target directory has been hand-edited so that its content differs from the current canonical "bc-implementer" template package-data file contents

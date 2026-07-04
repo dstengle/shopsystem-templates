@@ -15,7 +15,7 @@ Feature: Bootstrap CLI surface — bd-init side-effect closure (lead-k8v round 2
       | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
       | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:96def2bbcdf990f8
+  @scenario_hash:e768db7eae3d6dfe
   Scenario Outline: the canonical "CLAUDE.md" primer template for each shop type references the bd (beads) discipline that the shop is expected to follow, naming "bd prime" as the entry point a reader runs to learn the workflow
     When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "<shop_type>" through its public template-access surface
     Then a non-empty template body is returned

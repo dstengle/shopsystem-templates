@@ -27,7 +27,7 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:4097def93e03fdd2
+  @scenario_hash:5245163e76065d3b
   Scenario Outline: invoking "shop-templates" update against a target directory whose ".claude/settings.json" already equals the current canonical leaves the file byte-for-byte unchanged
   Given an existing git repository at a target directory "<target>" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
   And the file at ".claude/settings.json" in the target directory equals the current canonical ".claude/settings.json" template for shop type "<shop_type>" byte-for-byte
@@ -60,7 +60,7 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   Then the invocation exhibits the post-edit observable behavior
   And no manual "pip install" step is required between the source edit and the invocation
 
-  @scenario_hash:ffa9d5914fadf8ae
+  @scenario_hash:0493e0fb3b603da1
   Scenario: bootstrap of a lead shop installs each sibling BC clone under "repos/" into the product venv in editable mode, so that source-tree edits in a BC clone are immediately reflected in subsequent CLI invocations against the lead shop's venv without an intervening manual reinstall
   Given a target directory "/tmp/example-lead-shop" containing an existing git repository
   And the target directory contains a sibling BC clone at "repos/shopsystem-messaging/" with a valid Python package whose installed entry point name is "shop-msg"
@@ -105,7 +105,7 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # Asserted returned body contains inotifywait, stdbuf, and instructions to verify PATH and refuse-to-arm.
   # Superseded by lead-51u: lead primer now uses shop-msg watch --lead-root .; no host prereqs required.
 
-  @scenario_hash:d67592bfb4191f8f
+  @scenario_hash:0e939a4c07562852
   Scenario: the canonical "CLAUDE.md" primer template for shop type "lead" instructs the router to use "shop-msg watch" and states that no host-level prerequisites are required for the Monitor activation pipeline
     When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
     Then a non-empty template body is returned

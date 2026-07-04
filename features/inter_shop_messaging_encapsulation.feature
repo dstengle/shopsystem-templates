@@ -13,7 +13,7 @@ Feature: Inter-shop messaging encapsulation: templates use shop-msg CLI exclusiv
     And the content does not contain the literal substring "<BC root>/outbox/"
     And the content does not instruct the reader to "read the file directly" or "read the YAML directly" with respect to the inbox or outbox
 
-  @scenario_hash:7d24ac9a742fe132 @bc:shopsystem-templates
+  @scenario_hash:eab2808bbaed0061 @bc:shopsystem-templates
   Scenario: bc-reviewer template directs the reviewer to shop-msg CLI subcommands for reading the assigned scenarios, never to direct filesystem inspection of the inbox
     When I read the bc-reviewer template via "shop-templates show bc-reviewer"
     Then the content contains the literal substring "shop-msg read inbox"

@@ -39,6 +39,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/ops-coordinates"
 : "${DOCTOR_PSQL:=psql}"
 : "${DOCTOR_CURL:=curl}"
 : "${DOCTOR_JQ:=jq}"
+: "${DOCTOR_SCENARIOS:=scenarios}"
+
+# Scenario-coherence inputs (ADR-047 / ADR-056 D8). The scenario corpus, the
+# @bc/@service manifest, and the @origin index are LAUNCHER-PROVISIONED
+# artifacts (findings/scenario-integrity 01-02) — this rendered diagnostic
+# references their PROVISIONED paths through env-overridable parameters rather
+# than baking in any one shop's layout. The conventional provisioned defaults
+# resolve against the shop root (the dir that contains bin/); a launcher that
+# provisions elsewhere exports the DOCTOR_* override before running doctor.
+_DOCTOR_SHOP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+: "${DOCTOR_FEATURES_DIR:=${_DOCTOR_SHOP_ROOT}/features}"
+: "${DOCTOR_BC_MANIFEST:=${_DOCTOR_SHOP_ROOT}/bc-manifest.yaml}"
+: "${DOCTOR_ORIGIN_INDEX:=${_DOCTOR_SHOP_ROOT}/.scenarios/origin-index}"
 
 # Network probe budget (seconds).
 DOCTOR_CONNECT_TIMEOUT="${DOCTOR_CONNECT_TIMEOUT:-5}"
@@ -147,6 +160,52 @@ check_claude_oauth() {
   return 0
 }
 
+# -- Check 4: scenario coherence (ADR-047 / ADR-056 D8) ---------------------
+# Pass iff the scenario corpus is schema-conformant per the v0.3.1
+# system-consistency gate: `scenarios validate --aggregate <features-dir>
+# --manifest <manifest> --origin-index <origin-index>` exits 0. The gate goes
+# RED (non-zero) on ANY violation — E_* per-file schema codes, a transitional
+# @bc:unassigned (W_BC_UNASSIGNED) or @origin:unresolved (W_ORIGIN_UNRESOLVED)
+# marker, or a legacy .gherkin file remaining under the corpus
+# (E_STRAY_GHERKIN). This is what makes the operator's system-consistency
+# diagnostic ENFORCE ADR-056 (the defined end).
+#
+# GRACEFUL DEGRADATION: the manifest / origin-index / features-dir are
+# launcher-provisioned. On a shop where the corpus is not provisioned at all
+# (no features-dir or no manifest at the resolved paths) there is nothing to
+# validate, so the check reports PASS rather than false-failing an
+# unprovisioned shop. Once the launcher provisions the corpus, ANY violation
+# turns the check RED.
+check_scenario_coherence() {
+  local name="scenario coherence"
+  local hint="run 'scenarios validate --aggregate ${DOCTOR_FEATURES_DIR} --manifest ${DOCTOR_BC_MANIFEST} --origin-index ${DOCTOR_ORIGIN_INDEX}' and resolve the reported violations (E_* per-file codes, W_BC_UNASSIGNED, W_ORIGIN_UNRESOLVED, E_STRAY_GHERKIN)"
+
+  if [[ ! -d "$DOCTOR_FEATURES_DIR" || ! -f "$DOCTOR_BC_MANIFEST" ]]; then
+    emit_pass "$name" \
+      "no scenario corpus is provisioned at ${DOCTOR_FEATURES_DIR} / ${DOCTOR_BC_MANIFEST} — nothing to validate (graceful skip)"
+    return 0
+  fi
+
+  local out rc
+  out="$("$DOCTOR_SCENARIOS" validate --aggregate "$DOCTOR_FEATURES_DIR" \
+          --manifest "$DOCTOR_BC_MANIFEST" --origin-index "$DOCTOR_ORIGIN_INDEX" 2>&1)"
+  rc=$?
+  if (( rc == 0 )); then
+    emit_pass "$name" \
+      "the scenario corpus is schema-conformant (scenarios validate --aggregate reports no violation)"
+    return 0
+  fi
+
+  # Non-zero: fold the first reported violation into the fail detail so the
+  # operator sees WHICH violation drove the gate RED without re-running.
+  local first
+  first="$(printf '%s\n' "$out" | head -n 1)"
+  emit_fail "$name" \
+    "the scenario corpus is non-conformant — scenarios validate --aggregate reported a violation: ${first}" \
+    "$hint"
+  return 1
+}
+
 # -- Aggregate diagnosis (027a4d836bb1ae43) ---------------------------------
 # Run every check, then print ONE aggregate verdict DERIVED from the individual
 # results: overall pass requires EVERY check to have passed (FAILED_CHECKS empty);
@@ -157,6 +216,7 @@ main() {
   check_shopmsg_dsn
   check_agent_vault
   check_claude_oauth
+  check_scenario_coherence
 
   if (( ${#FAILED_CHECKS[@]} == 0 )); then
     printf 'doctor: aggregate diagnosis — overall %s (all checks passed)\n' "$_PASS"

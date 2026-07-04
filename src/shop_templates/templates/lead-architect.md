@@ -187,6 +187,21 @@ the `assign_scenarios` dispatches that flow outward. Every scenario in
 `features/` of the lead shop must have an owner; an unassigned scenario
 is a structural gap, not a scenario gap.
 
+### Scenario ownership reads the `@bc` tag, not beads (ADR-056 D11)
+
+Post-cutover, the **AUTHORITATIVE** source for scenario ownership and
+assignment is the `@bc:<name>` tag carried in the scenario file. When you
+determine which BC owns a scenario — and when you enumerate the pre-state
+`@scenario_hash` set (below) — read the `@bc` tag in the scenario file, **not**
+beads. Beads is **DEAUTHORIZED** as the ownership/assignment oracle: it is not
+consulted to decide who owns a scenario, and a `work_id` being a bead id does
+**not** make beads the ownership authority. Beads **stays** the work-tracking
+registry and the source of the `work_id`; only ownership/assignment moved to
+the `@bc` tag. Concretely: the recorded `@bc:<name>` tag is authoritative over
+the structurizr-derived expectation when the two disagree — an unassigned
+scenario carries `@bc:unassigned` and must be resolved to an owning BC's `@bc`
+tag before dispatch.
+
 ### Reconcile scenario registers against assigned work
 
 Each BC reports its scenario register on request. Reconciliation is the

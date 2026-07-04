@@ -1,3 +1,4 @@
+@bc_internal
 Feature: shopsystem-templates — CLI surface and role-discipline structure
 
   @scenario_hash:3314ed2e84ad54c5 @bc:shopsystem-templates

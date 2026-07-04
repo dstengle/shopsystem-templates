@@ -1,3 +1,4 @@
+@bc_internal
 Feature: BC session-start work-tracker health step
 
   The BC session-start contract (rendered into a product BC shop from the

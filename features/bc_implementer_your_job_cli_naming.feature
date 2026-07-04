@@ -1,6 +1,7 @@
+@bc_internal
 Feature: bc-implementer 'Your job' subsection names shop-msg read inbox per step
 
-  @scenario_hash:4671ccec78520c83 @bc:shopsystem-templates
+  @scenario_hash:1ecaec86e267de47 @bc:shopsystem-templates
   Scenario: bc-implementer template's "Your job" subsection names "shop-msg read inbox" on every step whose action is reading the inbox message, never relying on a surrounding clause
   When I read the bc-implementer template via "shop-templates show bc-implementer"
   And I locate the subsection that begins with the heading "## Your job" and ends at the next heading of depth two (##) or depth three (###), whichever comes first

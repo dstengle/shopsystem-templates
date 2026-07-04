@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-j8so @service:postgres
 Feature: shop-shell delivers a non-empty DB-reachable SHOPMSG_DSN into the launched lead-shell session (lead-j8so)
   The rendered bin/shop-shell derives SHOPMSG_DSN at runtime from the sourced
   ops-coordinates postgres coordinates (OPS_POSTGRES_CONTAINER / OPS_POSTGRES_PORT
@@ -11,7 +12,7 @@ Feature: shop-shell delivers a non-empty DB-reachable SHOPMSG_DSN into the launc
   ops-coordinates the DSN derives from): SHOPMSG_DSN joins the CA/GH_TOKEN
   transports, retiring no @scenario_hash.
 
-@scenario_hash:a0342b1700fe27e7 @bc:shopsystem-templates
+@scenario_hash:a0342b1700fe27e7
 Scenario: the rendered shop-owned bringup path delivers a non-empty SHOPMSG_DSN into the launched lead-shell session so shop-msg reaches the product postgres on first use without a manual operator or agent export
   Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops script "bin/shop-shell" and the rendered single ops-coordinates artifact "bin/ops-coordinates" carrying the product postgres coordinates (OPS_POSTGRES_CONTAINER, OPS_POSTGRES_PORT, OPS_NETWORK)
   And the product postgres service is up and reachable on the shop docker network at those coordinates

@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-mzvp
 Feature: Lead primer pins the product-authority discovery gate standing rule
 
   The canonical lead primer (shop-templates package data, shop type "lead",
@@ -14,7 +15,7 @@ Feature: Lead primer pins the product-authority discovery gate standing rule
   through the package's public template-access surface, alongside the
   existing standing rules which it must not alter.
 
-  @scenario_hash:21c07707c418c6ed @lead:shopsystem-templates
+  @scenario_hash:21c07707c418c6ed
   Scenario: the canonical lead primer carries the product-authority discovery gate standing rule alongside the existing standing rules
     Given the "shop-templates" package ships a canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
     When I ask the package for that canonical primer body for shop type "lead"

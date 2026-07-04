@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:lead-5mr5
 Feature: shop-templates bootstrap pours canonical skills into a BC
 
-  @bc:shopsystem-templates
+  @scenario_hash:81667c04c3ca4590
   Scenario: bootstrapping a bc shop pours every skill file under .claude/skills byte-for-byte
     Given an existing git repository at a target directory "/tmp/skills-bc-shop"
     When I bootstrap a "bc" shop named "skills-bc-shop" at "/tmp/skills-bc-shop"

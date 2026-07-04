@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-i8u
 Feature: Bootstrap is idempotent over an already-initialized ".beads/" (lead-i8u)
 
   When the target already carries an initialized ".beads/" directory (the
@@ -11,7 +12,7 @@ Feature: Bootstrap is idempotent over an already-initialized ".beads/" (lead-i8u
   no-".beads/" init path and are precondition-disjoint, so they continue to
   hold.
 
-  @scenario_hash:5786b555ee0732bf @bc:shopsystem-templates
+  @scenario_hash:5786b555ee0732bf
   Scenario Outline: bootstrap on a target whose ".beads/" directory is already initialized skips the "bd init" subprocess and preserves the existing ".beads/" contents, so wrapping an existing beads workspace is idempotent rather than aborting
     Given an existing git repository at a target directory "<target>" with an already-initialized ".beads/" directory whose contents are recorded before the invocation
     When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"

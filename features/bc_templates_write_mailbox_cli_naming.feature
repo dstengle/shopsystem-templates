@@ -1,3 +1,4 @@
+@bc_internal
 Feature: each canonical template's write-mailbox subsection names its shop-msg respond CLI per step
 
   @scenario_hash:942895d284cf0ec7 @bc:shopsystem-templates

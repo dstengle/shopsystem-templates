@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:adr-028 @service:agent-vault-broker
 Feature: ops agent-vault broker render (lead shop) — the bootstrap-rendered compose.yaml names the real agent-vault broker image, wires the master-password env, and publishes slug-derived broker ports, and bootstrap renders a top-level .env.example carrying the broker credential placeholders, both additively to the existing six-file ops-tool set
 
-  @scenario_hash:568e33d4d441069b @bc:shopsystem-templates
+  @scenario_hash:568e33d4d441069b
   Scenario: the ops "compose.yaml" rendered by bootstrap for a "lead" shop names the real agent-vault broker image, wires the master-password env, and publishes the broker proxy ports — so the rendered agent-vault service can hold credentials and proxy traffic on the documented bootstrap path
     Given an existing git repository at a target directory "/tmp/example-lead-shop"
     When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"

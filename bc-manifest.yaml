@@ -1,0 +1,10 @@
+bcs:
+  - name: shopsystem-messaging
+  - name: shopsystem-scenarios
+  - name: shopsystem-templates
+  - name: shopsystem-bc-launcher
+  - name: shopsystem-test-harness
+  - name: shopsystem-devcontainer
+services:
+  - name: agent-vault-broker
+  - name: postgres

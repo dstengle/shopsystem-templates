@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:pdr-009
 Feature: Canonical .claude/settings.json hooks must not embed shop identity (PDR-009)
 
   # ---------------------------------------------------------------------
@@ -21,7 +22,7 @@ Feature: Canonical .claude/settings.json hooks must not embed shop identity (PDR
   # belongs alongside "bd prime"; the "sole" qualifier is retired.
   # ---------------------------------------------------------------------
 
-  @scenario_hash:0c157533eb3145c8 @bc:shopsystem-templates
+  @scenario_hash:d8ee45f9f7c3b27c
   Scenario Outline: every inner-hook "command" string in the canonical ".claude/settings.json" template for "<shop_type>" contains no occurrence of the substring "{{" and no occurrence of the substring "}}"
     When I ask the "shop-templates" package for the canonical ".claude/settings.json" template for shop type "<shop_type>" through its public template-access surface
     And the returned body is parsed as JSON
@@ -32,7 +33,7 @@ Feature: Canonical .claude/settings.json hooks must not embed shop identity (PDR
       | bc        |
       | lead      |
 
-  @scenario_hash:9317b34e56712c7c @bc:shopsystem-templates
+  @scenario_hash:98c31cc7077a7be2
   Scenario Outline: exactly one inner-hook "command" entry under "hooks.SessionStart" in the canonical ".claude/settings.json" for "<shop_type>" equals the literal string "shop-msg prime"
     When I ask the "shop-templates" package for the canonical ".claude/settings.json" template for shop type "<shop_type>" through its public template-access surface
     And the returned body is parsed as JSON
@@ -49,7 +50,7 @@ Feature: Canonical .claude/settings.json hooks must not embed shop identity (PDR
       | bc        |
       | lead      |
 
-  @scenario_hash:d3cc63377ac86cce @bc:shopsystem-templates
+  @scenario_hash:b287bd566e621a1c
   Scenario Outline: the canonical ".claude/settings.json" for "<shop_type>" has exactly one inner-hook "command" entry equal to "bd prime" AND exactly one inner-hook "command" entry equal to "shop-msg prime" under "hooks.SessionStart"
     When I ask the "shop-templates" package for the canonical ".claude/settings.json" template for shop type "<shop_type>" through its public template-access surface
     And the returned body is parsed as JSON
@@ -62,7 +63,7 @@ Feature: Canonical .claude/settings.json hooks must not embed shop identity (PDR
       | bc        |
       | lead      |
 
-  @scenario_hash:e74510bc2af8f058 @bc:shopsystem-templates
+  @scenario_hash:955d26b13b8f8a8d
   Scenario Outline: after "shop-templates init" or "shop-templates update" pours ".claude/settings.json" into a target shop of type "<shop_type>", the poured file contains no occurrence of the substring "{{" and no occurrence of the substring "}}"
     Given an existing git repository at a target directory "<target>"
     When I invoke the "shop-templates" "<entry_point>" against target "<target>" with shop type "<shop_type>" and shop name "<shop_name>"
@@ -78,7 +79,7 @@ Feature: Canonical .claude/settings.json hooks must not embed shop identity (PDR
       | update      | bc        | shopsystem-docs        | /tmp/example-bc-shop       |
       | update      | lead      | shopsystem-product     | /tmp/example-lead-shop     |
 
-  @scenario_hash:ef68be19d7b3a3bb @bc:shopsystem-templates
+  @scenario_hash:03dc4a5a14f89100
   Scenario Outline: "shop-templates update" against a target shop whose ".claude/settings.json" carries a stale placeholder-bearing hook command replaces that command with the current canonical bare "shop-msg prime"
     Given an existing git repository at a target directory "<target>" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
     And the file at "<target>/.claude/settings.json" contains an inner-hook entry under "hooks.SessionStart" whose "command" string is the stale literal "shop-msg prime --bc {{SHOP_NAME}}"

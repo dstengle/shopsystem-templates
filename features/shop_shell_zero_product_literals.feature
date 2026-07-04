@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:adr-043
 Feature: bin/shop-shell carries zero product-specific literals — every product value is a single-sourced env-overridable reference (ADR-043 Phase 1 / ADR-046)
   The 2026-06-27 product-authority decision tightens ADR-043 Phase 1: the rendered
   bin/shop-shell spells NO product-specific literal. Every product coordinate — the
@@ -7,7 +8,7 @@ Feature: bin/shop-shell carries zero product-specific literals — every product
   reference whose default is read from the single bootstrap-rendered ops-coordinates
   artifact and is environment-overridable.
 
-@scenario_hash:1885dea2b4550fde @bc:shopsystem-templates
+@scenario_hash:1885dea2b4550fde
 Scenario: the rendered "bin/shop-shell" references the framework launcher/leaf-BC runtime image as an env-overridable shell variable whose default is sourced from the single ADR-043 ops-coordinates artifact — NOT as the fixed literal "ghcr.io/dstengle/shopsystem-bc-lead:latest" — overriding ADR-028's product-neutral-framework-image exemption per the 2026-06-27 product-authority decision
   Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "dummyco", and target directory "/tmp/example-lead-shop"
@@ -18,7 +19,7 @@ Scenario: the rendered "bin/shop-shell" references the framework launcher/leaf-B
   And the byte contents of "bin/shop-shell" for shop name "dummyco" contain no occurrence of the literal substring "ghcr.io/dstengle/shopsystem-bc-lead", confirming the framework image is no longer a baked product-neutral literal
 
 
-@scenario_hash:b7ea0de32ef49854 @bc:shopsystem-templates
+@scenario_hash:b7ea0de32ef49854
 Scenario: the rendered "bin/shop-shell" obtains every slug-derived coordinate and the org from the SINGLE bootstrap-rendered ops-coordinates artifact (ADR-043 D2 derivation root) as env-overridable variable references rather than spelling any literal — for shop name "dummyco" the container-name check, the docker network (outer launcher AND inner "bc-container launch"), the persistent data root, the agent-vault env-file path, and the beads repo names are shell-variable expansions whose defaults are read from that one artifact and overridable by environment
   Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "dummyco", and target directory "/tmp/example-lead-shop"
@@ -29,7 +30,7 @@ Scenario: the rendered "bin/shop-shell" obtains every slug-derived coordinate an
   And no default value of any such variable as it appears in "bin/shop-shell" contains a case-insensitive occurrence of the literal substring "shopsystem" or the literal substring "dstengle", confirming the literal lives only in the single ops-coordinates artifact and shop-shell carries only references
 
 
-@scenario_hash:827dec9656d97a38 @bc:shopsystem-templates
+@scenario_hash:827dec9656d97a38
 Scenario: bootstrap of a "lead" shop with a non-default slug renders "bin/shop-shell" with ZERO product-specific literals — for shop name "dummyco" the rendered "bin/shop-shell" contains no case-insensitive occurrence of the default-product slug "shopsystem" (INCLUDING inside the framework launcher/leaf image references, which are no longer exempt under the ADR-028 amendment), no case-insensitive occurrence of "fleet", and no occurrence of the hardcoded org literal "dstengle"
   Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "dummyco", and target directory "/tmp/example-lead-shop"

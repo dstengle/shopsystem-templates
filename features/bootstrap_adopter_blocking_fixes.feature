@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-3t1o
 Feature: bootstrap adopter-blocking fixes — no shell Dockerfile for arbitrary slug; credential-free push does not hang
   Two P1 cold-bootstrap (INSTALL) fixes: a lead bootstrap for an arbitrary adopter
   slug emits no Dockerfile.<slug>-shell while still emitting compose.yaml + bin/shop-shell
@@ -5,7 +6,7 @@ Feature: bootstrap adopter-blocking fixes — no shell Dockerfile for arbitrary 
   convergence), and a credential-free bootstrap defers the authenticated bd dolt push
   with a clear offline diagnostic instead of hanging on git authentication.
 
-@scenario_hash:4d3df50770bcc4ef @bc:shopsystem-templates
+@scenario_hash:4d3df50770bcc4ef
 Scenario: bootstrap of a "lead" shop with an arbitrary adopter slug emits no "Dockerfile.<slug>-shell" while still emitting "bin/shop-shell" and "compose.yaml"
   Given an existing git repository at a target directory "/tmp/example-lead-shop" with no top-level file matching "Dockerfile.testxyz-shell", no top-level "Dockerfile.shopsystem-shell", no top-level "compose.yaml", and no file at "bin/shop-shell"
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "testxyz-product", and target directory "/tmp/example-lead-shop"
@@ -15,7 +16,7 @@ Scenario: bootstrap of a "lead" shop with an arbitrary adopter slug emits no "Do
   And after the invocation the target directory contains a top-level file named "compose.yaml"
   And after the invocation the target directory contains a file at "bin/shop-shell" whose owner-execute permission bit is set
 
-@scenario_hash:b47ca2b0841bedbf @bc:shopsystem-templates
+@scenario_hash:b47ca2b0841bedbf
 Scenario: bootstrap completes scaffolding on a target with no GitHub push credentials without hanging on an authenticated remote push
   Given a target directory "/tmp/example-lead-shop" that is an existing git repository with no ".beads/" directory
   And the environment carries no GitHub push credentials that would authenticate a push to "git+https://github.com/dstengle/testxyz-beads.git"

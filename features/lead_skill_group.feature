@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:lead-5mr5
 Feature: shop-templates ships and pours the canonical lead skill-group
 
-  @scenario_hash:c207853320920de7 @bc:shopsystem-templates
+  @scenario_hash:c207853320920de7
   Scenario Outline: the canonical lead skill-group is shipped as package data and exposed through the "shop-templates" public template-access surface, parallel to the role templates and primer
     Given the installed "shop-templates" distribution
     When I query the "shop-templates" public template-access surface for the canonical "<shop_type>" skill-group
@@ -12,7 +13,7 @@ Feature: shop-templates ships and pours the canonical lead skill-group
       | shop_type |
       | lead      |
 
-  @scenario_hash:cc52003444ea63f7 @bc:shopsystem-templates
+  @scenario_hash:cc52003444ea63f7
   Scenario Outline: the poured "bring-up-bc" skill is a member of the canonical lead skill-group and its body names launching via bc-container, the BCLAUNCHER_HOST_HOME devcontainer fact, and the shop-msg bc-status online check
     Given an existing git repository at a target directory "<target>" with no ".claude/skills/" directory
     When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -26,7 +27,7 @@ Feature: shop-templates ships and pours the canonical lead skill-group
       | shop_type | shop_name          | target                 |
       | lead      | shopsystem-product | /tmp/example-lead-shop |
 
-  @scenario_hash:7df4006ce0d43d8b @bc:shopsystem-templates
+  @scenario_hash:7df4006ce0d43d8b
   Scenario Outline: the poured "bring-up-bc" skill scopes the BCLAUNCHER_HOST_HOME requirement to the workspace-mount / bind-mounted-home launch case and does not present it as required for a clone-path launch or universally
     Given an existing git repository at a target directory "<target>" with no ".claude/skills/" directory
     When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -40,7 +41,7 @@ Feature: shop-templates ships and pours the canonical lead skill-group
       | shop_type | shop_name          | target                 |
       | lead      | shopsystem-product | /tmp/example-lead-shop |
 
-  @scenario_hash:f75eb04e359f4833 @bc:shopsystem-templates
+  @scenario_hash:f75eb04e359f4833
   Scenario Outline: the poured "create-bc" skill is a member of the canonical lead skill-group and its body names the scaffold, remote, manifest, launch, gotcha, and experimental-honesty elements of the proven create-a-BC-from-scratch procedure
     Given an existing git repository at a target directory "<target>" with no ".claude/skills/" directory
     When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"

@@ -1,3 +1,4 @@
+@bc_internal
 Feature: lead-po template — identity-precedes-procedure structural integrity
 
   @scenario_hash:662c5822dbc6a896 @bc:shopsystem-templates

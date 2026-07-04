@@ -1,3 +1,4 @@
+@bc_internal
 Feature: BC primer directs re-arming the Monitor watcher and draining the inbox after a work item
 
   The canonical bc primer (shop-templates package data, shop type "bc")

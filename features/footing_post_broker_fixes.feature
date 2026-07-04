@@ -1,9 +1,10 @@
+@bc:shopsystem-templates @origin:lead-pdsd
 Feature: post-broker footing/approve-claude fixes (oauth tokens, org, PAT store, data-root ownership)
   approve-claude sources both Claude OAuth tokens from the host credentials.json; footing
   derives the GitHub org from the lead repo origin, stores the collected PAT in the vault,
   and owns the created data root + pgdata as the invoking host user.
 
-@scenario_hash:74d0086b73d4e477 @bc:shopsystem-templates
+@scenario_hash:74d0086b73d4e477
 Scenario: agent-vault-approve-claude sources both Claude OAuth tokens from the host credentials.json by default
   Given a host whose "~/.claude/.credentials.json" holds a "claudeAiOauth" object carrying an "accessToken", a "refreshToken", and an "expiresAt"
   And the operator runs "agent-vault-approve-claude" with no positional token argument
@@ -14,7 +15,7 @@ Scenario: agent-vault-approve-claude sources both Claude OAuth tokens from the h
   And a manual override path that supplies the OAuth secret explicitly remains available
   And when "~/.claude/.credentials.json" is missing or unreadable the script exits non-zero with a diagnostic naming the unreadable credentials file
 
-@scenario_hash:da11e122c275a344 @bc:shopsystem-templates
+@scenario_hash:da11e122c275a344
 Scenario Outline: footing derives the GitHub org from the cloned lead repo origin remote instead of a hardcoded default
   Given a cloned "<product>-lead" repository whose git "origin" remote URL names the owner "<origin_owner>"
   And no "GITHUB_ORG" value is exported into the environment

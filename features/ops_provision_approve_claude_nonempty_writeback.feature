@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-dui6 @service:agent-vault-broker
 Feature: the scripted approve-claude step inside bin/agent-vault-provision captures the issued Claude token and writes a NON-EMPTY CLAUDE_OAUTH credential back into the vault — never a blank writeback (bugfix lead-dui6)
   The approve-claude capture/writeback logic lives INSIDE the rendered
   bin/agent-vault-provision, not a separate script. When the operator supplies
@@ -8,7 +9,7 @@ Feature: the scripted approve-claude step inside bin/agent-vault-provision captu
   handoff (broker/13) and the no-automated-real-credential-transport rule
   (broker/11): the token is captured only at approve-time, never automated.
 
-  @scenario_hash:1c054dfdc468860a @bc:shopsystem-templates
+  @scenario_hash:1c054dfdc468860a
   Scenario: the scripted approve-claude step in the rendered provisioning path captures the issued token and writes a NON-EMPTY Claude credential value, never a blank writeback
     Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops script "bin/agent-vault-provision" whose approve-claude logic lives inside that script and not a separate script
     And an approve-claude approval that issues a valid NON-EMPTY Claude token — the same approval performed manually through the broker web interface stores a non-empty credential, proving upstream issuance is correct

@@ -1,8 +1,9 @@
+@bc:shopsystem-templates @origin:adr-045
 Feature: shop-shell delivers the broker root CA as inline PEM content (ADR-045)
   AGENT_VAULT_CA_PEM travels to the launched leaf as the certificate CONTENT in a
   process-env value (-e), not the path string via the file-based --env-file.
 
-@scenario_hash:7ce09202755b0503 @bc:shopsystem-templates
+@scenario_hash:7ce09202755b0503
 Scenario: the rendered shop-owned bringup path delivers the broker root CA to the launched leaf-BC session as inline PEM CONTENT — so the leaf's trust file is a valid certificate, not a path/filename string
   Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops scripts "bin/agent-vault-provision" and "bin/shop-shell"
   And a broker whose "agent-vault ca fetch" emits a multi-line root-CA certificate beginning with the literal "-----BEGIN CERTIFICATE-----"

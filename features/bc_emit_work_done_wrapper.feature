@@ -1,3 +1,4 @@
+@bc_internal
 Feature: bc-emit work-done wrapper — executable pre-emit preconditions over the work-done-gate
 
   @scenario_hash:461d6066ef7dca0a @bc:shopsystem-templates

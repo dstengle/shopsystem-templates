@@ -1,9 +1,10 @@
+@bc:shopsystem-templates @origin:lead-21uk
 Feature: approve-claude approves the CLAUDE_OAUTH proposal by its identity number
   The proposal-number parse must take the proposal's '#' identity column, not the
   trailing CREATED-timestamp minutes. footing persists the create-time number into
   .env; approve-claude reads it, and both list-parse fallbacks take the '#' column.
 
-@scenario_hash:d8422606299d8819 @bc:shopsystem-templates
+@scenario_hash:d8422606299d8819
 Scenario: approve-claude approves the pending CLAUDE_OAUTH proposal by its identity number not a timestamp digit
   Given the footing script has created exactly one pending CLAUDE_OAUTH proposal whose identity number is "1"
   And the broker's "proposal create --json" output reports that proposal's number as "1"

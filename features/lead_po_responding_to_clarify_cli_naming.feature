@@ -1,3 +1,4 @@
+@bc_internal
 Feature: lead-po 'Responding to a clarify' subsection names shop-msg read inbox per step
 
   # @scenario_hash:14837e4ef2ea004d RETIRED (lead-eqn)
@@ -5,7 +6,7 @@ Feature: lead-po 'Responding to a clarify' subsection names shop-msg read inbox 
   # Superseded by lead-eqn: Brief 006 replaced read outbox with read inbox --lead;
   # lead-po CLI mechanics now uses "shop-msg read inbox --lead <name>" to read BC responses.
 
-  @scenario_hash:14837e4ef2ea004d-replacement @bc:shopsystem-templates
+  @scenario_hash:d0489c45701dbaa8 @bc:shopsystem-templates
   Scenario: lead-po template's "Responding to a clarify" subsection names "shop-msg read inbox" on every step whose action is reading the BC's clarify, never relying on a surrounding clause
   When I read the lead-po template via "shop-templates show lead-po"
   And I locate the subsection that begins with the heading "### Responding to a clarify via the shop-msg CLI" and ends at the next heading of depth two (##) or depth three (###), whichever comes first

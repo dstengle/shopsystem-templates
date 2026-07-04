@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-wnps
 Feature: bootstrap runs a bd dolt push smoke-test that fails loud on a missing dolt remote
 
   After configuring the bd dolt push remote via `bd dolt remote add` (behavior A,
@@ -13,7 +14,7 @@ Feature: bootstrap runs a bd dolt push smoke-test that fails loud on a missing d
   (tmpl-am6 / PDR-019 U5 / ADR-040. Supersedes the retired scenario
   62eb2a8b9b617f4b, whose bare-push assertion could not catch a missing remote.)
 
-  @scenario_hash:5ae67969a7f205d5 @bc:shopsystem-templates
+  @scenario_hash:5ae67969a7f205d5
   Scenario: shop-templates bootstrap runs a bd dolt push smoke-test that fails on a missing or misconfigured remote
     Given an existing git repository at a target directory "<target>" with the beads config rendered by bootstrap and the dolt push remote configured
     When the bootstrap smoke-test step runs "bd dolt push" against the configured dolt remote

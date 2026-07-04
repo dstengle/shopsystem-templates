@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-2mha
 Feature: bootstrap configures the real bd dolt push remote and issue prefix
 
   Bootstrap initializes .beads/ via a `bd init` subprocess. On top of that it
@@ -11,7 +12,7 @@ Feature: bootstrap configures the real bd dolt push remote and issue prefix
   shop's tracker syncs to the right remote and stamps issues with the right
   prefix without a manual follow-up step. (tmpl-am6 / PDR-019 U5 / ADR-040.)
 
-  @scenario_hash:0636fba2c1445f9f @bc:shopsystem-templates
+  @scenario_hash:0636fba2c1445f9f
   Scenario: shop-templates bootstrap configures the bd dolt push remote and issue prefix
     Given an existing git repository at a target directory "<target>"
     When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<shop_name>", and target directory "<target>"

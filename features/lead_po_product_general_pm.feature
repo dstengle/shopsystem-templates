@@ -1,3 +1,4 @@
+@bc_internal
 Feature: lead-po template — product-general PM role with consumer/framework fork
 
   @scenario_hash:6465b30fe62fb935 @bc:shopsystem-templates

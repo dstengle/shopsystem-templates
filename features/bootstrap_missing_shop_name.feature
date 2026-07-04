@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:brief-002
 Feature: shop-templates bootstrap rejects missing --shop-name with argparse error
 
-  @scenario_hash:3c8612d20608e9a3 @bc:shopsystem-templates
+  @scenario_hash:a4e03d7991a514b9
   Scenario: the bootstrap entry point exits with an argparse-style usage error when invoked without --shop-name, with no Python traceback emitted
     Given an existing git repository at a target directory "/tmp/example-shop"
     When I invoke the "shop-templates" bootstrap entry point with --shop-type "bc" and --target "/tmp/example-shop" but with no --shop-name argument

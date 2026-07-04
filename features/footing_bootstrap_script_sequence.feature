@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:lead-qb0h
 Feature: the lead-shop footing bootstrap script runs the footing sequence and stops at solid footing
 
-  @scenario_hash:e69c18dd25104b5e @bc:shopsystem-templates
+  @scenario_hash:e69c18dd25104b5e
   Scenario: the bootstrap script runs the footing sequence and stops at solid footing
     Given a freshly forked "<product>-lead" repository with the starter compose, script, and ".env.example" but no framework code
     And the only human interaction is the single up-front auth gate

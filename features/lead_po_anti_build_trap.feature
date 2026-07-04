@@ -1,3 +1,4 @@
+@bc_internal
 Feature: lead-po template — anti-build-trap structural gate
 
   @scenario_hash:c96e0d7e37de2079 @bc:shopsystem-templates

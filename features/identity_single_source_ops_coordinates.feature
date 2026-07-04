@@ -1,9 +1,10 @@
+@bc:shopsystem-templates @origin:adr-043
 Feature: identity single-source + the ops-coordinates artifact (ADR-043 Phase 1)
   The manifest product: field is the single identity root; bootstrap renders one
   ops-coordinates artifact carrying each derived coordinate exactly once; every ops
   script sources it and re-derives nothing; each coordinate is a literal in one file.
 
-@scenario_hash:38c7cc83fc1bc0f0 @bc:shopsystem-templates
+@scenario_hash:38c7cc83fc1bc0f0
 Scenario: the manifest "product:" field is the single identity root that the runtime-derived product reconciles to rather than an independent parallel derivation
   Given a forked lead repository whose directory basename is "acme-lead"
   And the bootstrap render injected the product slug "acme" wherever an "{{OPS_SLUG}}" token appeared
@@ -12,7 +13,7 @@ Scenario: the manifest "product:" field is the single identity root that the run
   And the runtime value footing uses for the product slug is read back from the manifest "product:" field, not independently recomputed a second time from the repository basename
   And when the manifest "product:" field and a basename-derived candidate would disagree, footing reconciles to the manifest "product:" value and emits a diagnostic naming the divergence rather than silently proceeding on the basename-derived value
 
-@scenario_hash:ffb602e62d62c345 @bc:shopsystem-templates
+@scenario_hash:ffb602e62d62c345
 Scenario: shop-templates bootstrap renders one canonical ops-coordinates artifact that carries each derived product coordinate exactly once
   Given an existing git repository at a target directory "/tmp/example-lead-shop"
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "acme", and target directory "/tmp/example-lead-shop"
@@ -24,7 +25,7 @@ Scenario: shop-templates bootstrap renders one canonical ops-coordinates artifac
   And that artifact assigns the vault name "acme" exactly once and the lead beads repository name "acme-lead-beads" exactly once
   And no derived coordinate carried by the artifact appears as a second independent literal assignment anywhere else in the rendered "bin/" scripts
 
-@scenario_hash:e59b29a6fc34f60a @bc:shopsystem-templates
+@scenario_hash:e59b29a6fc34f60a
 Scenario: every rendered ops script sources the one ops-coordinates artifact instead of re-deriving the coordinates from the slug
   Given an existing git repository at a target directory "/tmp/example-lead-shop"
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "acme", and target directory "/tmp/example-lead-shop"
@@ -34,7 +35,7 @@ Scenario: every rendered ops script sources the one ops-coordinates artifact ins
   And none of those scripts re-derives the agent-vault container name by independently concatenating the slug with a "-agent-vault" suffix
   And none of those scripts independently re-spells the broker host literal "http://localhost:14321"
 
-@scenario_hash:b499c9ba63a9ef42 @bc:shopsystem-templates
+@scenario_hash:b499c9ba63a9ef42
 Scenario: a coordinate carried by the ops-coordinates artifact is a literal in exactly one place and a variable reference everywhere else
   Given an existing git repository at a target directory "/tmp/example-lead-shop"
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "acme", and target directory "/tmp/example-lead-shop"

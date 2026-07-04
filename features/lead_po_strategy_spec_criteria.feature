@@ -1,3 +1,4 @@
+@bc_internal
 Feature: lead-po template — strategy-before-backlog and specification-as-contract sufficiency criteria
 
   @scenario_hash:6773a984439f2a9e @bc:shopsystem-templates

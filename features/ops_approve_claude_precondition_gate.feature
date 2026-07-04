@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-m1dc @service:agent-vault-broker
 Feature: the rendered bin/agent-vault-approve-claude verifies every required input and endpoint reachability BEFORE any mutating step and makes zero partial changes on a missing precondition (robustness, lead-m1dc)
   The v0.47.0 login -> /v1/credentials/oauth/tokens populate path added an owner
   (member-role) login requirement the predecessor proposal-approve path never
@@ -11,7 +12,7 @@ Feature: the rendered bin/agent-vault-approve-claude verifies every required inp
   preserved proposal-approve + oauth-tokens-populate flow (lead-al1r); retires no
   pin.
 
-  @scenario_hash:3b7e07095a354e0a @bc:shopsystem-templates
+  @scenario_hash:3b7e07095a354e0a
   Scenario: the rendered "bin/agent-vault-approve-claude" verifies every required input and endpoint reachability BEFORE any mutating step, and on a missing precondition fails fast with an actionable diagnostic while making ZERO partial changes
     Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops script "bin/agent-vault-approve-claude" whose token-seed path resolves the ops-coordinates, performs an owner "POST /v1/auth/login", ensures the CLAUDE_OAUTH proposal/slot, and performs "POST /v1/credentials/oauth/tokens" with the access and refresh tokens
     When the operator runs "bin/agent-vault-approve-claude" in a session missing one or more required inputs — the Claude credential/token source, the owner login credentials, the broker address, or the resolvable ops-coordinates — or where a required broker endpoint is unreachable

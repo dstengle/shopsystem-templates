@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:lead-r9r5
 Feature: ops scaffolding is slug-parametric (lead shop) — compose/shop-shell/Dockerfile derive every product literal from the shop slug, with collision-free host ports and a broker-wired shop-shell, leaving no default-product name in a non-default render
 
-  @scenario_hash:8fcf898fdeebc6be @bc:shopsystem-templates
+  @scenario_hash:8fcf898fdeebc6be
   Scenario Outline: bootstrap of a "lead" shop named "<slug>" writes a top-level "compose.yaml" whose docker network, postgres container, agent-vault container, and agent-vault data volume are all derived from the shop slug "<slug>" (superseding the literal-"shopsystem" assertion of scenario 133) — so a non-default product slug renders a fully <slug>-scoped compose with no "shopsystem" name leaking through
     Given an existing git repository at a target directory "/tmp/example-lead-shop" with no top-level "compose.yaml" file
     When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"
@@ -17,7 +18,7 @@ Feature: ops scaffolding is slug-parametric (lead shop) — compose/shop-shell/D
       | shopsystem |
       | dummyco    |
 
-  @scenario_hash:9c8b8b40ee9ffde4 @bc:shopsystem-templates
+  @scenario_hash:9c8b8b40ee9ffde4
   Scenario Outline: the postgres "pgdata" volume source string in the bootstrap-rendered "compose.yaml" for a "lead" shop named "<slug>" is derived from the slug-parametric "<SLUG_UPPER>_DATA" environment variable (tightening scenario 138, which named only "SHOPSYSTEM_DATA") with a "${HOME}/.local/share/<slug>" default — so the env var name itself tracks the slug, the path is never under the repo, and an operator may override the data root per product
     Given an existing git repository at a target directory "/tmp/example-lead-shop"
     When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"
@@ -33,7 +34,7 @@ Feature: ops scaffolding is slug-parametric (lead shop) — compose/shop-shell/D
       | shopsystem | SHOPSYSTEM |
       | dummyco    | DUMMYCO    |
 
-  @scenario_hash:abe57dcb4d6f6554 @bc:shopsystem-templates
+  @scenario_hash:abe57dcb4d6f6554
   Scenario Outline: the postgres host port published by the bootstrap-rendered "compose.yaml" for a "lead" shop named "<slug>" is collision-free per slug — it is "5432 + crc32(<slug>) % 1000" and is overridable by the slug-parametric "<SLUG_UPPER>_POSTGRES_PORT" environment variable — so two distinct products bootstrapped on one host bind distinct host ports by default while each remains operator-overridable
     Given an existing git repository at a target directory "/tmp/example-lead-shop"
     When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"

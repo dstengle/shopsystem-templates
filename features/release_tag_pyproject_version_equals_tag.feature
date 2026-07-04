@@ -1,6 +1,6 @@
+@bc:shopsystem-templates @origin:lead-g72o
 Feature: the pyproject version at a release-tagged commit equals the tag's version
 
-  @scenario_hash:88a5418db371a12a @bc:shopsystem-templates
   @scenario_hash:88a5418db371a12a
   Scenario Outline: the pyproject version at a release-tagged commit equals the tag's version, so an install from that tag reports the tag version in its dist metadata
     Given the shopsystem-templates repository has a release tag named "<tag>"

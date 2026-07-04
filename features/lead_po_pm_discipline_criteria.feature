@@ -1,3 +1,4 @@
+@bc_internal
 Feature: lead-po template — problem-discovery and outcome-ownership sufficiency criteria
 
   @scenario_hash:25038c88fec521ba @bc:shopsystem-templates

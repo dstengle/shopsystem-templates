@@ -1,9 +1,10 @@
+@bc:shopsystem-templates @origin:lead-nhr2
 Feature: post-approve footing fixes (host-reachable broker port, beads sync.remote)
   footing discovers the broker's docker-mapped host port and records a host-reachable
   address distinct from the in-network one; and rewrites .beads/config.yaml sync.remote
   to the derived-org <product>-lead-beads repo it wired for dolt.
 
-@scenario_hash:f340689bb81413dc @bc:shopsystem-templates
+@scenario_hash:f340689bb81413dc
 Scenario: footing discovers the broker's actual docker-mapped host port and records a host-reachable broker address distinct from the in-network one
   Given footing has brought up the compose services for product slug "<slug>" so the "<slug>-agent-vault" broker container is running
   And footing has written the in-network "AGENT_VAULT_ADDR=http://<slug>-agent-vault:14321" to the run ".env" for in-network containers
@@ -12,7 +13,7 @@ Scenario: footing discovers the broker's actual docker-mapped host port and reco
   And the recorded host-reachable broker address port equals the value reported by "docker port <slug>-agent-vault 14321", which matches the generated or env-overridden "OPS_VAULT_API_PORT" and is not hardcoded to 14321
   And the in-network "AGENT_VAULT_ADDR" still resolves to "http://<slug>-agent-vault:14321" unchanged for in-network containers
 
-@scenario_hash:c1b769fb49c6ebfb @bc:shopsystem-templates
+@scenario_hash:c1b769fb49c6ebfb
 Scenario: footing rewrites .beads/config.yaml sync.remote to the derived-org product-lead-beads repo it wires for dolt
   Given a forked lead repository whose git origin owner is "<owner>" and whose derived product slug is "<product>"
   And "shop-templates bootstrap" scaffolded ".beads/config.yaml" with a "sync.remote" pointing at a hardcoded "dstengle" org and a "<product>-product-beads" repository name

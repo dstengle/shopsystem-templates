@@ -1,3 +1,4 @@
+@bc_internal
 Feature: BC primer pins BETWEEN-ITEM autonomous inbox drain
 
   The canonical bc primer (shop-templates package data, shop type "bc")

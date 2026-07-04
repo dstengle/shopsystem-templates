@@ -1,8 +1,9 @@
+@bc:shopsystem-templates @origin:lead-ddb2
 Feature: rendered bootstrap artifacts — docker-socket group symmetry + the shop-shell entry instruction
   bin/shop-shell grants the docker socket group to BOTH the launcher and attach runs (no EACCES),
   and the bootstrap completion message names bin/shop-shell as the lead-session entry command.
 
-@scenario_hash:84a32b05666d9e82 @bc:shopsystem-templates
+@scenario_hash:84a32b05666d9e82
 Scenario Outline: bootstrap of a "lead" shop named "<slug>" writes "bin/shop-shell" that grants the docker socket's owning group to BOTH the launcher "docker run" AND the attach "docker run", so the operator's attach does not get EACCES on the docker API
   Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"
@@ -17,7 +18,7 @@ Scenario Outline: bootstrap of a "lead" shop named "<slug>" writes "bin/shop-she
     | shopsystem |
     | dummyco    |
 
-@scenario_hash:72245934ce007af6 @bc:shopsystem-templates
+@scenario_hash:72245934ce007af6
 Scenario: on completion the lead bootstrap emits an explicit instruction naming the command to enter the brokered lead session, rather than returning to the host with only "start prompting"
   Given an adopter fork whose "bin/bootstrap" has run the footing sequence to solid footing, demonstrated by a successful "git push" and a successful "bd dolt push"
   When bootstrap reaches completion and returns control to the host shell

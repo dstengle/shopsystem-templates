@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:pdr-026
 Feature: the starter bin/bootstrap verifies the pulled image's baked shop-templates version before the in-image render (lead-b2iz)
 
   bin/bootstrap pulls the bc-lead/bc-base image on a floating tag and then runs
@@ -15,7 +16,7 @@ Feature: the starter bin/bootstrap verifies the pulled image's baked shop-templa
   BEFORE the render step that scenario 187 pins and does not contradict it.
   (PDR-026, ADR-040; additive to PDR-019 U1/U3.)
 
-  @scenario_hash:4457c8c280d4fbf4 @bc:shopsystem-templates
+  @scenario_hash:4457c8c280d4fbf4
   Scenario: bootstrap reads the pulled image's baked shop-templates version and proceeds when it meets the expected minimum
     Given an adopter fork whose "bin/bootstrap" resolves the bc-lead/bc-base image on a floating tag
     And the pulled image carries baked shop-templates provenance per PDR-026 — the OCI label "shopsystem.shop-templates.version" and the container ENV "SHOP_TEMPLATES_VERSION"
@@ -24,7 +25,7 @@ Feature: the starter bin/bootstrap verifies the pulled image's baked shop-templa
     Then bootstrap reads the baked shop-templates version from the pulled image's provenance via a "docker image inspect" read of the "shopsystem.shop-templates.version" label (or a "printenv SHOP_TEMPLATES_VERSION" read of a container started from it), without invoking "pip show" or any python in the image
     And because the read version is at or above the expected minimum, bootstrap proceeds to render the shop via the in-image "shop-templates bootstrap"
 
-  @scenario_hash:e9d64a8acc917efb @bc:shopsystem-templates
+  @scenario_hash:e9d64a8acc917efb
   Scenario: bootstrap refuses to render and exits loudly when the pulled image's baked shop-templates version is below the expected minimum
     Given an adopter fork whose "bin/bootstrap" resolves the bc-lead/bc-base image on a floating tag
     And the pull resolves a stale or cached image whose baked shop-templates version — read from the PDR-026 "shopsystem.shop-templates.version" label or "SHOP_TEMPLATES_VERSION" ENV — is below the expected-minimum shop-templates version known to "bin/bootstrap"

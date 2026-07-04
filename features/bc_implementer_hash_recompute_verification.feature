@@ -1,3 +1,4 @@
+@bc_internal
 Feature: bc-implementer template directs the implementer to verify every @scenario_hash tag it wrote or edited by recomputing with the scenarios hash CLI
 
   @scenario_hash:3a6689d8e7db94ef @bc:shopsystem-templates

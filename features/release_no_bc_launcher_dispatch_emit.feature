@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:adr-022
 Feature: the surviving templates release.yml emits nothing downstream while retaining its version-hygiene guard
 
   Per ADR-022 the cross-repo repository_dispatch fan-in that previously
@@ -8,7 +9,7 @@ Feature: the surviving templates release.yml emits nothing downstream while reta
   no-emit shape as a registered, hashed behavior — register parity with
   shopsystem-scenarios (lead-vusv) and shopsystem-messaging (lead-0udp).
 
-  @scenario_hash:846e4e663198ce78 @bc:shopsystem-templates
+  @scenario_hash:846e4e663198ce78
   Scenario: the surviving templates release.yml declares no repository_dispatch emit to bc-launcher and references no BC_LAUNCHER_DISPATCH_TOKEN, while its version-hygiene guard remains intact
     Given the shopsystem-templates repository carries a ".github/workflows/release.yml" workflow file
     And that workflow retains its version-hygiene "release-guard" job that enforces the scenario-192 release-tag-equals-pyproject-version invariant

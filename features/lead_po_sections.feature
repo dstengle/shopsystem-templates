@@ -1,6 +1,7 @@
+@bc_internal
 Feature: shopsystem-templates — CLI surface and role-discipline structure
 
-  @scenario_hash:028a1a3b1f686b53 @bc:shopsystem-templates
+  @scenario_hash:7e3680510b8bfdf9 @bc:shopsystem-templates
   Scenario: lead-po template carries the structural sections that PO scope-and-vocabulary discipline depends on
     When I read the lead-po template via "shop-templates show lead-po"
     Then the content contains a "## Your default posture: COMMIT TO SPECIFICS" section header

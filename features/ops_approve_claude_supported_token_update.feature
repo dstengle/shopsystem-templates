@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-m1dc @service:agent-vault-broker
 Feature: the rendered bin/agent-vault-approve-claude supports updating the CLAUDE_OAUTH tokens after the fact — a later re-run re-POSTs fresh token material as a supported, non-error path (robustness, lead-m1dc)
   Refreshing OAuth tokens rotate, so an operator must be able to push fresh Claude
   token material into an already-populated CLAUDE_OAUTH credential without tearing
@@ -9,7 +10,7 @@ Feature: the rendered bin/agent-vault-approve-claude supports updating the CLAUD
   credential already exists. Additive over the preserved proposal-approve +
   oauth-tokens populate flow (lead-al1r); retires no pin.
 
-  @scenario_hash:45dc18d4b0d1730e @bc:shopsystem-templates
+  @scenario_hash:45dc18d4b0d1730e
   Scenario: the rendered "bin/agent-vault-approve-claude" supports updating the CLAUDE_OAUTH tokens after the fact — a later re-run re-POSTs fresh token material to the oauth-tokens endpoint as a supported, non-error path
     Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops script "bin/agent-vault-approve-claude" and an already-populated, refreshing CLAUDE_OAUTH credential from a prior successful run
     When the operator later re-runs "bin/agent-vault-approve-claude" with newer Claude token material to refresh the stored credential

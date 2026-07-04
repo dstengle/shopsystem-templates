@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:brief-003
 Feature: canonical claude_settings templates conform to Claude Code hook-schema wrapper shape
 
   # ---------------------------------------------------------------------
@@ -13,7 +14,7 @@ Feature: canonical claude_settings templates conform to Claude Code hook-schema 
   # this round.
   # ---------------------------------------------------------------------
 
-  @scenario_hash:79c12d6bbf87aacf @bc:shopsystem-templates
+  @scenario_hash:508d38a0bf9f5510
   Scenario Outline: the canonical ".claude/settings.json" template for each shop type parses as a JSON object whose top-level "hooks" key maps to a JSON object; and IF the "hooks" object declares a "SessionStart" array with one or more entries, every such entry conforms to Claude Code's matcher+hooks wrapper schema (every entry is an object with a string "matcher" key and a "hooks" array whose every element is an object with string "type" and string "command" keys), so the file is accepted at session start instead of rejected with a schema-validation error
     When I ask the "shop-templates" package for the canonical ".claude/settings.json" template for shop type "<shop_type>" through its public template-access surface
     And the returned body is parsed as JSON

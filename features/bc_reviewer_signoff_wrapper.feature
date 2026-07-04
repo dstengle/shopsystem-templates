@@ -1,3 +1,4 @@
+@bc_internal
 Feature: bc-reviewer sign-off work_done emit is directed through the bc-emit work-done wrapper
 
   @scenario_hash:35d3af0c79b55fbf @bc:shopsystem-templates

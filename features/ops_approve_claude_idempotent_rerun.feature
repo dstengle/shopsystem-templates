@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-m1dc @service:agent-vault-broker
 Feature: the rendered bin/agent-vault-approve-claude is idempotent — a re-run after a failed or successful prior attempt lands the populated refreshing CLAUDE_OAUTH credential regardless of partial prior state (robustness, lead-m1dc)
   The first cut required a PENDING CLAUDE_OAUTH proposal and aborted ("no pending
   proposal found") on a re-run after the proposal was already approved — so an
@@ -8,7 +9,7 @@ Feature: the rendered bin/agent-vault-approve-claude is idempotent — a re-run 
   left behind. Additive over the preserved proposal-approve + oauth-tokens
   populate flow (lead-al1r); retires no pin.
 
-  @scenario_hash:9aa82d211517155d @bc:shopsystem-templates
+  @scenario_hash:9aa82d211517155d
   Scenario: the rendered "bin/agent-vault-approve-claude" is idempotent — a re-run after a failed OR a successful prior attempt completes cleanly and lands the populated refreshing CLAUDE_OAUTH credential regardless of any partial prior state
     Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops script "bin/agent-vault-approve-claude"
     And a vault left in a partial state by a prior interrupted run — for example a CLAUDE_OAUTH proposal/slot was already created but the "POST /v1/credentials/oauth/tokens" token writeback never completed — or a vault already carrying a fully populated CLAUDE_OAUTH credential from a prior successful run

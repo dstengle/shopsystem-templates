@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-b6f2
 Feature: shop-shell seeds a non-empty placeholder GH_TOKEN into the launched leaf-BC session (lead-b6f2)
   The rendered bin/shop-shell carries a non-empty placeholder GH_TOKEN into the
   launched leaf so a freshly-launched leaf agent can invoke `gh` against the
@@ -7,7 +8,7 @@ Feature: shop-shell seeds a non-empty placeholder GH_TOKEN into the launched lea
   Additive to scenario 172 (725562869d9df919): a placeholder GH_TOKEN env value
   is NOT a host credential mount, so 172's prohibitions are not weakened.
 
-@scenario_hash:0789db8bb7f3bc73 @bc:shopsystem-templates
+@scenario_hash:0789db8bb7f3bc73
 Scenario: the rendered shop-owned bringup path seeds a non-empty placeholder GH_TOKEN into the launched leaf-BC session so gh attempts the brokered call out of the box without a manual operator export
   Given a "lead" shop bootstrapped by "shop-templates" with the rendered ops script "bin/shop-shell"
   And an agent-vault broker that injects the REAL GitHub credential on the wire for github.com / api.github.com requests, so a leaf agent never needs the real PAT in its own environment

@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:brief-003
 Feature: brief 003: event-driven shop activation and canonical .claude/settings.json bootstrap extension
 
-  @scenario_hash:f83e03ee69261242 @bc:shopsystem-templates
+  @scenario_hash:cbaa3e1d226b6000
   Scenario Outline: bootstrap writes the canonical ".claude/settings.json" for the shop type into the target directory, byte-for-byte equal to the current canonical package-data file
   Given an existing git repository at a target directory "<target>" with no ".claude/settings.json" file
   When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -13,7 +14,7 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:d29cd723439faae1 @bc:shopsystem-templates
+  @scenario_hash:395b2fbf05a2b487
   Scenario Outline: the "shop-templates" update entry point re-pours ".claude/settings.json" from the current canonical package data, treating it as bootstrap-managed (not init-only); stale content is replaced and already-current content is preserved
   Given an existing git repository at a target directory "<target>" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
   And the file at ".claude/settings.json" in the target directory differs from the current canonical ".claude/settings.json" template for shop type "<shop_type>"
@@ -26,7 +27,7 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:d3066d4476d0a975 @bc:shopsystem-templates
+  @scenario_hash:4097def93e03fdd2
   Scenario Outline: invoking "shop-templates" update against a target directory whose ".claude/settings.json" already equals the current canonical leaves the file byte-for-byte unchanged
   Given an existing git repository at a target directory "<target>" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
   And the file at ".claude/settings.json" in the target directory equals the current canonical ".claude/settings.json" template for shop type "<shop_type>" byte-for-byte
@@ -49,7 +50,7 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # Superseded by lead-5r0: session-start section now describes shop-msg prime/watch;
   # host-level filesystem watcher prereqs removed entirely from bc primer.
 
-  @scenario_hash:3957f255c35aff60 @bc:shopsystem-templates
+  @scenario_hash:e5f21b444322fb0a
   Scenario: on session start in a bootstrapped lead shop, every BC CLI installed into the product venv (for example "shop-msg", "shop-templates") resolves invocations to the current source tree of that BC's clone under "repos/", so an edit to a BC's source is reflected in the next CLI invocation without an intervening manual reinstall
   Given an existing git repository at a target directory "/tmp/example-lead-shop" that was previously bootstrapped as a "lead" shop named "shopsystem-product"
   And the target directory contains a sibling BC clone at "repos/shopsystem-messaging/" whose installed package name is "shop-msg"
@@ -59,7 +60,7 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   Then the invocation exhibits the post-edit observable behavior
   And no manual "pip install" step is required between the source edit and the invocation
 
-  @scenario_hash:ff882696856530a4 @bc:shopsystem-templates
+  @scenario_hash:ffa9d5914fadf8ae
   Scenario: bootstrap of a lead shop installs each sibling BC clone under "repos/" into the product venv in editable mode, so that source-tree edits in a BC clone are immediately reflected in subsequent CLI invocations against the lead shop's venv without an intervening manual reinstall
   Given a target directory "/tmp/example-lead-shop" containing an existing git repository
   And the target directory contains a sibling BC clone at "repos/shopsystem-messaging/" with a valid Python package whose installed entry point name is "shop-msg"
@@ -104,7 +105,7 @@ Feature: brief 003: event-driven shop activation and canonical .claude/settings.
   # Asserted returned body contains inotifywait, stdbuf, and instructions to verify PATH and refuse-to-arm.
   # Superseded by lead-51u: lead primer now uses shop-msg watch --lead-root .; no host prereqs required.
 
-  @scenario_hash:d87ccb133fa64d2f-replacement @bc:shopsystem-templates
+  @scenario_hash:d67592bfb4191f8f
   Scenario: the canonical "CLAUDE.md" primer template for shop type "lead" instructs the router to use "shop-msg watch" and states that no host-level prerequisites are required for the Monitor activation pipeline
     When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
     Then a non-empty template body is returned

@@ -1,3 +1,4 @@
+@bc_internal
 Feature: lead-architect template develops the Maintain structurizr workspace activity with sufficiency criteria
 
   @scenario_hash:9fac437e075784fe @bc:shopsystem-templates

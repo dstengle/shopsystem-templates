@@ -1,6 +1,7 @@
+@bc_internal
 Feature: bc-reviewer 'What you read' subsection names shop-msg read inbox per step
 
-  @scenario_hash:688a8f10fe2c5a2f @bc:shopsystem-templates
+  @scenario_hash:ed947294088057dd @bc:shopsystem-templates
   Scenario: bc-reviewer template's "What you read" subsection names "shop-msg read inbox" on every step whose action is reading the inbox message, never relying on a surrounding clause
   When I read the bc-reviewer template via "shop-templates show bc-reviewer"
   And I locate the subsection that begins with the heading "## What you read" and ends at the next heading of depth two (##) or depth three (###), whichever comes first

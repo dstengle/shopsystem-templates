@@ -1,8 +1,9 @@
+@bc:shopsystem-templates @origin:lead-kz4j
 Feature: postgres runs as its default in-image uid (host-user-ownership revert)
   The compose postgres service carries no user: override and footing does not chown
   pgdata to the host uid; footing still ensures the pgdata bind-source dir exists.
 
-@scenario_hash:6d14fb619c484829 @bc:shopsystem-templates
+@scenario_hash:6d14fb619c484829
 Scenario: postgres runs as its default in-image uid and footing does not force host-user ownership of pgdata
   Given a rendered ops scaffolding for a product slug
   And the data root resolves to ${<SLUG_UPPER>_DATA:-$HOME/.local/share/<slug>} with pgdata under it

@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:pdr-003
 Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (PDR-003 alt F)
 
-  @scenario_hash:cad9ccb5b462978d @bc:shopsystem-templates
+  @scenario_hash:f60396c0d8bd5421
   Scenario Outline: the "shop-templates" package exposes a canonical "CLAUDE.md" body template per shop type through its public template-access surface; this is the canonical-managed file that bootstrap writes to the target root and that update rewrites from package data
   When I ask the "shop-templates" package for the canonical "CLAUDE.md" body template for shop type "<shop_type>" through its public template-access surface
   Then a non-empty template body is returned
@@ -14,7 +15,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        |
     | lead      |
 
-  @scenario_hash:2b9bd9c82017b0c6 @bc:shopsystem-templates
+  @scenario_hash:1c2b18e4849bf189
   Scenario Outline: bootstrap writes the top-level "CLAUDE.md" with body byte-for-byte equal to the canonical "CLAUDE.md" body template for the chosen shop type, with no shop-specific splicing into the file itself
   Given an existing git repository at a target directory "<target>" with no top-level "CLAUDE.md"
   When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -27,7 +28,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:207dcfa0f8b3ca91 @bc:shopsystem-templates
+  @scenario_hash:ff5ff96230dc6690
   Scenario Outline: bootstrap writes ".claude/shop/name.md" into the target directory containing exactly the value passed as "--shop-name", with no other content
   Given an existing git repository at a target directory "<target>" with no ".claude/shop/" subdirectory
   When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -40,7 +41,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:510520660d55522a @bc:shopsystem-templates
+  @scenario_hash:acbb3564aef4c902
   Scenario Outline: bootstrap writes ".claude/shop/type.md" into the target directory containing exactly the value passed as "--shop-type", with no other content
   Given an existing git repository at a target directory "<target>" with no ".claude/shop/" subdirectory
   When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -53,7 +54,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:35c34f0e2d11c092 @bc:shopsystem-templates
+  @scenario_hash:0a65d987a6e1cd42
   Scenario Outline: bootstrap writes ".claude/canonical/<shop_type>-primer.md" into the target directory with body byte-for-byte equal to the canonical primer template for the chosen shop type, as exposed by the "shop-templates" public template-access surface
   Given an existing git repository at a target directory "<target>" with no ".claude/canonical/" subdirectory
   When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -66,7 +67,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:0bba99e6f592a788 @bc:shopsystem-templates
+  @scenario_hash:a547c8ae2bf8b13f
   Scenario Outline: bootstrap writes ".claude/shop/primer.md" into the target directory as a shop-authored placeholder file that the operator may populate later; the file exists after bootstrap and contains no canonical primer text
   Given an existing git repository at a target directory "<target>" with no ".claude/shop/" subdirectory
   When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -79,7 +80,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:68ce85606d46d7bb @bc:shopsystem-templates
+  @scenario_hash:90a950a18d6995b0
   Scenario Outline: after bootstrap, the "CLAUDE.md" that bootstrap wrote at the target root, when its "@" import directives are resolved against the target directory, has assistant-observable startup content that includes the literal contents of all four typed files written by bootstrap (".claude/shop/name.md", ".claude/shop/type.md", ".claude/canonical/<shop_type>-primer.md", ".claude/shop/primer.md")
   Given an existing git repository at a target directory "<target>" with no top-level "CLAUDE.md"
   When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -95,7 +96,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
     | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:c458502d8632952b @bc:shopsystem-templates
+  @scenario_hash:eade1b55138f7834
   Scenario Outline: update overwrites the top-level "CLAUDE.md" in the target directory with the canonical "CLAUDE.md" body template for the shop's declared type when the target's "CLAUDE.md" has drifted from canonical; this contradicts and replaces scenario 39's byte-for-byte non-touch invariant on "CLAUDE.md" itself (the shop-authored-content preservation invariant moves to ".claude/shop/primer.md", pinned by scenario 87)
   Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
   And the file at "CLAUDE.md" in the target directory has been edited since bootstrap so that its byte contents are not equal to the canonical "CLAUDE.md" body template for shop type "<shop_type>"
@@ -108,7 +109,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    |
     | lead      | shopsystem-product      |
 
-  @scenario_hash:ce122bcb7d794888 @bc:shopsystem-templates
+  @scenario_hash:465c57c1f73b11d1
   Scenario Outline: update overwrites ".claude/canonical/<shop_type>-primer.md" in the target directory with the canonical primer template for the shop's declared type when the on-disk file has drifted from canonical
   Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
   And the file at ".claude/canonical/<shop_type>-primer.md" in the target directory has been edited since bootstrap so that its byte contents are not equal to the canonical "CLAUDE.md" primer template for shop type "<shop_type>"
@@ -121,7 +122,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    |
     | lead      | shopsystem-product      |
 
-  @scenario_hash:3d3f8c8427366491 @bc:shopsystem-templates
+  @scenario_hash:2384a0766ff57e09
   Scenario Outline: update does not overwrite or otherwise modify ".claude/shop/name.md" in the target directory, even when the canonical "CLAUDE.md" body template, the canonical primer template, or the role-prompt templates have changed since the shop was bootstrapped
   Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
   And the file at ".claude/shop/name.md" in the target directory has been edited since bootstrap so that its content includes a literal shop-authored sentence
@@ -135,7 +136,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    |
     | lead      | shopsystem-product      |
 
-  @scenario_hash:ca3fc9ec7c67ddb2 @bc:shopsystem-templates
+  @scenario_hash:b7f3df2b74cdcfd1
   Scenario Outline: update does not overwrite or otherwise modify ".claude/shop/type.md" in the target directory, even when the canonical "CLAUDE.md" body template, the canonical primer template, or the role-prompt templates have changed since the shop was bootstrapped
   Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
   And I record the byte contents of the file at ".claude/shop/type.md" in the target directory before the invocation
@@ -148,7 +149,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    |
     | lead      | shopsystem-product      |
 
-  @scenario_hash:91e2db0f9e3e58d5 @bc:shopsystem-templates
+  @scenario_hash:6ce5ffbd7bde7804
   Scenario Outline: update does not overwrite or otherwise modify ".claude/shop/primer.md" in the target directory, even when the canonical "CLAUDE.md" body template, the canonical primer template, or the role-prompt templates have changed since the shop was bootstrapped
   Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
   And the file at ".claude/shop/primer.md" in the target directory has been edited since bootstrap so that its content includes a literal shop-authored sentence
@@ -162,7 +163,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    |
     | lead      | shopsystem-product      |
 
-  @scenario_hash:ac5a21e046564d01 @bc:shopsystem-templates
+  @scenario_hash:3af73022d299403f
   Scenario Outline: update is idempotent when both the top-level "CLAUDE.md" and ".claude/canonical/<shop_type>-primer.md" already match package data byte-for-byte; the invocation exits zero, emits no diagnostic on stderr, and leaves the on-disk byte contents and mtimes of those two files unchanged
   Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "<shop_type>" shop named "<shop_name>"
   And the file at "CLAUDE.md" in the target directory has byte contents equal to the canonical "CLAUDE.md" body template for shop type "<shop_type>"
@@ -181,7 +182,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc        | shopsystem-messaging    |
     | lead      | shopsystem-product      |
 
-  @scenario_hash:f55678f733a5427a @bc:shopsystem-templates
+  @scenario_hash:1dc7d720bf2d53dc
   Scenario Outline: update determines which shop type's canonical templates to apply to the target directory by reading the literal contents of ".claude/shop/type.md" at the target root; the operator does not pass a shop-type flag to update, and the shop type captured at bootstrap is authoritative for subsequent updates
   Given an existing git repository at a target directory "/tmp/example-shop" that was previously bootstrapped as a "<bootstrap_shop_type>" shop named "<shop_name>"
   And the file at ".claude/shop/type.md" in the target directory contains exactly the literal string "<bootstrap_shop_type>"
@@ -195,7 +196,7 @@ Feature: import-graph CLAUDE.md: typed files, bootstrap, and update contracts (P
     | bc                  | shopsystem-messaging    |
     | lead                | shopsystem-product      |
 
-  @scenario_hash:e51ac69bba8fd909 @bc:shopsystem-templates
+  @scenario_hash:3c3c720d15cb1649
   Scenario: when update runs against a target directory that lacks ".claude/shop/type.md" (a legacy-bootstrap shop predating PDR-003 alternative F), update exits non-zero, writes a diagnostic to stderr naming the migration steps the operator must perform, and touches no files in the target
   Given an existing git repository at a target directory "/tmp/example-legacy-shop" that contains a top-level "CLAUDE.md" and has no file at ".claude/shop/type.md"
   And I record the recursive listing of file paths and the byte contents of every file in the target directory before the invocation

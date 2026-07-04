@@ -1,6 +1,7 @@
+@bc_internal
 Feature: Lead-shop role templates: role-complete restructure (lead-po and lead-architect)
 
-  @scenario_hash:f1ac9534c1d58318 @bc:shopsystem-templates
+  @scenario_hash:bcedb488ecc57d8d @bc:shopsystem-templates
   Scenario: lead-po template leads with role identity and posture before any procedural CLI content
     When I read the lead-po template via "shop-templates show lead-po"
     Then a "# Lead PO — role prompt" identity header appears in the output
@@ -8,7 +9,7 @@ Feature: Lead-shop role templates: role-complete restructure (lead-po and lead-a
     And the byte offset of the identity header is less than the byte offset of the first occurrence of the string "shop-msg"
     And the byte offset of the posture header is less than the byte offset of the first occurrence of the string "shop-msg"
 
-  @scenario_hash:dddd6c3b2eed7e45 @bc:shopsystem-templates
+  @scenario_hash:537e7ac9d7a536c7 @bc:shopsystem-templates
   Scenario: lead-po template names every §3.2 PO activity by name
     When I read the lead-po template via "shop-templates show lead-po"
     Then the content names the activity "Interview stakeholder"
@@ -17,21 +18,21 @@ Feature: Lead-shop role templates: role-complete restructure (lead-po and lead-a
     And the content names the activity "Write Gherkin scenarios"
     And the content names the activity "Respond to BC `clarify`" with the qualifier "scope" or "vocabulary"
 
-  @scenario_hash:9a9421ad59ee5d67 @bc:shopsystem-templates
+  @scenario_hash:8b0b84013f7855c5 @bc:shopsystem-templates
   Scenario: every §3.2 PO activity named in the lead-po template carries either one-line guidance or an explicit "guidance pending" marker
     Given the §3.2 PO activities "Interview stakeholder", "Maintain product brief", "Write PDR for new functionality", "Write Gherkin scenarios as requirements", and "Respond to BC `clarify` (scope, vocabulary)"
     When I read the lead-po template via "shop-templates show lead-po"
     Then for each activity in that list, the content has a contiguous block — either a subsection that names the activity or a line that names the activity — that contains at minimum one sentence of guidance OR an explicit marker of the form "guidance pending" (case-insensitive)
     And no §3.2 PO activity appears as a bare list item with neither guidance nor a "guidance pending" marker
 
-  @scenario_hash:e522f7393dfcd1c1 @bc:shopsystem-templates
+  @scenario_hash:c7febeb6c2e30325 @bc:shopsystem-templates
   Scenario: procedural shop-msg CLI content in the lead-po template is subordinate to role identity, posture, and activity coverage
     When I read the lead-po template via "shop-templates show lead-po"
     Then every heading whose text mentions "shop-msg" appears at heading depth three (###) or deeper, never at depth two (##) or depth one (#)
     And the first occurrence of the substring "shop-msg" in the content appears after the "## Your default posture: COMMIT TO SPECIFICS" header
     And the first occurrence of the substring "shop-msg" in the content appears after every §3.2 PO activity name from scenario 10 has appeared at least once
 
-  @scenario_hash:a481db51463526d2 @bc:shopsystem-templates
+  @scenario_hash:0584713623f506bb @bc:shopsystem-templates
   Scenario: lead-architect template leads with role identity and posture before any procedural CLI content
     When I read the lead-architect template via "shop-templates show lead-architect"
     Then a "# Lead Architect — role prompt" identity header appears in the output
@@ -39,7 +40,7 @@ Feature: Lead-shop role templates: role-complete restructure (lead-po and lead-a
     And the byte offset of the identity header is less than the byte offset of the first occurrence of the string "shop-msg"
     And the byte offset of the posture header is less than the byte offset of the first occurrence of the string "shop-msg"
 
-  @scenario_hash:0aea22a97e63d4f8 @bc:shopsystem-templates
+  @scenario_hash:7c174f4ec2023f7d @bc:shopsystem-templates
   Scenario: lead-architect template names every §3.2 Architect activity by name
     When I read the lead-architect template via "shop-templates show lead-architect"
     Then the content names the activity "Write ADRs"
@@ -51,14 +52,14 @@ Feature: Lead-shop role templates: role-complete restructure (lead-po and lead-a
     And the content names the activity "Read a BC-shop's card via `request_shop_card`"
     And the content names the activity "Respond to BC `clarify`" with the qualifier "architecture"
 
-  @scenario_hash:5ccb3fb1122f9341 @bc:shopsystem-templates
+  @scenario_hash:5f7fbf041af86628 @bc:shopsystem-templates
   Scenario: every §3.2 Architect activity named in the lead-architect template carries either one-line guidance or an explicit "guidance pending" marker
     Given the §3.2 Architect activities "Write ADRs", "Maintain structurizr workspace", "Collaborate with PO on BC decomposition (turn-limited)", "Assign scenarios to BCs per structurizr", "Reconcile scenario registers against assigned work", "Send `request_bugfix` / `request_maintenance`", "Read a BC-shop's card via `request_shop_card`", and "Respond to BC `clarify` (architecture)"
     When I read the lead-architect template via "shop-templates show lead-architect"
     Then for each activity in that list, the content has a contiguous block — either a subsection that names the activity or a line that names the activity — that contains at minimum one sentence of guidance OR an explicit marker of the form "guidance pending" (case-insensitive)
     And no §3.2 Architect activity appears as a bare list item with neither guidance nor a "guidance pending" marker
 
-  @scenario_hash:a6b3e510821aba52 @bc:shopsystem-templates
+  @scenario_hash:9d15481aa23059ea @bc:shopsystem-templates
   Scenario: procedural shop-msg CLI content in the lead-architect template is subordinate to role identity, posture, and activity coverage
     When I read the lead-architect template via "shop-templates show lead-architect"
     Then every heading whose text mentions "shop-msg" appears at heading depth three (###) or deeper, never at depth two (##) or depth one (#)

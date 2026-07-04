@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:lead-qb0h
 Feature: the footing bootstrap script consolidates all human authentication into one up-front gate
 
-  @scenario_hash:fec7842e905761c8 @bc:shopsystem-templates
+  @scenario_hash:fec7842e905761c8
   Scenario: the bootstrap script consolidates all human authentication into one up-front gate
     Given the bootstrap script is run for a product whose broker holds no credentials yet
     When the script reaches its authentication step

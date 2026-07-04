@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:lead-8hxz
 Feature: bootstrap renders ops scaffolding (lead-shop only): compose.yaml, bin/shop-shell, Dockerfile.shopsystem-shell
 
-  @scenario_hash:90138f78dfa46697 @bc:shopsystem-templates
+  @scenario_hash:721a626cd0146f86
   Scenario: bootstrap of a "lead" shop writes a top-level "compose.yaml" defining a postgres service on the "shopsystem" docker network with the pgdata bind mounted from "${SHOPSYSTEM_DATA:-${HOME}/.local/share/shopsystem}/pgdata", so the rendered file matches the prototype that the operator runs with "docker compose up -d postgres" via "./bin/shop-shell"
   Given an existing git repository at a target directory "/tmp/example-lead-shop" with no top-level "compose.yaml" file
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "shopsystem-product", and target directory "/tmp/example-lead-shop"
@@ -14,7 +15,7 @@ Feature: bootstrap renders ops scaffolding (lead-shop only): compose.yaml, bin/s
   And the parsed YAML contains a top-level key "networks" whose value is a mapping containing a key "shopsystem"
   And no service entry under "services" mounts a volume whose source path resolves underneath "/tmp/example-lead-shop"
 
-  @scenario_hash:82c069bd3fb3b1d4 @bc:shopsystem-templates
+  @scenario_hash:0c7b91617e93d78f
   Scenario: bootstrap of a "bc" shop does not write the lead-shop ops scaffolding (no "compose.yaml", no "bin/shop-shell", no "Dockerfile.shopsystem-shell") because a BC runs inside a bc-launcher container and never owns its own postgres or shell image
   Given an existing git repository at a target directory "/tmp/example-bc-shop" with no top-level "compose.yaml", no "bin/" subdirectory, and no top-level "Dockerfile.shopsystem-shell"
   When I invoke the "shop-templates" bootstrap entry point with shop type "bc", shop name "shopsystem-messaging", and target directory "/tmp/example-bc-shop"
@@ -23,7 +24,7 @@ Feature: bootstrap renders ops scaffolding (lead-shop only): compose.yaml, bin/s
   And after the invocation the target directory contains no file at "bin/shop-shell"
   And after the invocation the target directory contains no top-level file named "Dockerfile.shopsystem-shell"
 
-  @scenario_hash:43e085e8627c7756 @bc:shopsystem-templates
+  @scenario_hash:f39b2e176b954197
   Scenario: the postgres "pgdata" volume source string in the bootstrap-rendered "compose.yaml" for a "lead" shop is derived from the "SHOPSYSTEM_DATA" environment variable with a "$HOME/.local/share/shopsystem" default, and never resolves to a path underneath the target shop's own repository — so an operator who runs "docker compose up -d postgres" from a freshly bootstrapped shop does not pollute the repo with a "pgdata/" directory
   Given an existing git repository at a target directory "/tmp/example-lead-shop"
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "shopsystem-product", and target directory "/tmp/example-lead-shop"

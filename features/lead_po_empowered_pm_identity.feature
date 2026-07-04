@@ -1,3 +1,4 @@
+@bc_internal
 Feature: lead-po template — empowered-PM identity and durable disciplines
 
   @scenario_hash:1e49cc3a526d4272 @bc:shopsystem-templates

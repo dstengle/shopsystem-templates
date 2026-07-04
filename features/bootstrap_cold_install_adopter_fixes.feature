@@ -1,3 +1,4 @@
+@bc:shopsystem-templates @origin:lead-9s46
 Feature: cold-INSTALL adopter fixes — bd init --non-interactive + bin/agent-vault-approve-claude
   Two WS-2 cold-INSTALL fixes: bootstrap invokes bd init with the explicit
   --non-interactive flag (the env var alone hangs on a TTY), and a lead bootstrap
@@ -5,7 +6,7 @@ Feature: cold-INSTALL adopter fixes — bd init --non-interactive + bin/agent-va
   broker/vault/proposal and approves the pending CLAUDE_OAUTH proposal from just
   the supplied token.
 
-@scenario_hash:584e2f7352dc2a24 @bc:shopsystem-templates
+@scenario_hash:584e2f7352dc2a24
 Scenario Outline: bootstrap invokes "bd init" with the explicit "--non-interactive" flag so bd init cannot block on an interactive prompt during scaffolding
   Given an existing git repository at a target directory "<target>" with no ".beads/" directory
   And no terminal is attached to the bootstrap invocation's standard input
@@ -22,7 +23,7 @@ Scenario Outline: bootstrap invokes "bd init" with the explicit "--non-interacti
     | bc        | shopsystem-messaging | /tmp/example-bc-shop   |
     | lead      | shopsystem-product   | /tmp/example-lead-shop |
 
-@scenario_hash:f726726dba85ac88 @bc:shopsystem-templates
+@scenario_hash:f726726dba85ac88
 Scenario Outline: bootstrap of a "lead" shop named "<slug>" renders an executable "bin/agent-vault-approve-claude" alongside the existing bin/ ops tools, taking the Claude token as a positional argument so the adopter approves the Claude-OAuth proposal without hand-editing a docker exec command
   Given an existing git repository at a target directory "/tmp/example-lead-shop" with no "bin/" subdirectory
   When I invoke the "shop-templates" bootstrap entry point with shop type "lead", shop name "<slug>", and target directory "/tmp/example-lead-shop"
@@ -39,7 +40,7 @@ Scenario Outline: bootstrap of a "lead" shop named "<slug>" renders an executabl
     | shopsystem |
     | dummyco    |
 
-@scenario_hash:51969d82e2d951c3 @bc:shopsystem-templates
+@scenario_hash:51969d82e2d951c3
 Scenario: bin/agent-vault-approve-claude auto-resolves the broker container, vault slug, and pending proposal number, mints a vault-scoped session internally, and runs the scoped proposal approve carrying the supplied token, so the adopter only runs "bin/agent-vault-approve-claude <claude-token>"
   Given a running agent-vault broker brought up by the bootstrap-rendered compose.yaml with a pending CLAUDE_OAUTH credential-slot proposal created by bin/agent-vault-provision
   When the adopter runs "bin/agent-vault-approve-claude" passing a Claude token as the sole positional argument

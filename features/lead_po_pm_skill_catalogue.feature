@@ -1,3 +1,4 @@
+@bc_internal
 Feature: lead-po template — PM skill catalogue experimental adoption framing
 
   @scenario_hash:32537a54388dd716 @bc:shopsystem-templates

@@ -1,8 +1,9 @@
+@bc:shopsystem-templates @origin:lead-kgrq
 Feature: footing's post-compose-up readiness check matches running containers by expanded name
   The readiness grep must use the EXPANDED $OPS_POSTGRES_CONTAINER / $OPS_AGENT_VAULT_CONTAINER
   values (double-quoted), not search for the literal unexpanded variable text.
 
-@scenario_hash:007b386697ae1bef @bc:shopsystem-templates
+@scenario_hash:007b386697ae1bef
 Scenario: footing's post-compose-up readiness check matches the running slug-scoped containers by expanded name
   Given a rendered "bin/footing" whose ops-coordinates artifact sets "$OPS_POSTGRES_CONTAINER" to "<slug>-postgres" and "$OPS_AGENT_VAULT_CONTAINER" to "<slug>-agent-vault"
   And the slug-scoped "<slug>-postgres" and "<slug>-agent-vault" containers are running after "docker compose up"

@@ -1,6 +1,7 @@
+@bc:shopsystem-templates @origin:pdr-003
 Feature: Bootstrap CLI surface — bd-init side-effect closure (lead-k8v round 2)
 
-  @scenario_hash:32d99f6d4a2dad37 @bc:shopsystem-templates
+  @scenario_hash:31a044e7d2eceaf4
   Scenario Outline: bootstrap invokes "bd init" with the "--skip-agents" flag so bd's own AGENTS.md and Claude settings generation is suppressed and the shop's canonical agent surface is the sole source of agent-prompt content
     Given an existing git repository at a target directory "<target>" with no ".beads/" directory
     When I invoke the "shop-templates" bootstrap entry point with shop type "<shop_type>", shop name "<shop_name>", and target directory "<target>"
@@ -14,7 +15,7 @@ Feature: Bootstrap CLI surface — bd-init side-effect closure (lead-k8v round 2
       | bc        | shopsystem-messaging    | /tmp/example-bc-shop         |
       | lead      | shopsystem-product      | /tmp/example-lead-shop       |
 
-  @scenario_hash:5ec07c275350ba81 @bc:shopsystem-templates
+  @scenario_hash:96def2bbcdf990f8
   Scenario Outline: the canonical "CLAUDE.md" primer template for each shop type references the bd (beads) discipline that the shop is expected to follow, naming "bd prime" as the entry point a reader runs to learn the workflow
     When I ask the "shop-templates" package for the canonical "CLAUDE.md" primer template for shop type "<shop_type>" through its public template-access surface
     Then a non-empty template body is returned

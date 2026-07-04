@@ -634,6 +634,281 @@ def check_scenario_hashes(
             )
 
 
+# =======================================================================
+# Changed-feature schema-conformity gate (ADR-042, work_id lead-vzxd.10).
+#
+# An ADDITIONAL work-done gate arm — composed alongside Check 1-3, never
+# weakening them — scoped to the CHANGED / ADDED feature files this work_id's
+# commit(s) added or modified under features/. Each changed .feature is run
+# through the v0.3.1 `scenarios validate` per-file schema gate; a
+# work_done(complete) emit is REFUSED when any added/modified scenario is
+# GENUINELY non-conformant, so no non-conformant scenario merges going forward
+# (ADR-056 cutover, the "no regression past the cutover" invariant).
+#
+# CRITICAL GUARD — the v0.3.1 comment-folding validator defect. v0.3.1's
+# validate extracts each scenario's raw block via `_iter_scenario_blocks`,
+# which folds an inter-scenario comment into the PRECEDING scenario's block.
+# That diverges from the producer/wire hash (`scenarios hash` == block-only
+# canonicalization of the scenario's OWN block) and yields a FALSE
+# E_HASH_MISMATCH on comment-adjacent scenarios whose on-disk @scenario_hash
+# already EQUALS the producer. This gate cross-checks every E_HASH_MISMATCH the
+# validator raises against the producer/wire hash recomputed from the on-disk
+# block (block-only, comment-neutralized): if the on-disk tag reproduces the
+# producer, the mismatch is the validator defect (NOT refused); if it does not,
+# it is a real stale tag (refused). This preserves the wire-hash authority the
+# lead-s8j2 / lead-9mog chain established while keeping the enforcement real.
+# =======================================================================
+
+# The genuine per-file / transitional codes that ALWAYS refuse when the
+# validator reports them on a changed feature file. E_HASH_MISMATCH is handled
+# SEPARATELY (producer cross-check) and is deliberately NOT in this set.
+_GENUINE_VALIDATE_CODES = (
+    "E_UNKNOWN_BC",
+    "E_UNKNOWN_ORIGIN",
+    "E_UNKNOWN_SERVICE",
+    "E_MISSING_HASH",
+    "E_STRAY_GHERKIN",
+    "W_BC_UNASSIGNED",
+    "W_ORIGIN_UNRESOLVED",
+)
+
+
+def _producer_wire_hash(block_text: str) -> str:
+    """Reproduce the producer/wire hash (`scenarios hash`) for a scenario's OWN
+    block, neutralizing the v0.3.1 comment-folding artifact.
+
+    The producer/wire hash the corpus is pinned to is the BLOCK-ONLY
+    canonicalization of the scenario's own block (`scenarios hash` /
+    scenarios.outstanding.parse_then_block_only_hash): per-line whitespace
+    stripped, blank lines dropped, and every tag line (`@...`) dropped. Because
+    the ONLY thing the folding defect adds to a preceding block is a trailing
+    inter-scenario COMMENT line (the next scenario's `@`-tag lines are already
+    dropped by the block-only rule), this recompute ALSO drops `#` comment
+    lines: the result equals the producer/wire hash for a comment-adjacent
+    block and equals the ordinary block-only hash for a clean block, so a
+    genuine body drift (which changes step text) still recomputes to a
+    divergent value and is not masked.
+    """
+    import hashlib
+
+    canonical: list[str] = []
+    for line in block_text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("@") or s.startswith("#"):
+            continue
+        canonical.append(s)
+    return hashlib.sha256("\n".join(canonical).encode("utf-8")).hexdigest()[:16]
+
+
+def _transitional_marker_codes(feature_text: str) -> list[str]:
+    """Return the transitional-marker codes a changed feature file carries.
+
+    The @bc:unassigned / @origin:unresolved transitional markers are surfaced
+    by the v0.3.1 AGGREGATE gate (W_BC_UNASSIGNED / W_ORIGIN_UNRESOLVED) but
+    NOT by per-file `scenarios validate` (which treats them as legal
+    placeholders). Since the changed-feature gate runs per-file, it detects the
+    markers directly from the tag text so an added/modified scenario that still
+    carries a transitional placeholder is refused (the cutover forbids a
+    non-conformant scenario merging).
+    """
+    codes: list[str] = []
+    tokens = set()
+    for line in feature_text.splitlines():
+        s = line.strip()
+        if not s.startswith("@"):
+            continue
+        for tok in s.split():
+            tokens.add(tok)
+    if "@bc:unassigned" in tokens:
+        codes.append("W_BC_UNASSIGNED")
+    if "@origin:unresolved" in tokens:
+        codes.append("W_ORIGIN_UNRESOLVED")
+    return codes
+
+
+def _real_hash_mismatches(feature_text: str) -> list[tuple[str, str, str]]:
+    """Return the REAL stale-tag mismatches in a feature file, cross-checked
+    against the producer/wire hash.
+
+    For every scenario block carrying an @scenario_hash tag, recompute the
+    producer/wire hash from the on-disk block; a block whose on-disk tag does
+    NOT reproduce the producer is a real stale mismatch. A comment-folding
+    false-positive (on-disk tag DOES reproduce the producer) is NOT returned.
+    Each entry is (scenario_title, on_disk_hash, recomputed_hash).
+    """
+    real: list[tuple[str, str, str]] = []
+    for block_text, carried in _scenario_blocks(feature_text):
+        if carried is None:
+            continue
+        recomputed = _producer_wire_hash(block_text)
+        if recomputed != carried:
+            real.append((_scenario_title(block_text), carried, recomputed))
+    return real
+
+
+def _changed_feature_files(repo: Path, work_id: str) -> list[Path]:
+    """The feature files under features/ this work_id's commit(s) added or
+    modified, as reachable on origin/main.
+
+    Enumerated from the work_id-attributed commit history on origin/main (the
+    canonical word-boundary attribution shared with Check 2), scoped to paths
+    under features/ ending in .feature / .gherkin, and filtered to those still
+    present in the working tree — Check 1 guarantees the working tree's
+    deliverable paths equal origin/main, so validating the working-tree file is
+    equivalent to validating the as-committed origin/main text.
+    """
+    log = _git(
+        repo,
+        "log",
+        "origin/main",
+        *_work_id_attribution_grep(work_id),
+        "--name-only",
+        "--pretty=format:",
+    )
+    names: set[str] = set()
+    for line in log.stdout.splitlines():
+        p = line.strip()
+        if not p.startswith("features/"):
+            continue
+        if p.endswith(".feature") or p.endswith(".gherkin"):
+            names.add(p)
+    return [repo / n for n in sorted(names) if (repo / n).exists()]
+
+
+def _validate_feature_codes(
+    feature_path: Path,
+    manifest_path: str | None,
+    origin_index: str | None,
+    scenarios_cmd: tuple[str, ...] = ("scenarios",),
+) -> list[str]:
+    """Run v0.3.1 `scenarios validate --json` over one feature file and return
+    the list of violation rule codes it reports (empty when conformant)."""
+    cmd = [*scenarios_cmd, "validate", "--json"]
+    if manifest_path is not None:
+        cmd += ["--manifest", manifest_path]
+    if origin_index is not None:
+        cmd += ["--origin-index", origin_index]
+    cmd.append(str(feature_path))
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode == 0:
+        return []
+    try:
+        diagnostic = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        # A non-zero exit with no parseable JSON diagnostic is itself a genuine
+        # failure to validate — surface it as an opaque code so the gate refuses
+        # rather than silently passing.
+        return ["E_VALIDATE_FAILED"]
+    return list(diagnostic.get("violations", []))
+
+
+def check_changed_features_conformant(
+    repo: Path,
+    work_id: str,
+    *,
+    changed_files: list[Path] | None = None,
+    manifest_path: str | None = None,
+    origin_index: str | None = None,
+    scenarios_cmd: tuple[str, ...] = ("scenarios",),
+) -> None:
+    """Changed-feature schema-conformity gate (ADR-042).
+
+    Over the CHANGED / ADDED feature files this work_id touched under features/,
+    run the v0.3.1 per-file `scenarios validate` schema gate and REFUSE the
+    emit when any added/modified scenario is GENUINELY non-conformant —
+    E_UNKNOWN_BC, E_UNKNOWN_ORIGIN, E_UNKNOWN_SERVICE, E_MISSING_HASH,
+    E_STRAY_GHERKIN, W_BC_UNASSIGNED, W_ORIGIN_UNRESOLVED, or a REAL hash
+    mismatch (the on-disk @scenario_hash does not reproduce the producer/wire
+    hash for the block).
+
+    The gate does NOT refuse solely on a validator E_HASH_MISMATCH whose block's
+    on-disk tag already reproduces the producer/wire hash — that is the known
+    v0.3.1 comment-folding validator defect, not a real mismatch. This composes
+    with Check 1-3 as an ADDITIONAL arm; it never weakens them.
+
+    `changed_files` (defaulting to the work_id-attributed features/ diff on
+    origin/main) and `manifest_path` / `origin_index` (defaulting to the BC's
+    repo-root bc-manifest.yaml and the provisioned .scenarios/origin-index) are
+    injectable so tests can drive crafted changed-file sets against fixture
+    resolution roots.
+    """
+    if changed_files is None:
+        changed_files = _changed_feature_files(repo, work_id)
+    if not changed_files:
+        # Nothing changed under features/ — nothing to validate (a non-scenario
+        # / flat-maintenance emit is unaffected).
+        return
+
+    if manifest_path is None:
+        m = repo / "bc-manifest.yaml"
+        manifest_path = str(m) if m.is_file() else None
+    if origin_index is None:
+        oi = repo / ".scenarios" / "origin-index"
+        origin_index = str(oi) if oi.is_file() else None
+
+    # GRACEFUL DEGRADATION (matches the bin/doctor coherence check): the @bc /
+    # @origin schema gate resolves against a LAUNCHER-PROVISIONED manifest. A
+    # shop with no provisioned bc-manifest.yaml cannot resolve the legal @bc /
+    # @origin sets, so the per-file schema gate has nothing authoritative to
+    # validate against; skip rather than false-refuse. A real launched BC
+    # carries a repo-root bc-manifest.yaml, so the gate runs there.
+    if manifest_path is None:
+        return
+
+    offenders: list[str] = []
+    for fpath in changed_files:
+        p = Path(fpath)
+        # A legacy .gherkin added/modified under features/ is itself the
+        # E_STRAY_GHERKIN non-conformance (the corpus must be all .feature).
+        if p.suffix == ".gherkin":
+            offenders.append(
+                f"{p.name}: E_STRAY_GHERKIN (a legacy .gherkin file was "
+                "added/modified under features/; migrate it to .feature)"
+            )
+            continue
+
+        file_text = p.read_text()
+        codes = _validate_feature_codes(p, manifest_path, origin_index, scenarios_cmd)
+        # Transitional markers (@bc:unassigned / @origin:unresolved) are
+        # aggregate-only in v0.3.1; detect them directly for the per-file gate.
+        codes = codes + _transitional_marker_codes(file_text)
+        if not codes:
+            continue
+
+        genuine = [c for c in codes if c in _GENUINE_VALIDATE_CODES]
+        if "E_HASH_MISMATCH" in codes:
+            # Producer cross-check: only REAL stale tags refuse; the
+            # comment-folding false-positive (on-disk tag == producer) does not.
+            real = _real_hash_mismatches(file_text)
+            if real:
+                for title, on_disk, recomputed in real:
+                    genuine.append(
+                        f"E_HASH_MISMATCH (scenario {title!r}: on-disk "
+                        f"@scenario_hash {on_disk} does not reproduce the "
+                        f"producer/wire hash {recomputed})"
+                    )
+            # else: the validator's E_HASH_MISMATCH is the v0.3.1
+            # comment-folding false-positive — NOT a refusal cause.
+
+        if genuine:
+            offenders.append(f"{p.name}: {', '.join(genuine)}")
+
+    if offenders:
+        listed = "\n".join(offenders)
+        raise PreconditionRefusal(
+            "refused: the changed-feature schema-conformity gate (ADR-042) "
+            f"failed for work_id {work_id}. One or more feature files this "
+            "work_id added or modified under features/ carry a GENUINE "
+            "non-conformance per the v0.3.1 `scenarios validate` schema gate — "
+            "so a work_done(complete) that merges a non-conformant scenario is "
+            "refused. A validator E_HASH_MISMATCH whose on-disk @scenario_hash "
+            "already reproduces the producer/wire hash is treated as the known "
+            "v0.3.1 comment-folding false-positive and does NOT refuse; only "
+            "GENUINE non-conformance below does:\n"
+            f"{listed}\n{_SELF_RESOLVE}"
+        )
+
+
 def check_retirement_removal(
     repo: Path, work_id: str, retire_hashes: list[str]
 ) -> None:
@@ -922,6 +1197,15 @@ def _cmd_work_done(args: argparse.Namespace) -> int:
             list(args.scenario_hash or []),
             feature_texts=fetch_origin_main_feature_texts(repo),
         )
+        # Changed-feature schema-conformity gate (ADR-042) — over the feature
+        # files this work_id added/modified under features/, refuse a COMPLETE
+        # emit that merges a GENUINELY non-conformant scenario (per the v0.3.1
+        # `scenarios validate` schema gate), with the producer cross-check guard
+        # against the v0.3.1 comment-folding E_HASH_MISMATCH false-positive.
+        # Scoped to --status complete: a blocked emit is not a merge of
+        # completed work. Composes with Check 1-3; never weakens them.
+        if args.status == "complete":
+            check_changed_features_conformant(repo, args.work_id)
         # Check 4 + durability — bd plan decomposition, against the BC's own bd
         # registry. Run ONLY when an umbrella bead is named: a non-scenario /
         # flat-maintenance emit carries no decomposition and is unaffected.

@@ -114,6 +114,20 @@ not write YAML by hand to work around it.
   fix the named underlying state and retry (bare `shop-msg respond --force`
   remains the forced-recovery escape valve).
 
+## Scenario ownership reads the `@bc` tag, not beads (ADR-056 D11)
+
+Post-cutover, the **AUTHORITATIVE** source for scenario ownership and
+assignment is the `@bc:<name>` tag in the scenario file. When you determine
+which scenarios this BC owns — and when you enumerate the pre-state
+`@scenario_hash` set for the work — read the `@bc` tag in the scenario file,
+**not** beads. Beads is **DEAUTHORIZED** as the ownership/assignment oracle: it
+is not consulted to decide who owns a scenario, and the inbound `work_id` being
+a bead id does **not** make beads the ownership authority. Beads **stays** the
+work-tracking registry and the source of the inbound `work_id`; only
+ownership/assignment moved to the `@bc` tag. So: enumerate ownership and the
+`@scenario_hash` set from the `@bc:<name>` tag in the scenario file; keep beads
+for work-tracking and for the `work_id`.
+
 ## Doing the work
 
 The RED→GREEN→REFACTOR inner loop lives in `test-driven-development`. The

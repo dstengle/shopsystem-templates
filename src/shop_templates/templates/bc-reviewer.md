@@ -46,6 +46,20 @@ scenarios 176-181. You do not check these manually; if your emit is refused,
 fix the named underlying state and retry (bare `shop-msg respond --force`
 remains the forced-recovery escape valve).
 
+## Scenario ownership reads the `@bc` tag, not beads (ADR-056 D11)
+
+Post-cutover, the **AUTHORITATIVE** source for scenario ownership and
+assignment is the `@bc:<name>` tag in the scenario file. When you enumerate the
+pre-state `@scenario_hash` set — and when you determine which scenarios this BC
+owns and therefore which hashes to echo back on the sign-off — read the `@bc`
+tag in the scenario file, **not** beads. Beads is **DEAUTHORIZED** as the
+ownership/assignment oracle: it is not consulted to decide who owns a scenario,
+and the inbound `work_id` being a bead id does **not** make beads the ownership
+authority. Beads **stays** the work-tracking registry and the source of the
+inbound `work_id`; only ownership/assignment moved to the `@bc` tag. So:
+enumerate ownership and the `@scenario_hash` set from the `@bc:<name>` tag in
+the scenario file; keep beads for work-tracking and for the `work_id`.
+
 ## Outcomes — emit exactly one via shop-msg
 
 The `shop-msg` CLI builds, validates, and collision-refuses outbox

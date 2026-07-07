@@ -28739,3 +28739,175 @@ def then_sync_remote_repo_name(context: dict) -> None:
         f"sync.remote URL must target {_OWNER_SUBST_OWNER}/{expected_repo}; "
         f"got {line!r}"
     )
+
+
+# =======================================================================
+# tmpl-e8h / scenario 8db8399c92702704 (lead-sgdt) — bootstrap wires the
+# FUNCTIONAL bd dolt remote (the one `bd dolt remote add` creates and that
+# `bd dolt push` actually uses) to the ADR-043 D5 `<bc>-beads` form on the
+# create-bc path, NOT `_product_beads_remote`'s `<product>-lead-beads` lead
+# form. The prior fix (ef4f4d86d3e4d153) corrected only the COSMETIC
+# `.beads/config.yaml` `sync.remote` YAML key — which bd IGNORES for
+# `bd dolt push` — so the surface bd USES was left wrong. Additive tightening
+# of cb8fca2c0eb2b920 / ef4f4d86d3e4d153; retires nothing. Reuses the
+# owner-substitution Given (concrete bindings <bc>=shopsystem-messaging,
+# <owner>=acme-corp) and reads the configured dolt remote back through the bd
+# shim's `bd dolt remote list`, exactly as an operator would.
+# =======================================================================
+
+
+def _func_dolt_remote_url(context: dict) -> str:
+    """Return the single functional dolt remote URL configured in the target's
+    tracker, read back via the shim's `bd dolt remote list` (each line is
+    "<name> <url>"). Asserts exactly one dolt remote is listed and caches the
+    raw list stdout on context for the no-`-lead-beads` cross-check."""
+    result = _run_bd_shim_query(
+        context, context["owner_subst_target"], ["dolt", "remote", "list"]
+    )
+    assert result.returncode == 0, (
+        f"expected `bd dolt remote list` to exit 0 in the target; got "
+        f"{result.returncode} (stderr: {result.stderr!r})"
+    )
+    context["func_dolt_remote_list_stdout"] = result.stdout
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+    assert len(lines) == 1, (
+        f"expected exactly one functional dolt remote configured by bootstrap; "
+        f"got {lines!r}"
+    )
+    # Each `bd dolt remote list` line is "<name> <url>".
+    return lines[0].split()[-1]
+
+
+@when(
+    parsers.parse(
+        'I invoke "shop-templates" bootstrap with shop type "bc", shop name '
+        '"<bc>", and a target directory in that lead\'s context'
+    )
+)
+def when_invoke_bootstrap_bc_functional_dolt(
+    context: dict, tmp_path: Path
+) -> None:
+    target = context["owner_subst_target"]
+    result = _run_shop_templates_with_bd_shim(
+        [
+            "bootstrap", "--shop-type", "bc", "--shop-name",
+            _OWNER_SUBST_BC_SLUG, "--target", str(target),
+        ],
+        context, tmp_path,
+    )
+    context["cli_returncode"] = result.returncode
+    context["func_dolt_bootstrap_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+    assert result.returncode == 0, (
+        f"bootstrap bc exited {result.returncode}; stderr: {result.stderr!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        '"bd dolt remote list" in the target directory lists the functional bd '
+        'dolt push remote that bd actually uses for "bd dolt push"'
+    )
+)
+def then_func_dolt_remote_listed(context: dict) -> None:
+    url = _func_dolt_remote_url(context)
+    assert url.startswith("git+https://github.com/") and url.endswith(".git"), (
+        f"functional dolt remote URL is malformed: {url!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'that functional dolt remote\'s repository name equals "<bc>-beads" so '
+        'its URL targets "<owner>/<bc>-beads"'
+    )
+)
+def then_func_dolt_repo_is_bc_beads(context: dict) -> None:
+    url = _func_dolt_remote_url(context)
+    m = re.search(r"github\.com/([^/]+)/([^/]+?)(?:\.git)?$", url)
+    assert m, f"malformed functional dolt remote URL: {url!r}"
+    owner, repo = m.group(1), m.group(2)
+    expected_repo = f"{_OWNER_SUBST_BC_SLUG}-beads"
+    assert repo == expected_repo, (
+        f"functional dolt remote repo name must be {expected_repo!r}; got "
+        f"{repo!r} in {url!r}"
+    )
+    assert owner == _OWNER_SUBST_OWNER, (
+        f"functional dolt remote owner must be {_OWNER_SUBST_OWNER!r}; got "
+        f"{owner!r} in {url!r}"
+    )
+    assert f"{_OWNER_SUBST_OWNER}/{expected_repo}" in url, (
+        f"functional dolt remote URL must target "
+        f"{_OWNER_SUBST_OWNER}/{expected_repo}; got {url!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'that functional dolt remote\'s repository name is NOT "<bc>-lead-beads" '
+        'and is NOT the "<product>-lead-beads" lead form returned by '
+        '"_product_beads_remote"'
+    )
+)
+def then_func_dolt_repo_not_lead_form(context: dict) -> None:
+    from shop_templates.cli import _product_beads_remote
+
+    url = _func_dolt_remote_url(context)
+    m = re.search(r"github\.com/[^/]+/([^/]+?)(?:\.git)?$", url)
+    assert m, f"malformed functional dolt remote URL: {url!r}"
+    repo = m.group(1)
+    assert repo != f"{_OWNER_SUBST_BC_SLUG}-lead-beads", (
+        f"functional dolt remote must NOT be the <bc>-lead-beads form; got "
+        f"{repo!r}"
+    )
+    assert "-lead-beads" not in repo, (
+        f"functional dolt remote repo name must not carry the -lead-beads "
+        f"suffix; got {repo!r}"
+    )
+    lead_form = _product_beads_remote(_OWNER_SUBST_BC_SLUG, _OWNER_SUBST_OWNER)
+    assert url != lead_form, (
+        f"functional dolt remote must NOT equal the `_product_beads_remote` "
+        f"lead form {lead_form!r}; got {url!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'neither "bd dolt remote list" nor the bootstrap "bd dolt push" '
+        'smoke-test target references "<bc>-lead-beads"'
+    )
+)
+def then_no_lead_beads_reference(context: dict) -> None:
+    _func_dolt_remote_url(context)  # populates func_dolt_remote_list_stdout
+    lead_beads = f"{_OWNER_SUBST_BC_SLUG}-lead-beads"
+    remote_list = context["func_dolt_remote_list_stdout"]
+    assert lead_beads not in remote_list, (
+        f"`bd dolt remote list` references the {lead_beads!r} lead form: "
+        f"{remote_list!r}"
+    )
+    # The bootstrap `bd dolt push` smoke-test names its target remote in stdout
+    # (both the success report and the credential-free offline-skip diagnostic
+    # do). That target must not reference the <bc>-lead-beads lead form.
+    bootstrap_stdout = context["func_dolt_bootstrap_stdout"]
+    assert lead_beads not in bootstrap_stdout, (
+        f"the bootstrap `bd dolt push` smoke-test target references the "
+        f"{lead_beads!r} lead form: {bootstrap_stdout!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the scaffolded ".beads/config.yaml" "sync.remote" repository name also '
+        'stays "<bc>-beads", consistent with the functional dolt remote'
+    )
+)
+def then_sync_remote_stays_bc_beads(context: dict) -> None:
+    line = _read_scaffolded_sync_remote(context["owner_subst_target"])
+    m = re.search(r'github\.com/([^/]+)/([^/"]+?)(?:\.git)?"?\s*$', line)
+    assert m, f"malformed sync.remote URL: {line!r}"
+    repo = m.group(2)
+    expected_repo = f"{_OWNER_SUBST_BC_SLUG}-beads"
+    assert repo == expected_repo, (
+        f"sync.remote repo name must stay {expected_repo!r}; got {repo!r} in "
+        f"{line!r}"
+    )

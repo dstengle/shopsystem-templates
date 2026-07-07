@@ -936,7 +936,9 @@ def _origin_owner(target: Path) -> str | None:
 _BD_DOLT_REMOTE_NAME = "origin"
 
 
-def _configure_bd_dolt_remote(target: Path, shop_name: str) -> str:
+def _configure_bd_dolt_remote(
+    target: Path, shop_name: str, shop_type: str
+) -> str:
     """Configure the new shop's bd dolt push remote via `bd dolt remote add`.
 
     Per scenario 0636fba2c1445f9f (tmpl-am6, corrected re-dispatch — supersedes
@@ -947,7 +949,22 @@ def _configure_bd_dolt_remote(target: Path, shop_name: str) -> str:
     dolt push, so writing it was cosmetic. `bd init` (invoked by `_bd_init_in`)
     initializes .beads/ but does not configure the dolt remote; bootstrap does
     that here so a freshly bootstrapped shop's `bd dolt remote list` shows the
-    product remote without a manual follow-up.
+    remote without a manual follow-up.
+
+    The remote name is shop-type-branched (scenario 8db8399c92702704, lead-sgdt;
+    ADR-043 D5). This is the FUNCTIONAL remote — the one `bd dolt push` actually
+    uses — so it must name the tracker bd pushes to:
+
+      * `--shop-type bc`: the per-BC tracker `<owner>/<bc>-beads`
+        (`_bc_beads_sync_remote`), matching the scaffolded `sync.remote` and the
+        bc-launcher standup. The prior fix (ef4f4d86d3e4d153) corrected only the
+        cosmetic `sync.remote` YAML key bd IGNORES for dolt push; the functional
+        dolt remote was still wrongly the `<bc>-lead-beads` lead form, so
+        `bd dolt push` targeted a nonexistent lead tracker. This wires it right.
+      * lead / other: the lead tracker `<product>-lead-beads`
+        (`_product_beads_remote`), UNCHANGED — the lead-path pin
+        0636fba2c1445f9f still holds; the bc branch is additive, retiring
+        nothing.
 
     Like `_bd_init_in`, this spawns the `bd` subprocess and never imports the
     bd / beads Python internals (scenario 0c6f1c5d9bc4226e).
@@ -955,7 +972,11 @@ def _configure_bd_dolt_remote(target: Path, shop_name: str) -> str:
     Returns the configured remote URL, so the caller can run the `bd dolt push`
     smoke-test against the freshly-configured remote.
     """
-    remote = _product_beads_remote(shop_name, _origin_owner(target))
+    origin_owner = _origin_owner(target)
+    if shop_type == "bc":
+        remote = _bc_beads_sync_remote(shop_name, origin_owner)
+    else:
+        remote = _product_beads_remote(shop_name, origin_owner)
     add = subprocess.run(
         ["bd", "dolt", "remote", "add", _BD_DOLT_REMOTE_NAME, remote],
         cwd=str(target),
@@ -1361,13 +1382,16 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
             return rc
 
         # Configure the new shop's bd dolt push remote via `bd dolt remote
-        # add` (scenario 0636fba2c1445f9f, supersedes the cosmetic
-        # 9e15d8cfd55b9541). This wires the tracker to the product beads
-        # remote the way bd actually reads it (a DB-side dolt remote, not a
-        # cosmetic YAML key); it spawns the `bd` subprocess and does not
-        # import bd / beads internals.
+        # add` (scenario 0636fba2c1445f9f lead path; scenario 8db8399c92702704
+        # bc path, lead-sgdt; supersedes the cosmetic 9e15d8cfd55b9541). This
+        # wires the tracker to the beads remote the way bd actually reads it (a
+        # DB-side dolt remote, not a cosmetic YAML key), shop-type-branched: the
+        # bc path targets `<owner>/<bc>-beads` (ADR-043 D5, the FUNCTIONAL remote
+        # bd dolt push uses), the lead path the `<product>-lead-beads` lead form
+        # UNCHANGED. It spawns the `bd` subprocess and does not import bd / beads
+        # internals.
         try:
-            remote = _configure_bd_dolt_remote(target, shop_name)
+            remote = _configure_bd_dolt_remote(target, shop_name, shop_type)
         except _BdConfigError as exc:
             return exc.returncode
 
@@ -1377,9 +1401,10 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
         # runs no footing reconcile, so nothing else substitutes the
         # ORIGIN_OWNER placeholder; bootstrap writes the derived-owner remote
         # itself. Per ADR-043 D5 the per-BC repo is `<bc>-beads` (the raw bc
-        # slug already carries the product prefix, ADR-038), NOT the lead-only
-        # `-lead-beads` form the bd dolt remote uses — so the sync.remote name
-        # deliberately diverges from `remote`, targeting <owner>/<bc>-beads.
+        # slug already carries the product prefix, ADR-038). On the bc path this
+        # now MATCHES the functional dolt `remote` above (both `<owner>/<bc>-beads`
+        # after scenario 8db8399c92702704, lead-sgdt); this write is retained
+        # unchanged (its bootstrap role is under separate validation, lead-kcdu).
         _write_beads_sync_remote(
             target, _bc_beads_sync_remote(shop_name, _origin_owner(target))
         )

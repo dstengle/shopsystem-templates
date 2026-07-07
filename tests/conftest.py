@@ -28603,3 +28603,138 @@ def then_vglj_router_selects(context: dict) -> None:
     assert "brainstorming opener" in low, (
         "the triage step follows the brainstorming opener"
     )
+
+
+# =======================================================================
+# lead-7jc2 / scenario 6996f1610208317d — bootstrap writes the DERIVED
+# GitHub owner into the scaffolded .beads/config.yaml sync.remote on the
+# create-bc path. No footing reconcile runs on `shop-templates bootstrap
+# --shop-type bc`, so nothing else substitutes the ORIGIN_OWNER placeholder
+# (the lead-only footing fill @scenario_hash:c1b769fb49c6ebfb does not reach
+# this path). Additive tightening of the single-source pin cb8fca2c0eb2b920
+# (deriving the owner is not baking a hardcoded org).
+#
+# The <bc>/<owner> tokens in the pinned Scenario are symbolic; these step
+# defs bind them to concrete values — a bc shop-name slug and a lead GitHub
+# owner — and assert the on-disk config.yaml sync.remote against those.
+# =======================================================================
+
+_OWNER_SUBST_BC_SLUG = "shopsystem-messaging"
+_OWNER_SUBST_OWNER = "acme-corp"
+
+
+def _read_scaffolded_sync_remote(target: Path) -> str:
+    """Return the scaffolded ".beads/config.yaml" sync.remote line (stripped),
+    asserting the file and key are present — so an absent config.yaml or a
+    missing sync.remote surfaces as a clear failure."""
+    config = target / ".beads" / "config.yaml"
+    assert config.exists(), (
+        f"expected scaffolded .beads/config.yaml at {config!s}; it was not "
+        f"written by bootstrap"
+    )
+    for line in config.read_text().splitlines():
+        if line.strip().startswith("sync.remote:"):
+            return line.strip()
+    raise AssertionError(
+        f"no sync.remote key in scaffolded config.yaml: {config.read_text()!r}"
+    )
+
+
+@given(
+    parsers.parse(
+        'a new BC whose shop-name slug is "<bc>" is scaffolded from a lead '
+        'whose GitHub owner resolves to "<owner>"'
+    )
+)
+def given_new_bc_scaffolded_from_lead_owner(
+    context: dict, tmp_path: Path
+) -> None:
+    target = tmp_path / "owner-subst-bc-target"
+    subprocess.run(["git", "init", "-q", str(target)], check=True)
+    # The target lives "in that lead's context": its origin remote resolves to
+    # the lead's GitHub owner, so _origin_owner(target) derives <owner>.
+    subprocess.run(
+        [
+            "git", "-C", str(target), "remote", "add", "origin",
+            f"https://github.com/{_OWNER_SUBST_OWNER}/{_OWNER_SUBST_BC_SLUG}.git",
+        ],
+        check=True,
+    )
+    context["owner_subst_target"] = target
+
+
+@when(
+    parsers.parse(
+        'I invoke "shop-templates bootstrap" with shop type "bc", shop name '
+        '"<bc>", and a target directory in that lead\'s context'
+    )
+)
+def when_invoke_bootstrap_bc_in_lead_context(
+    context: dict, tmp_path: Path
+) -> None:
+    target = context["owner_subst_target"]
+    result = _run_shop_templates_with_bd_shim(
+        [
+            "bootstrap", "--shop-type", "bc", "--shop-name",
+            _OWNER_SUBST_BC_SLUG, "--target", str(target),
+        ],
+        context, tmp_path,
+    )
+    context["cli_returncode"] = result.returncode
+    context["cli_stdout"] = result.stdout
+    context["cli_stderr"] = result.stderr
+    assert result.returncode == 0, (
+        f"bootstrap bc exited {result.returncode}; stderr: {result.stderr!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the scaffolded ".beads/config.yaml" "sync.remote" contains no literal '
+        '"ORIGIN_OWNER" placeholder'
+    )
+)
+def then_sync_remote_no_origin_owner(context: dict) -> None:
+    line = _read_scaffolded_sync_remote(context["owner_subst_target"])
+    assert "ORIGIN_OWNER" not in line, (
+        f"scaffolded sync.remote still carries the ORIGIN_OWNER placeholder: "
+        f"{line!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the "sync.remote" owner segment equals the derived GitHub owner '
+        '"<owner>"'
+    )
+)
+def then_sync_remote_owner_derived(context: dict) -> None:
+    line = _read_scaffolded_sync_remote(context["owner_subst_target"])
+    m = re.search(r"github\.com/([^/]+)/", line)
+    assert m, f"malformed sync.remote URL: {line!r}"
+    assert m.group(1) == _OWNER_SUBST_OWNER, (
+        f"sync.remote owner segment must equal derived owner "
+        f"{_OWNER_SUBST_OWNER!r}; got {m.group(1)!r} in {line!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the "sync.remote" repository name equals "<bc>-lead-beads" so the URL '
+        'targets "<owner>/<bc>-lead-beads"'
+    )
+)
+def then_sync_remote_repo_name(context: dict) -> None:
+    line = _read_scaffolded_sync_remote(context["owner_subst_target"])
+    m = re.search(r'github\.com/([^/]+)/([^/"]+?)(?:\.git)?"?\s*$', line)
+    assert m, f"malformed sync.remote URL: {line!r}"
+    owner, repo = m.group(1), m.group(2)
+    expected_repo = f"{_OWNER_SUBST_BC_SLUG}-lead-beads"
+    assert repo == expected_repo, (
+        f"sync.remote repo name must be {expected_repo!r}; got {repo!r} in "
+        f"{line!r}"
+    )
+    assert f"{_OWNER_SUBST_OWNER}/{expected_repo}" in line, (
+        f"sync.remote URL must target {_OWNER_SUBST_OWNER}/{expected_repo}; "
+        f"got {line!r}"
+    )

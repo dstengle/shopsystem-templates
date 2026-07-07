@@ -970,6 +970,51 @@ class _BdConfigError(Exception):
         self.returncode = returncode
 
 
+def _write_beads_sync_remote(target: Path, remote: str) -> None:
+    """Write the DERIVED-owner beads remote into the scaffolded
+    ".beads/config.yaml" as the flat `sync.remote` YAML key.
+
+    The create-bc path (`shop-templates bootstrap --shop-type bc`) runs no
+    footing reconcile, so nothing downstream substitutes the `ORIGIN_OWNER`
+    placeholder the lead-only footing fill (@scenario_hash:c1b769fb49c6ebfb)
+    supplies on the lead path. Bootstrap must therefore stamp `sync.remote`
+    with the already-derived-owner `remote` itself, so the scaffolded tracker's
+    JSONL-sync remote targets `<owner>/<product>-lead-beads` at launch rather
+    than surviving with a literal `ORIGIN_OWNER` pointing at a nonexistent
+    owner (scenario 6996f1610208317d, lead-7jc2).
+
+    `remote` is single-sourced to the value bootstrap already wired as the bd
+    dolt push remote (`_configure_bd_dolt_remote`'s return), so the JSONL-sync
+    remote and the dolt remote name the same repo under the same derived owner
+    — mirroring what footing's rewrite converges to on the lead path.
+
+    This does NOT initialize .beads/ or import bd/beads internals (scenario
+    0c6f1c5d9bc4226e): `.beads/` is already initialized by the `bd init`
+    subprocess; this only edits the flat YAML config the tracker carries.
+    Mirrors footing's sed/printf logic: rewrite an existing `sync.remote:` line
+    in place, else append the key; create the file when bd left none.
+    """
+    config = target / ".beads" / "config.yaml"
+    sync_line = f'sync.remote: "{remote}"\n'
+    if not config.exists():
+        config.write_text(sync_line)
+        return
+    lines = config.read_text().splitlines(keepends=True)
+    replaced = False
+    out: list[str] = []
+    for line in lines:
+        if line.lstrip().startswith("sync.remote:"):
+            out.append(sync_line)
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        if out and not out[-1].endswith("\n"):
+            out[-1] = out[-1] + "\n"
+        out.append(sync_line)
+    config.write_text("".join(out))
+
+
 def _push_credentials_available() -> bool:
     """Best-effort detection of GitHub push credentials in the environment.
 
@@ -1306,6 +1351,14 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
             remote = _configure_bd_dolt_remote(target, shop_name)
         except _BdConfigError as exc:
             return exc.returncode
+
+        # Stamp the DERIVED-owner beads remote into the scaffolded
+        # .beads/config.yaml `sync.remote` (scenario 6996f1610208317d,
+        # lead-7jc2). The create-bc path runs no footing reconcile, so nothing
+        # else substitutes the ORIGIN_OWNER placeholder; single-source the
+        # JSONL-sync remote to the same URL just wired as the bd dolt remote so
+        # the scaffolded tracker targets <owner>/<product>-lead-beads at launch.
+        _write_beads_sync_remote(target, remote)
 
         # Smoke-test the freshly-wired tracker: run `bd dolt push` against the
         # configured dolt remote (scenario 5ae67969a7f205d5, supersedes the

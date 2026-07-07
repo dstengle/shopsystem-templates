@@ -895,6 +895,24 @@ def _product_beads_remote(shop_name: str, origin_owner: str | None = None) -> st
     return f"git+https://github.com/{owner}/{product}-lead-beads.git"
 
 
+def _bc_beads_sync_remote(shop_name: str, origin_owner: str | None = None) -> str:
+    """Return the create-bc-path beads `sync.remote` URL (ADR-043 D5).
+
+    ADR-043 D5 (lead-jq9b): the canonical per-BC beads repo is
+    `<product>-<bc>-beads`, but the bootstrap `<shop_name>` (a bc slug) already
+    carries the product prefix (ADR-038 forced-product-scope), so it reduces to
+    `<bc>-beads` — the raw `<shop_name>` + `-beads`. This is NOT the lead-only
+    `-lead-beads` form (`_product_beads_remote`): `-lead-beads` is the lead's
+    tracker name, and the just-released lead-7jc2 fix wrongly emitted
+    `<bc>-lead-beads` here. Owner follows the same rule as
+    `_product_beads_remote` — the target's origin-derived owner, else the
+    explicit `ORIGIN_OWNER` placeholder (scenario ef4f4d86d3e4d153, which
+    retires 6996f1610208317d).
+    """
+    owner = origin_owner if origin_owner else _BEADS_REMOTE_ORG_PLACEHOLDER
+    return f"git+https://github.com/{owner}/{shop_name}-beads.git"
+
+
 def _origin_owner(target: Path) -> str | None:
     """Best-effort: the GitHub owner from the target repo's `origin` remote URL
     (https://host/OWNER/REPO(.git) or git@host:OWNER/REPO(.git)), or None when
@@ -979,14 +997,15 @@ def _write_beads_sync_remote(target: Path, remote: str) -> None:
     placeholder the lead-only footing fill (@scenario_hash:c1b769fb49c6ebfb)
     supplies on the lead path. Bootstrap must therefore stamp `sync.remote`
     with the already-derived-owner `remote` itself, so the scaffolded tracker's
-    JSONL-sync remote targets `<owner>/<product>-lead-beads` at launch rather
-    than surviving with a literal `ORIGIN_OWNER` pointing at a nonexistent
-    owner (scenario 6996f1610208317d, lead-7jc2).
+    JSONL-sync remote targets `<owner>/<bc>-beads` at launch rather than
+    surviving with a literal `ORIGIN_OWNER` pointing at a nonexistent owner
+    (scenario ef4f4d86d3e4d153, lead-jq9b; retires 6996f1610208317d, lead-7jc2).
 
-    `remote` is single-sourced to the value bootstrap already wired as the bd
-    dolt push remote (`_configure_bd_dolt_remote`'s return), so the JSONL-sync
-    remote and the dolt remote name the same repo under the same derived owner
-    — mirroring what footing's rewrite converges to on the lead path.
+    `remote` is the create-bc `sync.remote` URL computed by
+    `_bc_beads_sync_remote` (ADR-043 D5 `<bc>-beads` name + derived owner). It
+    deliberately DIVERGES from the bd dolt push remote (`-lead-beads`, the
+    lead's tracker name, which `_configure_bd_dolt_remote` still wires): the
+    per-BC JSONL-sync repo is `<bc>-beads`, not the lead's `-lead-beads`.
 
     This does NOT initialize .beads/ or import bd/beads internals (scenario
     0c6f1c5d9bc4226e): `.beads/` is already initialized by the `bd init`
@@ -1353,12 +1372,17 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
             return exc.returncode
 
         # Stamp the DERIVED-owner beads remote into the scaffolded
-        # .beads/config.yaml `sync.remote` (scenario 6996f1610208317d,
-        # lead-7jc2). The create-bc path runs no footing reconcile, so nothing
-        # else substitutes the ORIGIN_OWNER placeholder; single-source the
-        # JSONL-sync remote to the same URL just wired as the bd dolt remote so
-        # the scaffolded tracker targets <owner>/<product>-lead-beads at launch.
-        _write_beads_sync_remote(target, remote)
+        # .beads/config.yaml `sync.remote` (scenario ef4f4d86d3e4d153,
+        # lead-jq9b; retires 6996f1610208317d, lead-7jc2). The create-bc path
+        # runs no footing reconcile, so nothing else substitutes the
+        # ORIGIN_OWNER placeholder; bootstrap writes the derived-owner remote
+        # itself. Per ADR-043 D5 the per-BC repo is `<bc>-beads` (the raw bc
+        # slug already carries the product prefix, ADR-038), NOT the lead-only
+        # `-lead-beads` form the bd dolt remote uses — so the sync.remote name
+        # deliberately diverges from `remote`, targeting <owner>/<bc>-beads.
+        _write_beads_sync_remote(
+            target, _bc_beads_sync_remote(shop_name, _origin_owner(target))
+        )
 
         # Smoke-test the freshly-wired tracker: run `bd dolt push` against the
         # configured dolt remote (scenario 5ae67969a7f205d5, supersedes the

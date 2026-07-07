@@ -28606,7 +28606,8 @@ def then_vglj_router_selects(context: dict) -> None:
 
 
 # =======================================================================
-# lead-7jc2 / scenario 6996f1610208317d — bootstrap writes the DERIVED
+# lead-jq9b / scenario ef4f4d86d3e4d153 (retires 6996f1610208317d,
+# lead-7jc2) — bootstrap writes the DERIVED
 # GitHub owner into the scaffolded .beads/config.yaml sync.remote on the
 # create-bc path. No footing reconcile runs on `shop-templates bootstrap
 # --shop-type bc`, so nothing else substitutes the ORIGIN_OWNER placeholder
@@ -28720,8 +28721,8 @@ def then_sync_remote_owner_derived(context: dict) -> None:
 
 @then(
     parsers.parse(
-        'the "sync.remote" repository name equals "<bc>-lead-beads" so the URL '
-        'targets "<owner>/<bc>-lead-beads"'
+        'the "sync.remote" repository name equals "<bc>-beads" so the URL '
+        'targets "<owner>/<bc>-beads"'
     )
 )
 def then_sync_remote_repo_name(context: dict) -> None:
@@ -28729,7 +28730,7 @@ def then_sync_remote_repo_name(context: dict) -> None:
     m = re.search(r'github\.com/([^/]+)/([^/"]+?)(?:\.git)?"?\s*$', line)
     assert m, f"malformed sync.remote URL: {line!r}"
     owner, repo = m.group(1), m.group(2)
-    expected_repo = f"{_OWNER_SUBST_BC_SLUG}-lead-beads"
+    expected_repo = f"{_OWNER_SUBST_BC_SLUG}-beads"
     assert repo == expected_repo, (
         f"sync.remote repo name must be {expected_repo!r}; got {repo!r} in "
         f"{line!r}"

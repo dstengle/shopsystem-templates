@@ -77,6 +77,14 @@ services:
       - IPC_LOCK
     environment:
       AGENT_VAULT_MASTER_PASSWORD: "${AGENT_VAULT_MASTER_PASSWORD}"
+      # Credential-injection-proxy rate-limit profile. DISABLED BY DEFAULT,
+      # fleet-wide, opt-in to re-enable (pinned product decision, brief 016):
+      # unset => "off" => the broker does not throttle. The explicit "off"
+      # default (matching this file's ${VAR:-default} idiom) means an unset
+      # instance var renders to "off" with no compose "variable is not set"
+      # warning; any non-off value opts back in and the broker re-enforces a
+      # limit.
+      AGENT_VAULT_RATELIMIT_PROFILE: "${AGENT_VAULT_RATELIMIT_PROFILE:-off}"
     volumes:
       - type: volume
         source: {{OPS_SLUG}}-agent-vault-data

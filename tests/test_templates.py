@@ -13,7 +13,7 @@ import pytest
 from shop_templates.cli import _list_template_names, _read_template
 
 
-EXPECTED_TEMPLATES = ["bc-implementer", "bc-reviewer", "lead-architect", "lead-po"]
+EXPECTED_TEMPLATES = ["bc-implementer", "bc-reviewer", "lead-architect", "lead-pm", "lead-po"]
 
 _BCSHIM_XFAIL = pytest.mark.xfail(
     reason="superseded by bc-shim refactor; shopsystem-templates-qcw",

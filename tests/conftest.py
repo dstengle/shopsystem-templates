@@ -221,6 +221,37 @@ def then_stdout_is_exactly_four_names_sorted(
     )
 
 
+@then(
+    parsers.re(
+        r'stdout is exactly the five names '
+        r'"(?P<n1>[^"]+)", "(?P<n2>[^"]+)", "(?P<n3>[^"]+)", "(?P<n4>[^"]+)", '
+        r'"(?P<n5>[^"]+)", one per line in that sorted order'
+    )
+)
+def then_stdout_is_exactly_five_names_sorted(
+    n1: str, n2: str, n3: str, n4: str, n5: str, context: dict
+) -> None:
+    expected = [n1, n2, n3, n4, n5]
+    # Pin the sorted-order contract explicitly: if the scenario text
+    # claims "sorted order" but the literal sequence supplied is not
+    # actually sorted, the scenario is internally inconsistent and the
+    # downstream assertion would be meaningless.
+    assert expected == sorted(expected), (
+        f"scenario premise violated: supplied names {expected!r} are not "
+        f"in sorted order"
+    )
+    stdout = context["cli_stdout"]
+    # The CLI uses print() per line, which emits a trailing newline after
+    # the last line. Split on newlines and drop the final empty entry
+    # that comes from that trailing newline.
+    lines = stdout.split("\n")
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    assert lines == expected, (
+        f"expected stdout lines {expected!r}; got {lines!r}"
+    )
+
+
 # -----------------------------------------------------------------------
 # Then steps — shop-templates show byte-for-byte equivalence
 # -----------------------------------------------------------------------

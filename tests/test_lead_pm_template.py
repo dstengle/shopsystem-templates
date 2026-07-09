@@ -3,9 +3,12 @@
 
 Every content scenario asserts against the `shop-templates show lead-pm`
 surface, which resolves through ``_read_template("lead-pm")`` — the same
-package-data boundary the other role templates use. The role-set-wiring
-scenario asserts lead-pm is a member of the canonical ``lead`` role set so
-the bootstrap pour includes it and ``show`` / ``list`` resolve it.
+package-data boundary the other role templates use. ``show lead-pm`` (and
+``list``) resolve the template directly from ``templates/lead-pm.md``; the
+role is deliberately show/list-only and is NOT a member of the canonical
+``lead`` role set, so the bootstrap pour (which iterates that role set) does
+not write it — preserving the lead-held pin d9f061d15a5d714b (lead pour is
+exactly {lead-po, lead-architect}).
 
 Scenario hashes pinned here (lead-kz33 assign_scenarios):
   90090bb7f38b9777  d132172b8d4659ed  38bb3a0ef6905784  16709fc0931d000b
@@ -21,7 +24,7 @@ import sys
 
 import pytest
 
-from shop_templates.cli import _read_template, _CANONICAL_ROLE_SETS
+from shop_templates.cli import _read_template
 
 
 def _body() -> str:
@@ -38,19 +41,10 @@ def _lower() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Role-set wiring: lead-pm is a canonical member of the lead role set so the
-# bootstrap pour writes it and `show` / `list` resolve it.
+# Resolution: `show lead-pm` resolves the template directly from
+# templates/lead-pm.md via _read_template — independent of the canonical
+# lead role set (lead-pm is show/list-only, not poured).
 # ---------------------------------------------------------------------------
-
-
-def test_lead_pm_in_canonical_lead_role_set() -> None:
-    assert "lead-pm" in _CANONICAL_ROLE_SETS["lead"], (
-        "lead-pm must be a member of _CANONICAL_ROLE_SETS['lead'] so the "
-        "bootstrap pour and update reconciliation include it"
-    )
-    # The existing back-office roles must remain untouched.
-    assert "lead-po" in _CANONICAL_ROLE_SETS["lead"]
-    assert "lead-architect" in _CANONICAL_ROLE_SETS["lead"]
 
 
 def test_show_lead_pm_resolves_via_cli() -> None:

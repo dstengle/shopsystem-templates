@@ -15,6 +15,7 @@ Scenario hashes pinned here (lead-kz33 assign_scenarios):
 A dedicated file (not tests/conftest.py) is used deliberately so the
 concurrent PDR-033 waves that share conftest do not collide.
 """
+import re
 import subprocess
 import sys
 
@@ -30,7 +31,10 @@ def _body() -> str:
 
 
 def _lower() -> str:
-    return _body().lower()
+    # Collapse all runs of whitespace to a single space so content
+    # assertions are insensitive to the template's line wrapping — a
+    # phrase that wraps across two lines still reads as one phrase.
+    return re.sub(r"\s+", " ", _body().lower())
 
 
 # ---------------------------------------------------------------------------

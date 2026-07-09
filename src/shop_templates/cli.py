@@ -99,7 +99,7 @@ _STARTER_PKG = "shop_templates.templates.starter"
 # canonical set.
 _CANONICAL_ROLE_SETS: dict[str, tuple[str, ...]] = {
     "bc": ("bc-implementer", "bc-reviewer"),
-    "lead": ("lead-po", "lead-architect"),
+    "lead": ("lead-pm", "lead-po", "lead-architect"),
 }
 
 _SHOP_TYPES = tuple(_CANONICAL_ROLE_SETS.keys())

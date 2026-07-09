@@ -536,6 +536,17 @@ git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/$GI
 # committed file. (This also covers the `git push` above.)
 git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
 
+# LARGE-PUSH proxy fix (finding lead-d4ja): the agent-vault proxy returns 413
+# for chunked (Transfer-Encoding) request bodies, size-independent. git streams
+# any push larger than http.postBuffer (~1MB default) as chunked, so large
+# dolt/git pushes fail. A high GLOBAL http.postBuffer forces git to buffer and
+# send a single Content-Length request the proxy accepts. 1073741824 (1 GiB) is
+# deliberate — it matches the proxy's MAX_REQUEST_BYTES 1 GiB request cap; a
+# larger value would emit a >1 GiB Content-Length body the cap then rejects.
+# Writing it --global here (~/.gitconfig, fleet-wide at bootstrap) makes the fix
+# DURABLE across rebuild-from-image rather than living only in a session config.
+git config --global http.postBuffer 1073741824
+
 git push -u origin HEAD
 
 # DOLT-OVER-GIT (lead-n7dq): the bd dolt remote is a dolt-over-git remote to a

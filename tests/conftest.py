@@ -17864,6 +17864,68 @@ def then_each_member_byte_for_byte(context: dict) -> None:
         )
 
 
+# --- Graduated PM skill membership + pour scenarios ebc6436b / fd2e4444 ---
+#
+# The six graduated PM skills (PDR-033 Wave 2) are members of the canonical
+# lead skill-group and pour into .claude/skills/<skill>/SKILL.md, each naming
+# its terminal artifact for the lead-pm mode (per lead-pm.md scenario
+# 657c435f). The mode->skill->terminal-artifact map is the load-bearing datum.
+_GRADUATED_PM_SKILL_TERMINAL_ARTIFACT = {
+    "discovery-dialogue": "intent record",
+    "shaping": "candidate driven to shaped",
+    "option-tradeoff": "PDR draft or candidate fork",
+    "prioritization": "prioritization record",
+    "problem-space-mapping": "problem-space map revision",
+    "product-narrative": "README, site, or current-state revision",
+}
+
+
+@then(
+    parsers.parse(
+        'the access surface reports the skill-group has the member "{skill}"'
+    )
+)
+def then_skill_group_has_member(skill: str, context: dict) -> None:
+    group = context["queried_skill_group"]
+    names = {m for m, _ in group}
+    assert skill in names, (
+        f"member {skill!r} absent from reported skill-group {sorted(names)}"
+    )
+
+
+@then(
+    parsers.parse(
+        'for the member "{skill}" the access surface returns package-data '
+        '"SKILL.md" contents byte-for-byte'
+    )
+)
+def then_member_byte_for_byte(skill: str, context: dict) -> None:
+    group = dict(context["queried_skill_group"])
+    shipped = dict(_iter_lead_skill_files())
+    rel = f"{skill}/SKILL.md"
+    assert skill in group, f"member {skill!r} not reported by access surface"
+    assert rel in shipped, f"member {skill!r} has no package-data SKILL.md"
+    assert group[skill] == shipped[rel], (
+        f"member {skill!r} access-surface bytes differ from package data"
+    )
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/{skill}/SKILL.md" names its terminal '
+        'artifact for the lead-pm mode'
+    )
+)
+def then_poured_skill_names_terminal_artifact(skill: str, context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / skill / "SKILL.md").read_text()
+    artifact = _GRADUATED_PM_SKILL_TERMINAL_ARTIFACT[skill]
+    assert artifact.lower() in body.lower(), (
+        f"poured .claude/skills/{skill}/SKILL.md does not name its terminal "
+        f"artifact {artifact!r} for the lead-pm mode"
+    )
+
+
 # --- Update scenarios e803b4c9 / 4a008549 / a14e5a0a ---
 
 @given(

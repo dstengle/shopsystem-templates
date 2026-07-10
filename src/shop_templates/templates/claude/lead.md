@@ -218,53 +218,35 @@ state, or a default — so it is your next action, not a question. This is
 a positive standing order, not a prohibition. "Don't ask" left a vacuum
 at the decision point; "decide and act" fills it.
 
-### Standing rule: product-authority discovery gate
+### Standing rule: PM-mode entry classification
 
-**Trigger.** This gate fires whenever the router is about to dispatch a
-DISCOVERY subagent — any lead-po dispatch whose work is problem discovery
-or selection, or whose skill furniture carries an 'interactive' /
-'workshop' loop (jobs-to-be-done, problem-framing-canvas,
-opportunity-solution-tree, customer-journey-map, and any future discovery
-skill). The gate fires on the DISPATCH boundary, not inside the subagent —
-the discovery subagent is non-interactive and cannot conduct the dialogue,
-so the dialogue cannot live there.
+**Trigger.** This rule fires whenever the router classifies inbound input at
+the discovery boundary. Input that is directional, exploratory, ambiguous, or
+multi-option — anything whose outcome is direction rather than a contract or a
+dispatch — is a PM-mode entry: the router enters the lead-pm main-session mode
+rather than dispatching a discovery subagent. Committed contract work routes
+to the lead-po, and technical or dispatch work routes to the existing routes;
+only the direction-shaped input is a PM-mode entry.
 
-**What the gate requires the router to do — before the dispatch:**
+**Prefer PM when unsure.** When the router is unsure whether an input is PM or
+PO, it prefers PM, because a mis-route to PM costs one session while a
+mis-route to PO produces an unanchored brief — the cheaper error is the
+recoverable one.
 
-1. Determine whether scope + product vocabulary for this discovery work
-   are already pinned by an existing brief or PDR the dispatch can cite.
-2. If NOT pinned: CONDUCT the product-authority discovery dialogue at the
-   main-agent level — ask the product authority the discovery questions the
-   target skill needs — and capture the answers as interview-notes on the
-   bead or brief the subagent will receive as input. This is the dialogue's
-   HOME.
-3. If pinned: record the citation of that brief or PDR as the explicit
-   reason the dialogue is not required for this dispatch.
-4. Only AFTER (2) or (3) may the discovery subagent be dispatched.
+**Session-record gate.** On PM-mode entry the router ensures a session record
+is opened for the mode, and on exit the router verifies that record is closed
+with a non-empty produced or revised list before releasing the turn flow — a
+PM-mode turn that produced nothing durable is recorded and routed, never
+released silently.
 
-This gate does NOT apply to the BC fleet loop or to authoring /
-reconciliation dispatches that consume already-validated problems — it is
-specifically the discovery-input boundary.
-
-**Root cause.** Discovery ran inside non-interactive subagents that
-literally cannot talk to the product authority, so the clarifying dialogue
-had no home and the product authority had to VOLUNTEER scope the process
-should have SOLICITED. The gate gives that dialogue a home at the router /
-main-agent level — the only level where the dialogue is possible.
-
-**Distinct from choice-suppression.** The choice-suppression rule above
-says decide every operational question yourself and act. This gate is NOT
-an operational question — it is the genuine product-judgment round-trip
-over scope and vocabulary that choice-suppression already names as an
-ADMISSIBLE reason to engage the product authority (its "Scope or
-vocabulary" trigger). This gate makes that engagement MANDATORY at the
-discovery boundary rather than merely permitted.
-
-**Enforcement.** Add this as a named item on the router's pre-dispatch
-path for discovery work, parallel to the idle-detection checklist:
-
-> Discovery dispatch? → product-authority dialogue conducted OR cited
-> reason recorded. If neither, do NOT dispatch; run the dialogue first.
+**The router holds no product judgment:** option framing, brainstorm
+facilitation, and intent probing all live in the lead-pm mode, not at the
+router. Entering PM mode is a classification action — the router names the
+input as direction-shaped and hands the dialogue to the lead-pm mode, which is
+the only seat that can conduct it. This rule replaces the retired router-level
+discovery gate that required the router to run the discovery dialogue itself
+before dispatching a discovery subagent; the dialogue now has its home in the
+lead-pm main-session mode, not at the router.
 
 ### Standing rule: effectively-empty product-discovery bootstrap
 
@@ -284,13 +266,15 @@ bead nor a product-bearing scenario and therefore **does not by itself defeat
 either signal**.
 
 On detecting the **effectively-empty / no-product-defined** state — whether at
-**session start** or while walking the **idle-detection checklist** — the
-router does NOT declare idle. Instead the router must **proactively open** a
-**product-discovery conversation** with the **product authority**, **rather
-than declaring idle**. This discovery conversation is **conducted at the
-main-agent / router level** — consistent with the **product-authority
-discovery gate** above — and is **not delegated** to a **non-interactive
-discovery subagent**, which structurally cannot conduct it.
+**session start** or while walking the **idle-detection** checklist — the
+router does NOT declare idle; instead the router **enters the lead-pm
+main-session mode** and opens a **product-discovery conversation** with the
+**product authority** **rather than declaring idle**. This discovery
+conversation is **held in the lead-pm main-session mode** — the **only
+interactive seat** — and is **not delegated** to a **non-interactive discovery
+subagent**, which structurally cannot conduct it. The router itself **holds no
+product judgment**: **entering PM mode is the router's classification action**,
+and the **discovery dialogue belongs to the lead-pm** mode.
 
 While the **effectively-empty / no-product-defined** state **still holds**, the
 router **re-fires the product-discovery prompt on each session** — the nudge is
@@ -302,16 +286,14 @@ surface becomes **non-empty** — that is, once **either signal** of the
 two-signal detection test **no longer holds** (a product-bearing bead or a
 product-bearing scenario now exists).
 
-The router opens the product-discovery conversation as a **general
-brainstorming conversation first**, **before committing** to any single
-**structured discovery skill**. From what surfaces in that brainstorming, the
-router then **branches into one structured discovery skill** — **selected from
-jobs-to-be-done, problem-framing-canvas, opportunity-solution-tree, or
-customer-journey-map** — **based on what surfaces** in the brainstorming
-conversation. The router **performs that skill selection itself**, at the
-**router / main-agent level**, as the **triage** step that follows the
-**brainstorming opener**; the selection is the router's call, not the
-discovery subagent's.
+On PM-mode entry for the effectively-empty state, the router opens the
+product-discovery conversation as a **general brainstorming conversation
+first**, **before committing to any single structured discovery skill**. The
+**selection of a structured discovery skill** happens **within the lead-pm
+main-session mode** — driven by the **lead-pm skill group** — and is **not a
+router-level triage** step; the router does not enumerate or select from a
+named discovery-skill list, that responsibility having re-homed to the lead-pm
+mode.
 
 ### Session-start drain
 

@@ -150,6 +150,11 @@ def when_read_template_via_show(name: str, name_again: str, context: dict) -> No
     # The Then-steps for these scenarios refer to "the content" — keep an
     # explicit alias so the assertion language matches the feature text.
     context["template_content"] = result.stdout
+    # A show-template scenario may also open with the shared
+    # "a non-empty template body is returned" Then (e.g. lead-kz33's
+    # 4a4ef884012be9dc structural-sections scenario). That step reads
+    # last_returned_body, so alias the shown body onto it too.
+    context["last_returned_body"] = result.stdout
 
 
 # -----------------------------------------------------------------------
@@ -29403,3 +29408,424 @@ def then_no_post_pdr033_activity_bare_list(context: dict) -> None:
         "post-PDR-033 PO activities appearing as bare list items "
         "(eaa4fc5b6bc7ed75):\n" + "\n".join(failures)
     )
+
+
+# ======================================================================
+# lead-kz33 PDR-033 live-pin step definitions (17 scenarios).
+# Content already lives on origin/main and is exercised by the plain
+# unit tests (tests/test_lead_pm_template.py, test_lead_architect_pdr033.py,
+# test_lead_primer_pdr033.py); these step defs bind the same assertions
+# to the features/ Gherkin so the scenario hashes become live pins.
+# ======================================================================
+import re as _kz33_re
+
+
+def _kz33_show_L(context):
+    body = context["template_content"]
+    return _kz33_re.sub(r"\s+", " ", body.lower())
+
+
+def _kz33_primer_L(context):
+    body = context.get("last_returned_body")
+    assert body, "no primer body in context; the matching When step did not run"
+    return _kz33_re.sub(r"\s+", " ", body.lower())
+
+
+@then("the content names the lead-pm as the Product Manager mode of the main session — the stakeholder's front door — and states it is NOT a subagent")
+def _kz33_90090bb7f38b9777_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'product manager mode of the main session' in L, 'missing phrase: product manager mode of the main session'
+    assert "stakeholder's front door" in L, "missing phrase: stakeholder's front door"
+    assert 'not a subagent' in L, 'missing phrase: not a subagent'
+
+
+@then('the content states the lead-pm holds open, interactive dialogue with the product authority and is the only role that does')
+def _kz33_90090bb7f38b9777_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'interactive dialogue with the product authority' in L, 'missing phrase: interactive dialogue with the product authority'
+    assert 'only role that does' in L, 'missing phrase: only role that does'
+
+
+@then('the content states the lead-po and lead-architect are back-office to the stakeholder while the lead-pm is the interface')
+def _kz33_90090bb7f38b9777_2(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'lead-po and lead-architect are back-office' in L, 'missing phrase: lead-po and lead-architect are back-office'
+    assert 'lead-pm is the interface' in L, 'missing phrase: lead-pm is the interface'
+
+
+@then('the content grounds this on interactivity being a position in the execution topology that only the main session holds')
+def _kz33_90090bb7f38b9777_3(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'position in the execution topology that only the main session holds' in L, 'missing phrase: position in the execution topology that only the main session holds'
+
+
+@then('the content states the role scope is the discovery-and-shaping slice of product management plus product communication')
+def _kz33_d132172b8d4659ed_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'discovery-and-shaping slice of product management' in L, 'missing phrase: discovery-and-shaping slice of product management'
+    assert 'product communication' in L, 'missing phrase: product communication'
+
+
+@then('the content names market research, personas, segmentation, positioning, pricing, and growth metrics as explicitly OUT of scope')
+def _kz33_d132172b8d4659ed_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'market research' in L, 'missing phrase: market research'
+    assert 'personas' in L, 'missing phrase: personas'
+    assert 'segmentation' in L, 'missing phrase: segmentation'
+    assert 'positioning' in L, 'missing phrase: positioning'
+    assert 'pricing' in L, 'missing phrase: pricing'
+    assert 'growth metrics' in L, 'missing phrase: growth metrics'
+    assert 'out of scope' in L, 'missing phrase: out of scope'
+
+
+@then('the content cites PDR-033 amendment-c as the narrowing that parks those market-facing competencies while keeping product-communication competencies in scope')
+def _kz33_d132172b8d4659ed_2(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'pdr-033 amendment-c' in L, 'missing phrase: pdr-033 amendment-c'
+
+
+@then('the content states the lead-pm mode is entered when input is directional, exploratory, ambiguous, or multi-option — anything whose outcome is direction rather than a contract or a dispatch')
+def _kz33_38bb3a0ef6905784_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'directional' in L, 'missing phrase: directional'
+    assert 'exploratory' in L, 'missing phrase: exploratory'
+    assert 'ambiguous' in L, 'missing phrase: ambiguous'
+    assert 'multi-option' in L, 'missing phrase: multi-option'
+    assert 'outcome is direction rather than a contract or a dispatch' in L, 'missing phrase: outcome is direction rather than a contract or a dispatch'
+
+
+@then('the content distinguishes this from committed contract input, which routes to the lead-po, and technical or dispatch input, which routes to the existing routes')
+def _kz33_38bb3a0ef6905784_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'committed contract' in L, 'missing phrase: committed contract'
+    assert 'routes to the lead-po' in L, 'missing phrase: routes to the lead-po'
+    assert 'existing routes' in L, 'missing phrase: existing routes'
+
+
+@then('the content states the lead-pm mode exits ONLY by closing a session record whose produced or revised list names at least one artifact')
+def _kz33_16709fc0931d000b_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'produced or revised list names at least one artifact' in L, 'missing phrase: produced or revised list names at least one artifact'
+
+
+@then('the content states that no session closes without an artifact')
+def _kz33_16709fc0931d000b_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'no session closes without an artifact' in L, 'missing phrase: no session closes without an artifact'
+
+
+@then('the content directs that a session which produced nothing durable is recorded as idle chat or a mis-routed PO/Architect task and routed accordingly, rather than closed empty')
+def _kz33_16709fc0931d000b_2(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'idle chat' in L, 'missing phrase: idle chat'
+    assert 'mis-routed po/architect task' in L, 'missing phrase: mis-routed po/architect task'
+    assert 'rather than closed empty' in L, 'missing phrase: rather than closed empty'
+
+
+@then('the content states that before any substantive turn the lead-pm reads the current-state doc and the completion journal')
+def _kz33_58381551b5029cb8_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'before any substantive turn' in L, 'missing phrase: before any substantive turn'
+    assert 'current-state doc' in L, 'missing phrase: current-state doc'
+    assert 'completion journal' in L, 'missing phrase: completion journal'
+
+
+@then('the content states that every problem statement the lead-pm writes must cite the current-state entry or gap it addresses, because shaping ungrounded in what exists is fantasy')
+def _kz33_58381551b5029cb8_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'cite the current-state entry or gap it addresses' in L, 'missing phrase: cite the current-state entry or gap it addresses'
+    assert 'ungrounded in what exists is fantasy' in L, 'missing phrase: ungrounded in what exists is fantasy'
+
+
+@then('the content states the lead-pm works the problem space and sketches candidates at capability level, with no env var names, no schemas, and no CLI flags')
+def _kz33_ffc4c880440d0ad0_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'problem space' in L, 'missing phrase: problem space'
+    assert 'capability level' in L, 'missing phrase: capability level'
+    assert 'no env var names' in L, 'missing phrase: no env var names'
+    assert 'no schemas' in L, 'missing phrase: no schemas'
+    assert 'no cli flags' in L, 'missing phrase: no cli flags'
+
+
+@then('the content states that a technical claim below that altitude is a request for Architect pre-state verification, not a fact the lead-pm writes down')
+def _kz33_ffc4c880440d0ad0_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'technical claim below that altitude is a request for architect pre-state verification' in L, 'missing phrase: technical claim below that altitude is a request for architect pre-state verification'
+
+
+@then("the content states the lead-pm may request a bounded feasibility probe from the Architect before converging a shape and links its finding in the candidate's Evidence section")
+def _kz33_ffc4c880440d0ad0_2(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'bounded feasibility probe' in L, 'missing phrase: bounded feasibility probe'
+    assert 'before converging a shape' in L, 'missing phrase: before converging a shape'
+    assert 'evidence section' in L, 'missing phrase: evidence section'
+
+
+@then('the content states the lead-pm owns the why (intent -> candidate) and the lead-po owns the commitment (brief -> scenarios), and that the lead-pm never writes scenarios or briefs')
+def _kz33_96abd54a2c8dac75_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'owns the why (intent -> candidate)' in L, 'missing phrase: owns the why (intent -> candidate)'
+    assert 'lead-po owns the commitment (brief -> scenarios)' in L, 'missing phrase: lead-po owns the commitment (brief -> scenarios)'
+    assert 'never writes scenarios or briefs' in L, 'missing phrase: never writes scenarios or briefs'
+
+
+@then('the content states that when the lead-po blocks a brief on a why-problem the candidate reopens with the lead-pm')
+def _kz33_96abd54a2c8dac75_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'blocks a brief on a why-problem the candidate reopens with the lead-pm' in L, 'missing phrase: blocks a brief on a why-problem the candidate reopens with the lead-pm'
+
+
+@then('the content states the lead-pm never lets the lead-po patch the why inside a brief and never patches boundaries inside a candidate')
+def _kz33_96abd54a2c8dac75_2(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'never lets the lead-po patch the why inside a brief' in L, 'missing phrase: never lets the lead-po patch the why inside a brief'
+    assert 'never patches boundaries inside a candidate' in L, 'missing phrase: never patches boundaries inside a candidate'
+
+
+@then('the content states the lead-pm holds the problem space and the Architect holds the solution space')
+def _kz33_a354959486530d40_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'holds the problem space and the architect holds the solution space' in L, 'missing phrase: holds the problem space and the architect holds the solution space'
+
+
+@then("the content states the lead-pm's prioritization records order the dispatch queue while the Architect's pre-state verification gates what dispatches")
+def _kz33_a354959486530d40_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'prioritization records order the dispatch queue' in L, 'missing phrase: prioritization records order the dispatch queue'
+    assert 'pre-state verification gates what dispatches' in L, 'missing phrase: pre-state verification gates what dispatches'
+
+
+@then("the content states the lead-pm drafts direction PDRs and facilitates the product authority's decision")
+def _kz33_4dbfb0ae8790c776_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert "drafts direction pdrs and facilitates the product authority's decision" in L, "missing phrase: drafts direction pdrs and facilitates the product authority's decision"
+
+
+@then('the content states ratification belongs to the product authority and the lead-pm never ratifies')
+def _kz33_4dbfb0ae8790c776_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'ratification belongs to the product authority' in L, 'missing phrase: ratification belongs to the product authority'
+    assert 'never ratifies' in L, 'missing phrase: never ratifies'
+
+
+@then('the content names the append-only artifacts the lead-pm owns: intent records, candidates, prioritization records, session records, and PDR drafts for converged direction decisions')
+def _kz33_72ae7fd0e41a01e3_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'intent records' in L, 'missing phrase: intent records'
+    assert 'candidates' in L, 'missing phrase: candidates'
+    assert 'prioritization records' in L, 'missing phrase: prioritization records'
+    assert 'session records' in L, 'missing phrase: session records'
+    assert 'pdr drafts for converged direction decisions' in L, 'missing phrase: pdr drafts for converged direction decisions'
+
+
+@then('the content names the living documents the lead-pm stewards: the problem-space map, the current-state doc, and the README and site as outward renderings')
+def _kz33_72ae7fd0e41a01e3_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'problem-space map' in L, 'missing phrase: problem-space map'
+    assert 'current-state doc' in L, 'missing phrase: current-state doc'
+    assert 'readme and site as outward renderings' in L, 'missing phrase: readme and site as outward renderings'
+
+
+@then('the content states that every capability claim in the README or site traces to a current-state entry')
+def _kz33_72ae7fd0e41a01e3_2(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'every capability claim in the readme or site traces to a current-state entry' in L, 'missing phrase: every capability claim in the readme or site traces to a current-state entry'
+
+
+@then('the content maps the discovery mode to the discovery-dialogue skill terminating in an intent record')
+def _kz33_657c435fa34ba18c_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'discovery-dialogue skill' in L, 'missing phrase: discovery-dialogue skill'
+    assert 'intent record' in L, 'missing phrase: intent record'
+
+
+@then('the content maps the shaping mode to the shaping skill terminating in a candidate driven to shaped')
+def _kz33_657c435fa34ba18c_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'shaping skill' in L, 'missing phrase: shaping skill'
+    assert 'candidate driven to shaped' in L, 'missing phrase: candidate driven to shaped'
+
+
+@then('the content maps the deciding mode to the option-tradeoff skill terminating in a PDR draft or candidate fork')
+def _kz33_657c435fa34ba18c_2(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'option-tradeoff skill' in L, 'missing phrase: option-tradeoff skill'
+    assert 'pdr draft or candidate fork' in L, 'missing phrase: pdr draft or candidate fork'
+
+
+@then('the content maps the sequencing mode to the prioritization skill terminating in a prioritization record')
+def _kz33_657c435fa34ba18c_3(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'prioritization skill' in L, 'missing phrase: prioritization skill'
+    assert 'prioritization record' in L, 'missing phrase: prioritization record'
+
+
+@then('the content maps the continuous problem-space-mapping skill terminating in a problem-space map revision')
+def _kz33_657c435fa34ba18c_4(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'problem-space-mapping skill' in L, 'missing phrase: problem-space-mapping skill'
+    assert 'problem-space map revision' in L, 'missing phrase: problem-space map revision'
+
+
+@then('the content maps the communicating mode to the product-narrative skill terminating in a README, site, or current-state revision')
+def _kz33_657c435fa34ba18c_5(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'product-narrative skill' in L, 'missing phrase: product-narrative skill'
+    assert 'readme, site, or current-state revision' in L, 'missing phrase: readme, site, or current-state revision'
+
+
+@then('the content states every session declares its mode in the session record')
+def _kz33_657c435fa34ba18c_6(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'every session declares its mode in the session record' in L, 'missing phrase: every session declares its mode in the session record'
+
+
+@then('the content directs the architect to order dispatches according to the latest "ratified" prioritization record produced by the lead-pm mode')
+def _kz33_aae38de4789bdbcd_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'ratified' in L, 'missing phrase: ratified'
+    assert 'prioritization record' in L, 'missing phrase: prioritization record'
+    assert 'lead-pm' in L, 'missing phrase: lead-pm'
+    assert _kz33_re.search('order dispatch[^.]*latest[^.]*ratified[^.]*prioritization record|latest[^.]*ratified[^.]*prioritization record[^.]*order[^.]*dispatch', L), 'regex not found: order dispatch[^.]*latest[^.]*ratified[^.]*prioritization record|latest[^.]*ratified[^.]*prioritization record[^.]*order[^.]*dispatch'
+
+
+@then('the content directs the architect that any deviation from that ratified order is recorded in the dispatch bead with a reason')
+def _kz33_aae38de4789bdbcd_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'deviation' in L, 'missing phrase: deviation'
+    assert 'dispatch bead' in L, 'missing phrase: dispatch bead'
+    assert _kz33_re.search('deviation[^.]*ratified[^.]*order[^.]*dispatch bead[^.]*reason', L), 'regex not found: deviation[^.]*ratified[^.]*order[^.]*dispatch bead[^.]*reason'
+
+
+@then('the content states the ratified prioritization record is what dispatch order answers to until it is superseded')
+def _kz33_aae38de4789bdbcd_2(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'superseded' in L, 'missing phrase: superseded'
+    assert _kz33_re.search('ratified prioritization record[^.]*(dispatch order|order)[^.]*answers to|(dispatch order|order)[^.]*answers to[^.]*ratified prioritization record', L), 'regex not found: ratified prioritization record[^.]*(dispatch order|order)[^.]*answers to|(dispatch order|order)[^.]*answers to[^.]*ratified prioritization record'
+    assert _kz33_re.search('answers to[^.]*until[^.]*superseded', L), 'regex not found: answers to[^.]*until[^.]*superseded'
+
+
+@then('the content states the lead-pm mode may request a bounded pre-shape feasibility probe from the architect')
+def _kz33_079dcd64367f5b61_0(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'feasibility probe' in L, 'missing phrase: feasibility probe'
+    assert 'pre-shape' in L, 'missing phrase: pre-shape'
+    assert 'bounded' in L, 'missing phrase: bounded'
+    assert _kz33_re.search('lead-pm[^.]*(request|may request)[^.]*bounded[^.]*pre-shape[^.]*feasibility probe', L), 'regex not found: lead-pm[^.]*(request|may request)[^.]*bounded[^.]*pre-shape[^.]*feasibility probe'
+
+
+@then('the content states the probe output is a finding produced through the existing pre-state verification machinery, not BC-code execution')
+def _kz33_079dcd64367f5b61_1(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'finding' in L, 'missing phrase: finding'
+    assert 'pre-state verification' in L, 'missing phrase: pre-state verification'
+    assert _kz33_re.search('finding[^.]*pre-state verification', L), 'regex not found: finding[^.]*pre-state verification'
+    assert _kz33_re.search('not[^.]*bc[- ]code execution', L), 'regex not found: not[^.]*bc[- ]code execution'
+
+
+@then("the content directs the architect to link that finding back to the requesting candidate's Evidence section")
+def _kz33_079dcd64367f5b61_2(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'evidence' in L, 'missing phrase: evidence'
+    assert _kz33_re.search('link[^.]*finding[^.]*candidate[^.]*evidence section', L), 'regex not found: link[^.]*finding[^.]*candidate[^.]*evidence section'
+
+
+@then("the content states the probe is time-boxed by the candidate's appetite framing and is not a spike-sized implementation")
+def _kz33_079dcd64367f5b61_3(context: dict) -> None:
+    L = _kz33_show_L(context)
+    assert 'appetite' in L, 'missing phrase: appetite'
+    assert 'time-boxed' in L, 'missing phrase: time-boxed'
+    assert _kz33_re.search('time-boxed[^.]*(candidate|appetite)', L), 'regex not found: time-boxed[^.]*(candidate|appetite)'
+    assert _kz33_re.search('not[^.]*spike', L), 'regex not found: not[^.]*spike'
+
+
+@then('the returned body carries a standing rule that classifies input which is directional, exploratory, ambiguous, or multi-option as PM-mode entry — the router enters the lead-pm main-session mode rather than dispatching a discovery subagent')
+def _kz33_e813a6f3a3b575ea_0(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert 'pm-mode entry' in L, 'missing phrase: pm-mode entry'
+    assert _kz33_re.search('directional[^.]*exploratory[^.]*ambiguous[^.]*multi-option[^.]*pm-mode entry', L), 'regex not found: directional[^.]*exploratory[^.]*ambiguous[^.]*multi-option[^.]*pm-mode entry'
+    assert _kz33_re.search('enters the lead-pm main-session mode[^.]*rather than dispatching a discovery subagent', L), 'regex not found: enters the lead-pm main-session mode[^.]*rather than dispatching a discovery subagent'
+
+
+@then('that standing rule directs input that is a committed contract task to the lead-po and technical or dispatch work to the existing routes')
+def _kz33_e813a6f3a3b575ea_1(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert _kz33_re.search('committed contract[^.]*lead-po', L), 'regex not found: committed contract[^.]*lead-po'
+    assert _kz33_re.search('technical[^.]*dispatch[^.]*existing routes', L), 'regex not found: technical[^.]*dispatch[^.]*existing routes'
+
+
+@then('that standing rule states that when the router is unsure between PM and PO it prefers PM, because a mis-route to PM costs one session while a mis-route to PO produces an unanchored brief')
+def _kz33_e813a6f3a3b575ea_2(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert 'mis-route to pm costs one session' in L, 'missing phrase: mis-route to pm costs one session'
+    assert 'mis-route to po produces an unanchored brief' in L, 'missing phrase: mis-route to po produces an unanchored brief'
+    assert _kz33_re.search('unsure[^.]*(prefer|prefers) pm', L), 'regex not found: unsure[^.]*(prefer|prefers) pm'
+
+
+@then('that standing rule requires the router, on PM-mode entry, to ensure a session record is opened and, on exit, to verify it is closed with a non-empty produced or revised list before releasing the turn flow')
+def _kz33_e813a6f3a3b575ea_3(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert _kz33_re.search('pm-mode entry[^.]*session record[^.]*opened', L), 'regex not found: pm-mode entry[^.]*session record[^.]*opened'
+    assert _kz33_re.search('(on exit|exit)[^.]*closed[^.]*non-empty produced or revised list[^.]*releasing the turn flow', L), 'regex not found: (on exit|exit)[^.]*closed[^.]*non-empty produced or revised list[^.]*releasing the turn flow'
+
+
+@then('that standing rule states the router holds no product judgment — option framing, brainstorm facilitation, and intent probing live in the lead-pm mode, not at the router')
+def _kz33_e813a6f3a3b575ea_4(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert _kz33_re.search('router holds no product judgment[^.]*option framing[^.]*brainstorm[^.]*intent probing[^.]*lead-pm mode', L), 'regex not found: router holds no product judgment[^.]*option framing[^.]*brainstorm[^.]*intent probing[^.]*lead-pm mode'
+
+
+@then('the returned body no longer carries the retired router-level product-authority discovery gate that required the router to conduct the discovery dialogue itself or cite a brief before dispatching a discovery subagent')
+def _kz33_e813a6f3a3b575ea_5(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert 'product-authority discovery gate' not in L, 'must be absent: product-authority discovery gate'
+    assert '### standing rule: product-authority discovery gate' not in L, 'must be absent: ### standing rule: product-authority discovery gate'
+    assert 'cite an existing brief or pdr' not in L, 'must be absent: cite an existing brief or pdr'
+    assert 'conduct the product-authority discovery dialogue' not in L, 'must be absent: conduct the product-authority discovery dialogue'
+
+
+@then('the returned body contains a contiguous block directing the router, on detecting the effectively-empty / no-product-defined state at session start or during the idle-detection checklist, to enter the lead-pm main-session mode and open a product-discovery conversation with the product authority rather than declaring idle')
+def _kz33_6273ec4a54466f6f_0(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert 'session start' in L, 'missing phrase: session start'
+    assert 'idle-detection' in L, 'missing phrase: idle-detection'
+    assert 'product authority' in L, 'missing phrase: product authority'
+    assert _kz33_re.search('effectively-empty[^.]*session start[^.]*idle-detection[^.]*enters the lead-pm main-session mode[^.]*product-discovery conversation[^.]*product authority[^.]*rather than declaring idle|effectively-empty[^.]*idle-detection[^.]*enters the lead-pm main-session mode[^.]*rather than declaring idle', L), 'regex not found: effectively-empty[^.]*session start[^.]*idle-detection[^.]*enters the lead-pm main-session mode[^.]*product-discovery conversation[^.]*product authority[^.]*rather than declaring idle|effectively-empty[^.]*idle-detection[^.]*enters the lead-pm main-session mode[^.]*rather than declaring idle'
+
+
+@then('that block states the discovery conversation is held in the lead-pm main-session mode — the only interactive seat — and is not delegated to a non-interactive discovery subagent')
+def _kz33_6273ec4a54466f6f_1(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert _kz33_re.search('held in the lead-pm main-session mode[^.]*only interactive seat', L), 'regex not found: held in the lead-pm main-session mode[^.]*only interactive seat'
+    assert _kz33_re.search('not delegated[^.]*non-interactive discovery subagent', L), 'regex not found: not delegated[^.]*non-interactive discovery subagent'
+
+
+@then("that block states the router itself holds no product judgment; entering PM mode is the router's classification action, and the discovery dialogue belongs to the lead-pm mode")
+def _kz33_6273ec4a54466f6f_2(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert _kz33_re.search("entering pm mode is the router's classification action", L), "regex not found: entering pm mode is the router's classification action"
+    assert _kz33_re.search('discovery dialogue belongs to the lead-pm', L), 'regex not found: discovery dialogue belongs to the lead-pm'
+
+
+@then('the returned body contains a contiguous block directing the router, on PM-mode entry for the effectively-empty state, to open the product-discovery conversation as a general brainstorming conversation first, before committing to any single structured discovery skill')
+def _kz33_41f7ce92d19ce620_0(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert _kz33_re.search('general brainstorming conversation first[^.]*before committing to any single structured discovery skill', L), 'regex not found: general brainstorming conversation first[^.]*before committing to any single structured discovery skill'
+
+
+@then('that block states the selection of a structured discovery skill happens within the lead-pm main-session mode, driven by the lead-pm skill group, and is not a router-level triage step')
+def _kz33_41f7ce92d19ce620_1(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert 'lead-pm skill group' in L, 'missing phrase: lead-pm skill group'
+    assert _kz33_re.search('selection of a structured discovery skill[^.]*within the lead-pm main-session mode', L), 'regex not found: selection of a structured discovery skill[^.]*within the lead-pm main-session mode'
+    assert _kz33_re.search('not a router-level triage', L), 'regex not found: not a router-level triage'
+
+
+@then('that block does not require the router itself to enumerate or select from a named discovery-skill list, that responsibility having re-homed to the lead-pm mode')
+def _kz33_41f7ce92d19ce620_2(context: dict) -> None:
+    L = _kz33_primer_L(context)
+    assert 'jobs-to-be-done' not in L, 'must be absent: jobs-to-be-done'
+    assert 'problem-framing-canvas' not in L, 'must be absent: problem-framing-canvas'
+    assert 'opportunity-solution-tree' not in L, 'must be absent: opportunity-solution-tree'
+    assert 'customer-journey-map' not in L, 'must be absent: customer-journey-map'
+

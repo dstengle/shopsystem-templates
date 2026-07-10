@@ -1,11 +1,11 @@
 @bc_internal
 Feature: shopsystem-templates — CLI surface and role-discipline structure
 
-  @scenario_hash:fd6c7f023ca4f7f0 @bc:shopsystem-templates
-  Scenario: shop-templates list outputs the four expected role-template names, one per line, sorted
+  @scenario_hash:82c9306989c49724 @bc:shopsystem-templates
+  Scenario: shop-templates list outputs the five expected role-template names, one per line, sorted
     When I run "shop-templates list"
     Then the exit code is 0
-    And stdout is exactly the four names "bc-implementer", "bc-reviewer", "lead-architect", "lead-po", one per line in that sorted order
+    And stdout is exactly the five names "bc-implementer", "bc-reviewer", "lead-architect", "lead-pm", "lead-po", one per line in that sorted order
     And stderr is empty
 
   @scenario_hash:799a07345977a399 @bc:shopsystem-templates

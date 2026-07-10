@@ -1,5 +1,5 @@
 @bc_internal
-Feature: shopsystem-templates — lead-architect template PDR-033 additions
+Feature: shopsystem-templates — lead-architect template dispatch ordering and pre-shape feasibility probes (PDR-033)
 
 @scenario_hash:aae38de4789bdbcd @bc:shopsystem-templates
   Scenario: lead-architect template answers dispatch ordering to the latest ratified prioritization record, recording deviations with a reason

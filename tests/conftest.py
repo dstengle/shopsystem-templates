@@ -852,10 +852,13 @@ def then_content_directs_cite_enumeration_in_dispatch(context: dict) -> None:
 # ("scenario 10" / "scenario 14") within the dispatched feature file.
 
 _LEAD_PO_ACTIVITY_NAMES_FROM_SCENARIO_10 = (
-    "Interview stakeholder",
+    # PDR-033 amendment-a re-homed "Interview stakeholder" off the lead-po
+    # §3.2 set (interview/discovery now lives in the lead-pm main-session
+    # mode). "scenario 10" now resolves to the terminal 4-activity list
+    # pinned by 3cb958e1572e9532 / eaa4fc5b6bc7ed75.
     "Maintain product brief",
     "Write PDR for new functionality",
-    "Write Gherkin scenarios",
+    "Write Gherkin scenarios as requirements",
     "Respond to BC `clarify`",
 )
 

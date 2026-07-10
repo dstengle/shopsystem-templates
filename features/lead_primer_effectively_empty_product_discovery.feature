@@ -28,6 +28,15 @@ Feature: Lead primer drives effectively-empty detection and proactive product di
   # 6273ec4a54466f6f (router ENTERS lead-pm mode — the only interactive seat —
   # rather than conducting discovery at the router level).
 
+  @scenario_hash:6273ec4a54466f6f @bc:shopsystem-templates
+  Scenario: the canonical lead primer directs the router, on the effectively-empty state at session start or the idle-detection checkpoint, to enter the lead-pm main-session mode rather than declare idle
+    Given the "shop-templates" package ships a canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
+    When I ask the package for that canonical primer body for shop type "lead"
+    Then a non-empty template body is returned
+    And the returned body contains a contiguous block directing the router, on detecting the effectively-empty / no-product-defined state at session start or during the idle-detection checklist, to enter the lead-pm main-session mode and open a product-discovery conversation with the product authority rather than declaring idle
+    And that block states the discovery conversation is held in the lead-pm main-session mode — the only interactive seat — and is not delegated to a non-interactive discovery subagent
+    And that block states the router itself holds no product judgment; entering PM mode is the router's classification action, and the discovery dialogue belongs to the lead-pm mode
+
   @scenario_hash:bdba904f4f64f4a2
   Scenario: the canonical lead primer directs the router to re-fire the product-discovery prompt on each session while the effectively-empty state holds, and to suppress it only once the product surface is non-empty
     Given the "shop-templates" package ships a canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
@@ -45,3 +54,12 @@ Feature: Lead primer drives effectively-empty detection and proactive product di
   # selection into the lead-pm main-session mode (driven by the lead-pm skill
   # group); superseded by 41f7ce92d19ce620 (brainstorming opener, selection
   # NOT a router-level triage and NOT a router-enumerated list).
+
+  @scenario_hash:41f7ce92d19ce620 @bc:shopsystem-templates
+  Scenario: the canonical lead primer directs the router to open the product-discovery conversation as a brainstorming opener inside PM mode, with the structured discovery-skill selection re-homed to the lead-pm mode
+    Given the "shop-templates" package ships a canonical "CLAUDE.md" primer template for shop type "lead" through its public template-access surface
+    When I ask the package for that canonical primer body for shop type "lead"
+    Then a non-empty template body is returned
+    And the returned body contains a contiguous block directing the router, on PM-mode entry for the effectively-empty state, to open the product-discovery conversation as a general brainstorming conversation first, before committing to any single structured discovery skill
+    And that block states the selection of a structured discovery skill happens within the lead-pm main-session mode, driven by the lead-pm skill group, and is not a router-level triage step
+    And that block does not require the router itself to enumerate or select from a named discovery-skill list, that responsibility having re-homed to the lead-pm mode

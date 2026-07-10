@@ -29163,9 +29163,9 @@ def then_outcome_ownership_measurable_not_constraint(context: dict) -> None:
 # -----------------------------------------------------------------------
 
 _RETAINED_DISCIPLINES = (
-    "outcome ownership",
-    "strategy before backlog",
-    "specification as the contract",
+    "Outcome ownership",
+    "Strategy before backlog",
+    "Specification as the contract",
 )
 
 
@@ -29272,7 +29272,7 @@ def then_names_three_retained_disciplines_with_guidance(context: dict) -> None:
     )
     failures: list[str] = []
     for discipline in _RETAINED_DISCIPLINES:
-        assert discipline in lc, (
+        assert discipline.lower() in lc, (
             f"template must name retained discipline {discipline!r} "
             "(8417a90ab75a9c4f)"
         )

@@ -29004,3 +29004,399 @@ def then_sync_remote_stays_bc_beads(context: dict) -> None:
         f"sync.remote repo name must stay {expected_repo!r}; got {repo!r} in "
         f"{line!r}"
     )
+
+
+# =======================================================================
+# PDR-033 amendment-a — lead-po re-homing (lead-vfg9 + lead-kz33 + lead-j63q)
+#
+# Replaces the retired empowered-PM / four-discipline / product-general /
+# PM-skill-catalogue framing (25038c88, 1e49cc3a, 6465b30f, 32537a54) with
+# the terminal commitment-owner identity. Step defs for:
+#   - 627723b55dd2ed7e  outcome-ownership sufficiency criterion (commitment)
+#   - 8417a90ab75a9c4f  commitment-owner identity + three durable disciplines
+#   - 3cb958e1572e9532  post-PDR-033 activities, no Interview-stakeholder
+#   - eaa4fc5b6bc7ed75  every post-PDR-033 activity carries guidance
+# =======================================================================
+
+
+def _headings_naming(content: str, needle: str) -> list[str]:
+    """Return heading lines (## / ### / ####) whose text names `needle`
+    (case-insensitive)."""
+    out: list[str] = []
+    for line in content.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#") and needle.lower() in stripped.lower():
+            out.append(line.rstrip())
+    return out
+
+
+def _window_contains_all(content: str, anchor: str, needles: tuple[str, ...],
+                         span: int = 400) -> bool:
+    """True if some window of `span` chars starting at an occurrence of
+    `anchor` contains every needle (all lowercased)."""
+    lc = content.lower()
+    idx = lc.find(anchor.lower())
+    while idx != -1:
+        window = lc[idx: idx + span]
+        if all(n.lower() in window for n in needles):
+            return True
+        idx = lc.find(anchor.lower(), idx + 1)
+    return False
+
+
+# -----------------------------------------------------------------------
+# 627723b55dd2ed7e — outcome-ownership sufficiency criterion (commitment)
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the outcome ownership discipline block states a sufficiency criterion "
+    "that requires the commitment to name the outcome it targets as an "
+    "observable behavior change rather than an output"
+)
+def then_outcome_ownership_commitment_behavior_change(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "outcome ownership")
+    assert block, (
+        "lead-po template is missing an 'outcome ownership' discipline block "
+        "(627723b55dd2ed7e)"
+    )
+    lc = block.lower()
+    assert "sufficiency criterion" in lc, (
+        "outcome ownership block must state a sufficiency criterion "
+        "(627723b55dd2ed7e)"
+    )
+    assert "commitment" in lc, (
+        "outcome ownership sufficiency criterion must be scoped to the "
+        "commitment (627723b55dd2ed7e)"
+    )
+    assert "observable behavior change" in lc, (
+        "outcome ownership block must require the outcome as an observable "
+        "behavior change (627723b55dd2ed7e)"
+    )
+    assert "output" in lc, (
+        "outcome ownership block must contrast observable behavior change "
+        "with an output (627723b55dd2ed7e)"
+    )
+
+
+@then(
+    "the outcome ownership discipline block states that the shaped candidate "
+    "the lead-po consumes already carries the validated problem or "
+    "job-to-be-done, so the lead-po anchors the commitment on that candidate "
+    "rather than discovering the problem itself"
+)
+def then_outcome_ownership_shaped_candidate_anchor(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "outcome ownership")
+    lc = block.lower()
+    assert "shaped candidate" in lc, (
+        "outcome ownership block must name the shaped candidate the lead-po "
+        "consumes (627723b55dd2ed7e)"
+    )
+    assert "validated problem" in lc or "job-to-be-done" in lc or "jtbd" in lc, (
+        "outcome ownership block must state the shaped candidate carries the "
+        "validated problem or job-to-be-done (627723b55dd2ed7e)"
+    )
+    assert "anchor" in lc, (
+        "outcome ownership block must state the lead-po anchors the commitment "
+        "on the shaped candidate (627723b55dd2ed7e)"
+    )
+    assert "rather than discovering the problem" in lc, (
+        "outcome ownership block must state the lead-po anchors on the candidate "
+        "rather than discovering the problem itself (627723b55dd2ed7e)"
+    )
+
+
+@then(
+    "the content states that upstream problem discovery and selection — "
+    "choosing which problem is worth solving — is conducted in the lead-pm "
+    "main-session mode and is not a lead-po sufficiency criterion"
+)
+def then_upstream_discovery_rehomed_not_criterion(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "choosing which problem" in lc, (
+        "template must name choosing which problem is worth solving "
+        "(627723b55dd2ed7e)"
+    )
+    assert "problem discovery" in lc, (
+        "template must reference upstream problem discovery and selection "
+        "(627723b55dd2ed7e)"
+    )
+    assert _window_contains_all(
+        content, "choosing which problem",
+        ("lead-pm", "main-session"), span=500,
+    ) or _window_contains_all(
+        content, "upstream problem discovery",
+        ("lead-pm", "main-session"), span=500,
+    ), (
+        "template must state upstream problem discovery/selection is conducted "
+        "in the lead-pm main-session mode (627723b55dd2ed7e)"
+    )
+    assert "not a lead-po sufficiency criterion" in lc, (
+        "template must state upstream problem discovery/selection is not a "
+        "lead-po sufficiency criterion (627723b55dd2ed7e)"
+    )
+
+
+@then(
+    "the outcome ownership sufficiency criterion is expressed as a measurable "
+    'outcome rather than as a constraint ("don\'t crash", "use judgment")'
+)
+def then_outcome_ownership_measurable_not_constraint(context: dict) -> None:
+    content = context["template_content"]
+    block = _extract_discipline_block(content, "outcome ownership")
+    lc = block.lower()
+    assert "measurable outcome" in lc, (
+        "outcome ownership sufficiency criterion must be expressed as a "
+        "measurable outcome (627723b55dd2ed7e)"
+    )
+    assert "constraint" in lc, (
+        "outcome ownership block must contrast a measurable outcome with a "
+        "constraint (627723b55dd2ed7e)"
+    )
+
+
+# -----------------------------------------------------------------------
+# 8417a90ab75a9c4f — commitment-owner identity + three durable disciplines
+# -----------------------------------------------------------------------
+
+_RETAINED_DISCIPLINES = (
+    "outcome ownership",
+    "strategy before backlog",
+    "specification as the contract",
+)
+
+
+@given(
+    "PDR-033 re-homes problem discovery, shaping, and option facilitation "
+    "from the lead-po to the lead-pm main-session mode"
+)
+def given_pdr033_rehomes_discovery(context: dict) -> None:
+    # Premise-only Given; the re-homing is asserted by the Then steps against
+    # the rendered template. No setup state required.
+    context["pdr033_rehoming_premise"] = True
+
+
+@then(
+    "the content names a commitment-owner identity that owns the outcome the "
+    "commitment enables and receives a shaped candidate as its input, distinct "
+    "from an order-taker who transcribes a pre-formed request into scenarios"
+)
+def then_names_commitment_owner_identity(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "commitment-owner" in lc or "commitment owner" in lc, (
+        "lead-po template must name a commitment-owner identity "
+        "(8417a90ab75a9c4f)"
+    )
+    assert "owns the outcome" in lc, (
+        "commitment-owner identity must own the outcome the commitment enables "
+        "(8417a90ab75a9c4f)"
+    )
+    assert "shaped candidate" in lc, (
+        "commitment-owner identity must receive a shaped candidate as input "
+        "(8417a90ab75a9c4f)"
+    )
+    assert "order-taker" in lc or "order taker" in lc, (
+        "commitment-owner identity must be distinct from an order-taker "
+        "(8417a90ab75a9c4f)"
+    )
+    assert "transcribes" in lc and "pre-formed request" in lc, (
+        "the order-taker must be characterized as transcribing a pre-formed "
+        "request into scenarios (8417a90ab75a9c4f)"
+    )
+
+
+@then(
+    "the content states that the lead-po does not originate product direction "
+    "— problem discovery, shaping, and option facilitation are conducted in "
+    "the lead-pm main-session mode and the lead-po consumes their shaped "
+    "candidate"
+)
+def then_lead_po_does_not_originate_direction(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "does not originate product direction" in lc, (
+        "lead-po template must state the lead-po does not originate product "
+        "direction (8417a90ab75a9c4f)"
+    )
+    for token in ("problem discovery", "shaping", "option facilitation"):
+        assert token in lc, (
+            f"template must state {token!r} is conducted in the lead-pm mode "
+            "(8417a90ab75a9c4f)"
+        )
+    assert _window_contains_all(
+        content, "does not originate product direction",
+        ("lead-pm", "shaped candidate"), span=600,
+    ), (
+        "template must state discovery/shaping/option-facilitation are conducted "
+        "in the lead-pm main-session mode and the lead-po consumes their shaped "
+        "candidate (8417a90ab75a9c4f)"
+    )
+
+
+@then(
+    "the content states that this identity sharpens, and does not replace, the "
+    "existing COMMIT TO SPECIFICS posture"
+)
+def then_identity_sharpens_not_replaces_cts(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "sharpens" in lc, (
+        "template must state the commitment-owner identity sharpens the "
+        "COMMIT TO SPECIFICS posture (8417a90ab75a9c4f)"
+    )
+    assert "does not replace" in lc, (
+        "template must state the identity does not replace the COMMIT TO "
+        "SPECIFICS posture (8417a90ab75a9c4f)"
+    )
+    assert "commit to specifics" in lc, (
+        "template must name the COMMIT TO SPECIFICS posture (8417a90ab75a9c4f)"
+    )
+
+
+@then(
+    "the content names the durable disciplines the lead-po retains — outcome "
+    "ownership within the commitment, strategy before backlog, and "
+    "specification as the contract — each with at minimum one sentence of "
+    'guidance OR an explicit "guidance pending" marker (case-insensitive)'
+)
+def then_names_three_retained_disciplines_with_guidance(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "outcome ownership within the commitment" in lc, (
+        "template must name 'outcome ownership within the commitment' as a "
+        "retained discipline (8417a90ab75a9c4f)"
+    )
+    failures: list[str] = []
+    for discipline in _RETAINED_DISCIPLINES:
+        assert discipline in lc, (
+            f"template must name retained discipline {discipline!r} "
+            "(8417a90ab75a9c4f)"
+        )
+        ok, reason = _activity_block_satisfies_guidance(content, discipline)
+        if not ok:
+            failures.append(f"  - {discipline!r}: {reason}")
+    assert not failures, (
+        "retained disciplines without guidance or a 'guidance pending' marker "
+        "(8417a90ab75a9c4f):\n" + "\n".join(failures)
+    )
+
+
+@then(
+    "no retained discipline appears as a bare list item with neither guidance "
+    'nor a "guidance pending" marker'
+)
+def then_no_retained_discipline_bare_list(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    failures: list[str] = []
+    for discipline in _RETAINED_DISCIPLINES:
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not (stripped.startswith("- ") or stripped.startswith("* ")):
+                continue
+            payload = stripped[2:].strip().lower()
+            if payload != discipline:
+                continue
+            idx = lc.find(discipline)
+            window = lc[idx: idx + 240 + len(discipline)]
+            if "guidance pending" not in window:
+                failures.append(
+                    f"  - {discipline!r}: bare list item without guidance"
+                )
+    assert not failures, (
+        "retained disciplines appearing as bare list items (8417a90ab75a9c4f):\n"
+        + "\n".join(failures)
+    )
+
+
+# -----------------------------------------------------------------------
+# 3cb958e1572e9532 — post-PDR-033 activities, no Interview-stakeholder
+# -----------------------------------------------------------------------
+
+
+@then(
+    'the content does not present "Interview stakeholder" as a lead-po '
+    "activity, instead attributing interview and discovery to the lead-pm "
+    "main-session mode"
+)
+def then_no_interview_stakeholder_activity(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # "Interview stakeholder" must not appear as an activity heading.
+    offending = _headings_naming(content, "interview stakeholder")
+    assert not offending, (
+        "lead-po template must not present 'Interview stakeholder' as a "
+        f"lead-po activity heading; found: {offending!r} (3cb958e1572e9532)"
+    )
+    # And the bare activity phrase must not survive anywhere as a lead-po
+    # activity label.
+    assert "interview stakeholder" not in lc, (
+        "the re-homed 'Interview stakeholder' activity label must not appear "
+        "in the lead-po template (3cb958e1572e9532)"
+    )
+    # Interview and discovery must be attributed to the lead-pm mode.
+    assert "interview" in lc and "discovery" in lc, (
+        "template must reference interview and discovery when attributing them "
+        "to the lead-pm mode (3cb958e1572e9532)"
+    )
+    assert _window_contains_all(
+        content, "interview", ("lead-pm",), span=400,
+    ) or _window_contains_all(
+        content, "discovery", ("lead-pm", "interview"), span=400,
+    ), (
+        "template must attribute interview and discovery to the lead-pm "
+        "main-session mode (3cb958e1572e9532)"
+    )
+
+
+# -----------------------------------------------------------------------
+# eaa4fc5b6bc7ed75 — every post-PDR-033 activity carries guidance
+# -----------------------------------------------------------------------
+
+
+@given(
+    parsers.re(
+        r'^the post-PDR-033 PO activities (?P<activity_list>".+")$'
+    )
+)
+def given_post_pdr033_po_activity_list(activity_list: str, context: dict) -> None:
+    items = re.findall(r'"([^"]+)"', activity_list)
+    assert items, (
+        f"Given step parsed no activity names out of {activity_list!r} "
+        "(eaa4fc5b6bc7ed75)"
+    )
+    context["activity_list"] = items
+
+
+@then(
+    "no post-PDR-033 PO activity appears as a bare list item with neither "
+    'guidance nor a "guidance pending" marker'
+)
+def then_no_post_pdr033_activity_bare_list(context: dict) -> None:
+    content = context["template_content"]
+    activities = context["activity_list"]
+    lower = content.lower()
+    failures: list[str] = []
+    for activity in activities:
+        for line in content.splitlines():
+            stripped = line.strip()
+            if not (stripped.startswith("- ") or stripped.startswith("* ")):
+                continue
+            payload = stripped[2:].strip()
+            if payload != activity:
+                continue
+            idx = lower.find(activity.lower())
+            window = lower[idx: idx + 240 + len(activity)]
+            if "guidance pending" not in window:
+                failures.append(
+                    f"  - {activity!r}: bare list item without guidance "
+                    "or 'guidance pending' marker"
+                )
+    assert not failures, (
+        "post-PDR-033 PO activities appearing as bare list items "
+        "(eaa4fc5b6bc7ed75):\n" + "\n".join(failures)
+    )

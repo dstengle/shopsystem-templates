@@ -450,13 +450,15 @@ def _scenario_blocks(feature_text: str) -> list[tuple[str, str | None]]:
 
     block_text is the `Scenario:`/`Scenario Outline:` keyword line through the
     last step/Examples line, EXCLUDING the enclosing `Feature:` header line and
-    ALL `@`-prefixed tag lines (feature-level AND per-scenario). Because
-    `scenarios.hash.compute_scenario_hash` drops `@scenario_hash:` lines and the
-    canonical producer's per-scenario block reduces to the keyword line + steps
-    (its tag line — `@scenario_hash:… @bc:…` — is dropped whole), this
-    block_text canonicalizes byte-for-byte to what the ADR-019 producer hashes.
-    carried_hash is the block's `@scenario_hash:` value per the canonical
-    association, or None if the scenario carries no such tag.
+    ALL `@`-prefixed tag lines (feature-level AND per-scenario), with TRAILING
+    blank / `#`-comment lines trimmed (a comment after the last step belongs to
+    the following scenario/feature, not this block; comments embedded among the
+    steps are retained). Because `scenarios.hash.compute_scenario_hash` drops
+    `@scenario_hash:` lines and the canonical producer's per-scenario block
+    reduces to the keyword line + steps (its tag line — `@scenario_hash:… @bc:…`
+    — is dropped whole), this block_text canonicalizes byte-for-byte to what the
+    ADR-019 producer hashes. carried_hash is the block's `@scenario_hash:` value
+    per the canonical association, or None if the scenario carries no such tag.
 
     This is the tmpl-7ti fix (PIN 1 @scenario_hash:ea9c1bbd9be87d72): the prior
     home-grown delimitation accumulated every tag line into a `pending_tag`
@@ -492,6 +494,18 @@ def _scenario_blocks(feature_text: str) -> list[tuple[str, str | None]]:
 
     blocks: list[tuple[str, str | None]] = []
     for (carried, _title), lines in zip(carried_list, block_texts):
+        # Trim TRAILING blank / `#`-comment lines: a comment (or blank) after a
+        # scenario's last step is not part of that scenario's body — it belongs
+        # to the following scenario or feature. compute_scenario_hash already
+        # drops blank lines, but it does NOT drop `#` comment lines, so a
+        # trailing inter-scenario comment left in the block would perturb the
+        # recompute and diverge from the canonical producer. Comments EMBEDDED
+        # among the steps (followed by more step content) are retained — they
+        # are part of the canonical body the producer hashed.
+        while lines and (
+            not lines[-1].strip() or lines[-1].strip().startswith("#")
+        ):
+            lines = lines[:-1]
         blocks.append(("\n".join(lines), carried))
     return blocks
 

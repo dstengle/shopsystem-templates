@@ -164,6 +164,89 @@ def test_wrapper_agrees_with_build_scenario_payload_producer():
     )
 
 
+def test_trailing_inter_scenario_comment_is_not_folded_into_block():
+    """A `#` comment line AFTER a scenario's last step belongs to the following
+    scenario/feature, not the preceding block. compute_scenario_hash does NOT
+    drop `#` lines, so a trailing comment left in the block would perturb the
+    recompute; the blockifier must trim it (defect class alongside tmpl-7ti)."""
+    feature_text = (
+        "Feature: comment placement\n\n"
+        "  @scenario_hash:PH1 @bc:shopsystem-templates\n"
+        f"{_FIRST_BODY}\n"
+        "\n"
+        "  # A trailing inter-scenario comment that documents the NEXT block.\n"
+        "  # It must not be hashed into the first scenario's block.\n"
+        "\n"
+        "  @scenario_hash:PH2 @bc:shopsystem-templates\n"
+        f"{_SECOND_BODY}\n"
+    )
+    first_hash = _COMPUTE(_FIRST_BODY)
+    second_hash = _COMPUTE(_SECOND_BODY)
+    feature_text = feature_text.replace("PH1", first_hash).replace("PH2", second_hash)
+
+    blocks = bc_emit._scenario_blocks(feature_text)
+    assert [_COMPUTE(b) for b, _c in blocks] == [first_hash, second_hash]
+    for block_text, carried in blocks:
+        assert carried == _COMPUTE(block_text)
+
+
+def test_embedded_comment_between_keyword_and_steps_is_retained():
+    """A `#` comment EMBEDDED between the Scenario keyword and its first step is
+    part of the canonical body the producer hashed (corpus evidence:
+    cli_repours_skills_on_update.feature d8bebf440a3b3f59) and must be RETAINED
+    in the block — only TRAILING comments are trimmed."""
+    body_with_embedded = (
+        "  Scenario: a scenario documented by an embedded comment\n"
+        "    # this comment sits between the keyword and the first step\n"
+        "    # and is part of the canonical hashed body\n"
+        "    Given a precondition\n"
+        "    When acted upon\n"
+        "    Then an outcome"
+    )
+    embedded_hash = _COMPUTE(body_with_embedded)
+    feature_text = (
+        "Feature: embedded comment retention\n\n"
+        f"  @scenario_hash:{embedded_hash} @bc:shopsystem-templates\n"
+        f"{body_with_embedded}\n"
+    )
+    [(block_text, carried)] = bc_emit._scenario_blocks(feature_text)
+    assert carried == embedded_hash
+    assert _COMPUTE(block_text) == embedded_hash
+    assert "#" in block_text, "embedded comment must be retained in the block"
+
+
+def test_committed_corpus_recompute_agrees_with_canonical_producer():
+    """ACCEPTANCE regression (BC-proposed): the wrapper's blockifier scan AGREES
+    with the ADR-019 block-only canonical producer on THIS repo's committed
+    features/ corpus — every carried @scenario_hash reproduces via the wrapper's
+    own recompute. This pins that the fold-in / trailing-comment defects cannot
+    silently return, so the repo's own `bc-emit work-done` emit gate never
+    false-refuses on its committed corpus."""
+    features_dir = _BC_EMIT_SRC.parent.parent.parent / "features"
+    assert features_dir.is_dir(), features_dir
+    mismatches = []
+    checked = 0
+    for feature_file in sorted(features_dir.glob("*.feature")):
+        text = feature_file.read_text()
+        blocks = bc_emit._scenario_blocks(text)
+        # Carried association aligns one-to-one with the canonical splitter.
+        assert [c for _b, c in blocks] == [h for h, _t in iter_scenarios(text)], (
+            f"carried association misaligned in {feature_file.name}"
+        )
+        for block_text, carried in blocks:
+            if carried is None:
+                continue
+            checked += 1
+            recompute = _COMPUTE(block_text)
+            if recompute != carried:
+                mismatches.append((feature_file.name, carried, recompute))
+    assert checked > 0, "expected the committed corpus to carry tagged scenarios"
+    assert not mismatches, (
+        "wrapper blockifier diverges from the canonical producer on the "
+        f"committed corpus: {mismatches}"
+    )
+
+
 def test_check_scenario_hashes_passes_in_scope_first_in_file_feature_tagged():
     """PIN 1 + PIN 2 end-to-end: an in-scope first-in-file scenario under a
     feature-tagged Feature header PASSES Check 3 without refusing — the exact

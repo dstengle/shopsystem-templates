@@ -441,44 +441,58 @@ def fetch_origin_main_feature_texts(repo: Path) -> dict[str, str]:
 def _scenario_blocks(feature_text: str) -> list[tuple[str, str | None]]:
     """Split a feature file into (block_text, carried_hash) per scenario.
 
-    block_text is the scenario block (the `Scenario:` line and its steps,
-    plus the tag line) WITHOUT the enclosing `Feature:` header line — the
-    exact text compute_scenario_hash canonicalizes (it discards the
-    @scenario_hash: tag line itself). carried_hash is the value of the
-    block's `@scenario_hash:` tag, or None if the block carries no such tag.
+    Block-delimitation is DELEGATED to the canonical shopsystem-scenarios
+    splitter (ADR-019) rather than re-implemented here: the carried
+    `@scenario_hash` association comes from `scenarios.feature.iter_scenarios`
+    — the exact splitter `scenarios list` uses — and the scenario boundary is
+    the same `scenarios.feature._SCENARIO_RE` keyword match `iter_scenarios`
+    fires on, so this scan can never drift from the canonical producer.
+
+    block_text is the `Scenario:`/`Scenario Outline:` keyword line through the
+    last step/Examples line, EXCLUDING the enclosing `Feature:` header line and
+    ALL `@`-prefixed tag lines (feature-level AND per-scenario). Because
+    `scenarios.hash.compute_scenario_hash` drops `@scenario_hash:` lines and the
+    canonical producer's per-scenario block reduces to the keyword line + steps
+    (its tag line — `@scenario_hash:… @bc:…` — is dropped whole), this
+    block_text canonicalizes byte-for-byte to what the ADR-019 producer hashes.
+    carried_hash is the block's `@scenario_hash:` value per the canonical
+    association, or None if the scenario carries no such tag.
+
+    This is the tmpl-7ti fix (PIN 1 @scenario_hash:ea9c1bbd9be87d72): the prior
+    home-grown delimitation accumulated every tag line into a `pending_tag`
+    buffer and never cleared it at the `Feature:` line, so the feature-level
+    `@`-tags that precede `Feature:` (e.g. `@bc:… @origin:…`) folded INTO the
+    first-in-file scenario's block. Those tag lines survive
+    `compute_scenario_hash` (it drops only `@scenario_hash:` lines), so the
+    wrapper recomputed a hash divergent from the canonical producer and
+    false-refused valid emits as STALE. Feeding the block-only keyword-through-
+    steps text — with no tags at all — removes that divergence.
     """
-    lines = feature_text.splitlines()
-    blocks: list[tuple[str, str | None]] = []
+    from scenarios.feature import _SCENARIO_RE, iter_scenarios
+
+    # Canonical carried-hash + title association (the scenarios-BC splitter).
+    carried_list = list(iter_scenarios(feature_text))
+
+    # Block texts: the keyword line through its steps/Examples. The `Feature:`
+    # header and EVERY tag line are excluded, so nothing folds into a block. The
+    # boundary is the SAME `_SCENARIO_RE` keyword match iter_scenarios fires on,
+    # so block_texts aligns one-to-one, in file order, with carried_list.
+    block_texts: list[list[str]] = []
     current: list[str] | None = None
-
-    def _flush() -> None:
-        if current is None:
-            return
-        text = "\n".join(current)
-        m = re.search(r"@scenario_hash:([0-9a-fA-F]+)", text)
-        carried = m.group(1) if m else None
-        blocks.append((text, carried))
-
-    pending_tag: list[str] = []
-    for line in lines:
+    for line in feature_text.splitlines():
+        if _SCENARIO_RE.match(line):
+            current = [line]
+            block_texts.append(current)
+            continue
         stripped = line.strip()
-        if stripped.startswith("Feature:"):
-            # Feature header is never part of any block.
-            continue
-        if stripped.startswith("@"):
-            # A tag line; it belongs to the scenario that follows it.
-            pending_tag.append(line)
-            continue
-        if stripped.startswith("Scenario:"):
-            _flush()
-            current = list(pending_tag) + [line]
-            pending_tag = []
+        if stripped.startswith("Feature:") or stripped.startswith("@"):
             continue
         if current is not None:
             current.append(line)
-        # lines before the first scenario (blank etc.) are ignored
-        pending_tag = pending_tag if not stripped else pending_tag
-    _flush()
+
+    blocks: list[tuple[str, str | None]] = []
+    for (carried, _title), lines in zip(carried_list, block_texts):
+        blocks.append(("\n".join(lines), carried))
     return blocks
 
 

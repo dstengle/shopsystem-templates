@@ -31,10 +31,10 @@ Decide per behavior the assigned scenario(s) require:
   stragglers with `bd close --reason "<reason>"` naming the surviving plan.
   **Never leave two sub-issues decomposing one behavior.**
 
-**Definition — "already planned":** a RED ("write the failing test for
-`<behavior>`") AND its GREEN ("implement `<behavior>`") already exist under
-this `work_id`, matched on the behavior the title names. If both legs are
-present and consistent, the behavior is planned; do not create a second pair.
+**Definition — "already planned":** a RED (titled `test(red): <behavior>`)
+AND its GREEN (titled `feat(green): <behavior>`) already exist under this
+`work_id`, matched on the behavior the title names. If both legs are present
+and consistent, the behavior is planned; do not create a second pair.
 
 ## Plan Structure
 
@@ -43,12 +43,12 @@ present and consistent, the behavior is planned; do not create a second pair.
 For each discrete behavior that must be built to make the assigned scenario(s)
 pass, create **two** bd sub-issues of the lead bead:
 
-1. **RED sub-issue** — "write the failing test for `<behavior>`"
+1. **RED sub-issue** — titled `test(red): <behavior>`
    - This sub-issue is complete when the failing test is committed as
      `test(red): <behavior>` and the test suite confirms the test fails for
      the right reason.
 
-2. **GREEN sub-issue** — "implement `<behavior>`"
+2. **GREEN sub-issue** — titled `feat(green): <behavior>`
    - This sub-issue is complete when the implementation is committed as
      `feat(green): <behavior>` and the test is passing.
 
@@ -63,9 +63,18 @@ This dependency DAG is the enforcement point for test-first order. The router
 reads it via `bd ready` to know which sub-issues are unblocked and can be
 dispatched.
 
-**Naming convention:**
-- RED: "write the failing test for <behavior>" — e.g. "write the failing test for empty email rejection"
-- GREEN: "implement <behavior>" — e.g. "implement empty email rejection"
+**Naming convention (MANDATORY — one RED vocabulary across titles AND commits):**
+- **RED sub-issue titles MUST use the `test(red): <behavior>` form** — e.g.
+  `test(red): empty email rejection`. This matches the RED **commit** subject
+  (`test(red): <behavior>`) and the single canonical `test(red)` token that
+  `_subissue_is_red` (`src/shop_templates/bc_emit.py`) recognizes and that
+  work-done-gate Check 5 (`@scenario_hash:488175f45c00bdc9`) pins for RED
+  commits. Do NOT title a RED sub-issue with a bare `RED:` prefix or a
+  prose "write the failing test for <behavior>" form — the detector
+  false-NEGATIVES those, false-refusing the Check-4 RED-existence
+  precondition at `work_done` emission.
+- **GREEN sub-issue titles use the `feat(green): <behavior>` form** — e.g.
+  `feat(green): empty email rejection` — matching the GREEN commit subject.
 - GREEN's description: note which RED sub-issue it unblocks from, and which assigned scenario(s) it serves.
 
 ### BDD Outer Loop Preservation
@@ -105,12 +114,12 @@ bd show <work_id>
 # Partial/duplicate → reconcile in place (add the missing leg, or
 #   `bd close <straggler> --reason "duplicate of <surviving_id>"`).
 
-# Create the RED sub-issue
-bd create "write the failing test for <behavior>" --parent <work_id>
+# Create the RED sub-issue — title MUST use the canonical test(red): form
+bd create "test(red): <behavior>" --parent <work_id>
 # → prints <red_id>
 
-# Create the GREEN sub-issue
-bd create "implement <behavior>" --parent <work_id>
+# Create the GREEN sub-issue — title uses the feat(green): form
+bd create "feat(green): <behavior>" --parent <work_id>
 # → prints <green_id>
 
 # Add RED→GREEN dependency: GREEN waits for RED
@@ -166,7 +175,7 @@ digraph bdd_plan {
 ## Rules
 
 1. **No plan document.** Do not create a PLAN.md, TODO.md, or any markdown planning artifact. The bd registry is the single source of truth for decomposition.
-2. **Two sub-issues per behavior.** Every behavior gets one RED ("write the failing test for <behavior>") and one GREEN ("implement <behavior>") sub-issue, with `bd dep add <green> <red>`.
+2. **Two sub-issues per behavior.** Every behavior gets one RED (titled `test(red): <behavior>`) and one GREEN (titled `feat(green): <behavior>`) sub-issue, with `bd dep add <green> <red>`. RED sub-issue titles MUST use the `test(red): <behavior>` form so bead titles converge with the RED commit vocabulary the `_subissue_is_red` detector / Check 5 canonical recognizes.
 3. **Sub-issues only.** Do not use `TodoWrite`, inline checklists, or scratch notes for tracking. If it's work, it's a bead.
 4. **Close sub-issues promptly.** Close each sub-issue when its TDD phase is complete. Do not batch-close at the end.
 5. **The outer loop is immutable.** The assigned scenario(s) are fixed. You build to them; you do not negotiate them during implementation.

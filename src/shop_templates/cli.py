@@ -503,6 +503,137 @@ def _pour_skills(target: Path, iterator=iter_skill_files) -> None:
         dest.write_bytes(body)
 
 
+# -----------------------------------------------------------------------
+# The .fabro/ fabro-engage projection (ADR-051, lead-7a8v / tmpl-nyg).
+#
+# A shop-templates pour emits a `.fabro/` projection alongside `.claude/`,
+# out of the SAME pour. `.fabro/` is the fabro-engage realization of the BC
+# Implementer->Reviewer work-loop, in two layers:
+#
+#   1. A STATIC ADR-051 topology skeleton — the `workflow.fabro` graph (native
+#      `script=` gate nodes + judgment agents), `workflow.toml`, `project.toml`
+#      and the `vaults/default` scaffold — poured VERBATIM (byte-for-byte) from
+#      the package asset `templates/fabro/`. It is captured, not generated from
+#      prose, so the graph shape / gate wiring / ADR-051 invariants survive the
+#      pour intact (emit_r sole gated work_done(complete) emitter on the success
+#      path; every fallible non-terminal node carries an unconditional
+#      outcome=failed failsafe edge; vaults hold only __PLACEHOLDER__, ADR-049).
+#
+#   2. The agent-node bodies under `.fabro/nodes/`, GENERATED at pour time by
+#      inlining the UNCHANGED role-prompt / skill Markdown from the SINGLE
+#      canonical source (the same `templates/bc-implementer.md` / `bc-reviewer.md`
+#      role prompts and `templates/skills/*/SKILL.md` bodies `.claude/` pours).
+#      A role-prompt or skill edit therefore changes only that one source and
+#      re-pours into BOTH the `.claude/` and `.fabro/` projections.
+#
+# The generation is DETERMINISTIC BY CONSTRUCTION — sorted iteration, no
+# timestamps, no randomness — so two pours over the identical source yield a
+# byte-identical `.fabro/` (a committed projection equals a fresh re-pour, the
+# ADR-019 no-drift property).
+# -----------------------------------------------------------------------
+
+_FABRO_PKG = "shop_templates.templates.fabro"
+
+# Each generated `.fabro/nodes/<name>.md` inlines the body of its ONE canonical
+# source UNCHANGED. ("role", <template-name>) reads `templates/<name>.md`;
+# ("skill", <skill-dir>) reads `templates/skills/<dir>/SKILL.md`. The map is the
+# authoritative node<->source correspondence and is iterated in sorted order for
+# determinism. It carries exactly the agent-node ports the workflow.fabro graph
+# references via `prompt_file="nodes/<name>.md"`.
+_FABRO_NODE_SOURCES: dict[str, tuple[str, str]] = {
+    "bc-implementer": ("role", "bc-implementer"),
+    "bc-reviewer": ("role", "bc-reviewer"),
+    "bc-router": ("skill", "bc-router"),
+    "bc-review": ("skill", "bc-review"),
+    "bc-sufficiency-check": ("skill", "bc-sufficiency-check"),
+    "work-done-gate": ("skill", "work-done-gate"),
+    "using-git-worktrees": ("skill", "using-git-worktrees"),
+    "subagent-driven-development": ("skill", "subagent-driven-development"),
+    "test-driven-development": ("skill", "test-driven-development"),
+    "writing-plans-bdd": ("skill", "writing-plans-bdd"),
+    "integrating-to-main": ("skill", "integrating-to-main"),
+}
+
+
+def iter_fabro_asset_files():
+    """Yield (relative_posix_path, content_bytes) for every file under the
+    static `.fabro/` skeleton package-data tree, recursively. Relative path
+    rooted at templates/fabro/ (e.g. "workflow.fabro",
+    "vaults/default/secrets.json"). Served from importlib.resources package
+    data — never read from a filesystem path under the product working
+    directory. Mirrors iter_skill_files()."""
+    root = files(_FABRO_PKG)
+
+    def _walk(node, prefix):
+        for child in node.iterdir():
+            rel = child.name if prefix == "" else f"{prefix}/{child.name}"
+            if child.is_dir():
+                yield from _walk(child, rel)
+            elif child.is_file():
+                yield rel, child.read_bytes()
+
+    yield from _walk(root, "")
+
+
+def _fabro_canonical_node_body(kind: str, source_name: str) -> str:
+    """Return the UNCHANGED canonical Markdown body a `.fabro/nodes/` node
+    inlines: the role-prompt template (`kind == "role"`) or the skill SKILL.md
+    (`kind == "skill"`), read from the SAME package data `.claude/` pours."""
+    if kind == "role":
+        body = _read_template(source_name)
+        if body is None:  # pragma: no cover — canonical set is fixed
+            raise ValueError(f"unknown fabro node role source {source_name!r}")
+        return body
+    return (files(_SKILLS_PKG) / source_name / "SKILL.md").read_text()
+
+
+def _generate_fabro_node_body(node_name: str, kind: str, source_name: str) -> str:
+    """Generate a `.fabro/nodes/<node_name>.md` body by inlining the UNCHANGED
+    canonical source, prefixed with a fixed (timestamp-free, deterministic)
+    provenance header naming the single source. The canonical body is emitted
+    byte-for-byte after the header so a source edit re-pours here verbatim."""
+    source_rel = (
+        f"templates/{source_name}.md"
+        if kind == "role"
+        else f"templates/skills/{source_name}/SKILL.md"
+    )
+    header = (
+        f"<!-- GENERATED fabro node body — poured by shop-templates from the\n"
+        f"     single canonical source (ADR-051). DO NOT EDIT this file: edit\n"
+        f"     the canonical source and re-pour so both the .claude/ and .fabro/\n"
+        f"     projections stay in lock-step.\n"
+        f"       node:   {node_name}\n"
+        f"       source: {source_rel}\n"
+        f"-->\n\n"
+    )
+    return header + _fabro_canonical_node_body(kind, source_name)
+
+
+def _pour_fabro(target: Path) -> None:
+    """Emit the `.fabro/` fabro-engage projection (ADR-051) into <target>/.fabro/.
+
+    Layer 1 — the static topology skeleton — is poured VERBATIM (write_bytes)
+    from the `templates/fabro/` package asset. Layer 2 — the agent-node bodies
+    under `.fabro/nodes/` — is GENERATED by inlining the unchanged canonical
+    role-prompt / skill Markdown. Both layers iterate in SORTED order and emit no
+    timestamp or random content, so the projection is deterministic by
+    construction (byte-identical across re-pours)."""
+    fabro_root = target / ".fabro"
+    # Layer 1: static skeleton, byte-for-byte, sorted for determinism.
+    for rel, body in sorted(iter_fabro_asset_files()):
+        dest = fabro_root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+    # Layer 2: generated node bodies (inlined canonical source), sorted.
+    nodes_root = fabro_root / "nodes"
+    nodes_root.mkdir(parents=True, exist_ok=True)
+    for node_name in sorted(_FABRO_NODE_SOURCES):
+        kind, source_name = _FABRO_NODE_SOURCES[node_name]
+        (nodes_root / f"{node_name}.md").write_text(
+            _generate_fabro_node_body(node_name, kind, source_name)
+        )
+
+
 _PROVENANCE_FILE = ".provenance"
 
 
@@ -1343,6 +1474,14 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     # subtrees and never mix. (lead-5mr5, supersedes "lead shops pour no
     # skills".)
     _pour_skills(target, _skill_iterator_for(shop_type))
+
+    # Emit the .fabro/ fabro-engage projection (ADR-051, lead-7a8v) alongside
+    # .claude/, out of this SAME pour. The static topology skeleton is poured
+    # verbatim from the templates/fabro/ package asset; the .fabro/nodes/ bodies
+    # are generated by inlining the unchanged canonical role-prompt / skill
+    # Markdown (the single source .claude/ also pours), so one source edit
+    # re-pours into both projections. Deterministic by construction.
+    _pour_fabro(target)
 
     # Lead-shop ops scaffolding (PDR-003 path F — shop-owned). For a
     # "lead" shop, render the converged five-file ops set (compose.yaml,

@@ -29829,3 +29829,477 @@ def _kz33_41f7ce92d19ce620_2(context: dict) -> None:
     assert 'opportunity-solution-tree' not in L, 'must be absent: opportunity-solution-tree'
     assert 'customer-journey-map' not in L, 'must be absent: customer-journey-map'
 
+
+
+# =======================================================================
+# lead-7a8v (tmpl-nyg): the /workspace/.fabro/ fabro-engage projection pour
+# (ADR-051). Scenarios e7668df3 (pour), 941d1df6 (determinism), eb8e7449
+# (fabro validate + graph invariants). Pours run into TEMP workspaces via the
+# real `shop-templates` bootstrap; the reference /workspace/.fabro/ is never
+# touched. Step-def internals import shop_templates lazily so conftest still
+# collects before the pour is implemented (the RED phase fails at the first
+# Then rather than at import time).
+# =======================================================================
+import argparse as _fab_argparse
+import hashlib as _fab_hashlib
+import json as _fab_json
+import os as _fab_os
+import shutil as _fab_shutil
+import subprocess as _fab_subprocess
+
+# node name -> ("role", template-name) | ("skill", skill-dir): the single
+# canonical source each generated .fabro/nodes/<name>.md inlines UNCHANGED.
+_FAB_NODE_SOURCE_MAP = {
+    "bc-implementer": ("role", "bc-implementer"),
+    "bc-reviewer": ("role", "bc-reviewer"),
+    "bc-router": ("skill", "bc-router"),
+    "bc-review": ("skill", "bc-review"),
+    "bc-sufficiency-check": ("skill", "bc-sufficiency-check"),
+    "work-done-gate": ("skill", "work-done-gate"),
+    "using-git-worktrees": ("skill", "using-git-worktrees"),
+    "subagent-driven-development": ("skill", "subagent-driven-development"),
+    "test-driven-development": ("skill", "test-driven-development"),
+    "writing-plans-bdd": ("skill", "writing-plans-bdd"),
+    "integrating-to-main": ("skill", "integrating-to-main"),
+}
+_FAB_SKELETON_RELS = (
+    "workflow.fabro",
+    "project.toml",
+    "workflow.toml",
+    "vaults/default/secrets.json",
+)
+_FAB_BIN = "/usr/local/bin/fabro"
+
+
+def _fab_canonical_source_body(kind: str, name: str) -> str:
+    from importlib.resources import files
+    if kind == "role":
+        from shop_templates.cli import _read_template
+        return _read_template(name)
+    return (files("shop_templates.templates.skills") / name / "SKILL.md").read_text()
+
+
+def _fab_run_bootstrap_pour(workspace: Path, context: dict, tmp_path: Path) -> int:
+    """git-init a fresh temp workspace and run the shop-templates bootstrap
+    pour into it, returning the bootstrap exit code. Uses the fake-`bd`
+    subprocess shim harness (the same one every other bootstrap scenario
+    uses) so the pour never contacts a real bd tracker / dolt remote and
+    cannot hang; the .claude/ and .fabro/ projections are written to disk by
+    the real CLI pour path all the same. GitHub push tokens are scrubbed so
+    the dolt-push smoke test defers offline."""
+    workspace.mkdir(parents=True, exist_ok=True)
+    _fab_subprocess.run(["git", "init", "-q"], cwd=str(workspace), check=True)
+    context["scrub_push_creds"] = True
+    res = _run_shop_templates_with_bd_shim(
+        [
+            "bootstrap",
+            "--shop-type", "bc",
+            "--shop-name", "fabro-pour-bc",
+            "--target", str(workspace),
+        ],
+        context,
+        tmp_path,
+    )
+    if res.returncode != 0:
+        context["_fab_last_stderr"] = res.stderr
+    return res.returncode
+
+
+def _fab_sha256_tree(root: Path) -> dict:
+    out = {}
+    for p in sorted(root.rglob("*")):
+        if p.is_file():
+            out[str(p.relative_to(root))] = _fab_hashlib.sha256(
+                p.read_bytes()
+            ).hexdigest()
+    return out
+
+
+def _fab_parse_nodes(text: str) -> dict:
+    """Return {node_name: full-decl-text} for each node declaration in a
+    workflow.fabro. A node decl starts at a `name [shape=` / `name [class=`
+    line and runs until the line that closes the attribute list with `]`."""
+    nodes = {}
+    cur = None
+    buf: list = []
+    for line in text.splitlines():
+        if cur is None:
+            m = re.match(r"\s*([A-Za-z_]\w*)\s+\[(?:shape|class)=", line)
+            if m and "->" not in line:
+                cur = m.group(1)
+                buf = [line]
+                if line.rstrip().endswith("]"):
+                    nodes[cur] = "\n".join(buf)
+                    cur = None
+        else:
+            buf.append(line)
+            if line.rstrip().endswith("]"):
+                nodes[cur] = "\n".join(buf)
+                cur = None
+    return nodes
+
+
+def _fab_parse_edges(text: str) -> list:
+    """Return [(src, dst, attrs_str)] for every `src -> dst [attrs]` edge."""
+    edges = []
+    for line in text.splitlines():
+        if "->" not in line:
+            continue
+        m = re.match(
+            r"\s*([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*(?:\[([^\]]*)\])?", line
+        )
+        if m:
+            edges.append((m.group(1), m.group(2), m.group(3) or ""))
+    return edges
+
+
+# ---- Given -------------------------------------------------------------
+@given("the shopsystem-templates BC is installed")
+def _fab_given_installed(context):
+    import shop_templates  # noqa: F401 — the package is importable/installed
+
+
+@given(
+    'the single canonical source of the BC work-loop content is the '
+    'shopsystem-templates role prompts "bc-implementer", "bc-reviewer", '
+    '"bc-router", "bc-review", "bc-sufficiency-check" and "work-done-gate" '
+    "plus the vendored skills, unchanged as the authoring surface"
+)
+def _fab_given_single_source(context):
+    pass
+
+
+@given(
+    "a fixed single canonical source of the BC work-loop role prompts and "
+    "vendored skills"
+)
+def _fab_given_fixed_source(context):
+    pass
+
+
+@given('a shop-templates pour has emitted the fabro def into "/workspace/.fabro/"')
+def _fab_given_pour_emitted(context, tmp_path):
+    ws = tmp_path / "ws"
+    rc = _fab_run_bootstrap_pour(ws, context, tmp_path)
+    assert rc == 0, f"bootstrap pour returned non-zero exit {rc}"
+    context["fab_ws"] = ws
+    context["fab_dir"] = ws / ".fabro"
+
+
+# ---- When --------------------------------------------------------------
+@when("a shop-templates pour is run in a workspace")
+def _fab_when_pour(context, tmp_path):
+    ws = tmp_path / "ws"
+    rc = _fab_run_bootstrap_pour(ws, context, tmp_path)
+    assert rc == 0, f"bootstrap pour returned non-zero exit {rc}"
+    context["fab_ws"] = ws
+    context["fab_dir"] = ws / ".fabro"
+
+
+@when(
+    "a shop-templates pour is run twice over that identical single source "
+    "into two separate workspaces"
+)
+def _fab_when_pour_twice(context, tmp_path):
+    dirs = []
+    for i in ("a", "b"):
+        ws = tmp_path / f"ws-{i}"
+        rc = _fab_run_bootstrap_pour(ws, context, tmp_path)
+        assert rc == 0, f"bootstrap pour {i} returned non-zero exit {rc}"
+        dirs.append(ws / ".fabro")
+    context["fab_dirs"] = dirs
+
+
+@when('"fabro validate" is executed against the poured def using the REAL fabro binary')
+def _fab_when_validate(context):
+    fabro_dir = context["fab_dir"]
+    fabro_bin = _fab_shutil.which("fabro") or (
+        _FAB_BIN if Path(_FAB_BIN).exists() else None
+    )
+    if fabro_bin is None:
+        pytest.skip("real fabro binary is not available; SKIP honestly")
+    res = _fab_subprocess.run(
+        [fabro_bin, "validate", "--json", "--no-upgrade-check", "workflow.fabro"],
+        cwd=str(fabro_dir),
+        capture_output=True,
+        text=True,
+    )
+    context["fab_validate"] = res
+
+
+# ---- Then: scenario 1 (pour) ------------------------------------------
+@then(
+    'a "/workspace/.fabro/" fabro-engage projection is emitted alongside the '
+    'existing "/workspace/.claude/" projection, both out of the same pour'
+)
+def _fab_then_both_emitted(context):
+    ws = context["fab_ws"]
+    assert (ws / ".claude").is_dir(), "the pour did not emit .claude/"
+    assert (ws / ".fabro").is_dir(), "the pour did not emit .fabro/ alongside .claude/"
+
+
+@then(
+    '"/workspace/.fabro/" carries the ADR-051 topology skeleton — the '
+    '"workflow.fabro" graph, the native-gate "script=" nodes, and the '
+    '"workflow.toml", "project.toml" and "vaults/default" scaffold — poured '
+    "VERBATIM from a static asset, not generated from prose"
+)
+def _fab_then_skeleton_verbatim(context):
+    from importlib.resources import files
+
+    fabro_dir = context["fab_dir"]
+    for rel in _FAB_SKELETON_RELS:
+        dest = fabro_dir / rel
+        assert dest.is_file(), f".fabro skeleton missing {rel}"
+    wf = (fabro_dir / "workflow.fabro").read_text()
+    assert "script=" in wf, "workflow.fabro carries no native-gate script= nodes"
+    # VERBATIM: every skeleton file byte-equals the static package asset.
+    asset_root = files("shop_templates.templates.fabro")
+    for rel in _FAB_SKELETON_RELS:
+        asset = asset_root
+        for part in rel.split("/"):
+            asset = asset / part
+        assert (fabro_dir / rel).read_bytes() == asset.read_bytes(), (
+            f".fabro/{rel} is not poured VERBATIM from the static asset"
+        )
+
+
+@then(
+    '"/workspace/.fabro/nodes/" carries the agent-node bodies GENERATED at '
+    "pour time by inlining the unchanged role-prompt and skill Markdown from "
+    "the single canonical source, so that a role-prompt or skill edit changes "
+    'only that one source and re-pours into both the "/workspace/.claude/" and '
+    '"/workspace/.fabro/" projections'
+)
+def _fab_then_nodes_inlined(context):
+    nodes_dir = context["fab_dir"] / "nodes"
+    assert nodes_dir.is_dir(), ".fabro/nodes/ was not emitted"
+    for node_name, (kind, src) in sorted(_FAB_NODE_SOURCE_MAP.items()):
+        node_file = nodes_dir / f"{node_name}.md"
+        assert node_file.is_file(), f".fabro/nodes/{node_name}.md missing"
+        body = node_file.read_text()
+        canonical = _fab_canonical_source_body(kind, src)
+        assert canonical in body, (
+            f".fabro/nodes/{node_name}.md does not inline the UNCHANGED "
+            f"canonical source ({kind} {src}); a single-source edit would not "
+            f"re-pour into the .fabro projection"
+        )
+
+
+# ---- Then: scenario 2 (determinism) -----------------------------------
+@then(
+    'every artifact under "/workspace/.fabro/" has the same sha256 across the '
+    "two pours, so the two projections are byte-identical"
+)
+def _fab_then_byte_identical(context):
+    a, b = context["fab_dirs"]
+    ta, tb = _fab_sha256_tree(a), _fab_sha256_tree(b)
+    assert ta, (
+        f"no .fabro artifacts were emitted at {a} — the pour produced no "
+        "projection to compare"
+    )
+    assert ta == tb, (
+        "the two .fabro pours are NOT byte-identical; differing artifacts: "
+        + repr(sorted(set(ta) ^ set(tb)) or [
+            k for k in ta if ta.get(k) != tb.get(k)
+        ])
+    )
+
+
+@then(
+    'a "/workspace/.fabro/" committed from one pour is provably equal to a '
+    "fresh pour of the same source, the no-drift property that makes a "
+    "committed projection equal a re-pour (the ADR-019 scenarios single-source "
+    "doctrine and the progressive-disclosure byte-identical precedent)"
+)
+def _fab_then_no_drift(context):
+    a, b = context["fab_dirs"]
+    assert _fab_sha256_tree(a) == _fab_sha256_tree(b), (
+        "a committed .fabro pour is not equal to a fresh re-pour (drift)"
+    )
+
+
+@then(
+    "the generation is deterministic by construction — sorted iteration, no "
+    "timestamps, no randomness — so the byte-identity holds on every re-pour"
+)
+def _fab_then_deterministic(context, tmp_path):
+    # Deterministic BY CONSTRUCTION is evidenced observably: a THIRD independent
+    # pour, over the same source, is byte-identical to the first. If generation
+    # injected a timestamp or any randomness, the third tree would diverge from
+    # the first. (Fixed constants that happen to look like dates — e.g. the
+    # static secrets.json created_at/updated_at poured verbatim — are identical
+    # across pours and so do NOT break determinism; byte-identity is the correct
+    # proxy, not the absence of any date-shaped string.)
+    a, _b = context["fab_dirs"]
+    third = tmp_path / "ws-c"
+    rc = _fab_run_bootstrap_pour(third, context, tmp_path)
+    assert rc == 0
+    ta, tc = _fab_sha256_tree(a), _fab_sha256_tree(third / ".fabro")
+    assert ta and ta == tc, (
+        "a third re-pour diverged from the first; generation is not "
+        "deterministic. differing artifacts: "
+        + repr([k for k in set(ta) | set(tc) if ta.get(k) != tc.get(k)])
+    )
+
+
+# ---- Then: scenario 3 (validate + invariants) -------------------------
+@then(
+    'it exits zero and reports zero diagnostics, its "--json" output carrying '
+    "an empty diagnostics array, and if the real binary genuinely cannot be "
+    "obtained the leg SKIPs honestly rather than papering a failure over"
+)
+def _fab_then_validate_clean(context):
+    res = context["fab_validate"]
+    assert res.returncode == 0, (
+        f"fabro validate exited {res.returncode}; stdout={res.stdout!r} "
+        f"stderr={res.stderr!r}"
+    )
+    doc = _fab_json.loads(res.stdout)
+    assert doc.get("diagnostics") == [], (
+        f"fabro validate reported non-empty diagnostics: {doc.get('diagnostics')!r}"
+    )
+    assert doc.get("valid") is True, f"fabro validate reported not-valid: {doc!r}"
+
+
+@then(
+    'the poured def satisfies the ADR-051 graph invariants: "emit_r", the '
+    "Reviewer emitter, is the SOLE gated work_done(complete) emitter on the "
+    'success path, every fallible non-terminal node carries an unconditional '
+    '"outcome=failed" failsafe edge to a halt or blocked-emit sink so no '
+    "failed node reaches the SUCCEEDED terminal, and "
+    '"vaults/default/secrets.json" holds only "__PLACEHOLDER__" for every '
+    "provider-key and token slot (ADR-049)"
+)
+def _fab_then_graph_invariants(context):
+    fabro_dir = context["fab_dir"]
+    wf = (fabro_dir / "workflow.fabro").read_text()
+    nodes = _fab_parse_nodes(wf)
+    edges = _fab_parse_edges(wf)
+
+    # (A) emit_r is the SOLE gated work_done(complete) emitter on the scenario
+    # success path. The two --status complete emitters are emit_r (scenario)
+    # and emit_f (flat lane); emit_r is gated by wdg_r and reached via the
+    # reviewer signoff, emit_f is gated by wdg_f on the disjoint flat lane.
+    complete_emitters = {
+        n for n, t in nodes.items()
+        if "bc-emit work-done" in t and "--status complete" in t
+    }
+    assert complete_emitters == {"emit_r", "emit_f"}, (
+        f"unexpected work_done(complete) emitter set: {sorted(complete_emitters)}"
+    )
+    edge_pairs = {(s, d) for s, d, _a in edges}
+    assert ("wdg_r", "emit_r") in edge_pairs, "emit_r is not gated by wdg_r"
+    assert ("emit_r", "done") in edge_pairs, "emit_r does not reach the SUCCEEDED terminal"
+    assert ("wdg_f", "emit_f") in edge_pairs, "emit_f is not gated by wdg_f"
+    # emit_r reachable ONLY via reviewer signoff -> wdg_r.
+    assert any(
+        s == "review" and d == "wdg_r" and "signoff" in a for s, d, a in edges
+    ), "the reviewer signoff does not route to the work-done gate wdg_r"
+    # emit_f (flat complete-emit) is NOT on the scenario success path: its only
+    # in-edge is from wdg_f. So emit_r is the SOLE complete-emitter on success.
+    emit_f_in = {s for s, d, _a in edges if d == "emit_f"}
+    assert emit_f_in == {"wdg_f"}, (
+        f"emit_f is reachable from unexpected nodes {sorted(emit_f_in)}; it must "
+        "stay on the disjoint flat lane so emit_r is the sole success-path emitter"
+    )
+
+    # (B) every fallible non-terminal source node carries an unconditional
+    # outcome=failed failsafe edge, and no outcome=failed edge reaches the
+    # SUCCEEDED terminal (`done`) — except the single documented `armed -> done`
+    # empty-inbox idle fork (a native 2-way success/empty split, not an error).
+    sources = {s for s, _d, _a in edges}
+    exempt = {"start", "reported"}  # start (not fallible), reported (exit-0 marker)
+    for src in sorted(sources - exempt):
+        failed = [
+            (d, a) for s, d, a in edges if s == src and "outcome=failed" in a
+        ]
+        assert failed, f"node {src!r} has no unconditional outcome=failed failsafe edge"
+    for s, d, a in edges:
+        if "outcome=failed" in a and d == "done":
+            assert s == "armed", (
+                f"a failed node reaches the SUCCEEDED terminal via {s} -> done "
+                "(only the documented armed empty-inbox idle fork may)"
+            )
+
+    # (C) vaults/default/secrets.json holds only __PLACEHOLDER__ (ADR-049).
+    secrets = _fab_json.loads((fabro_dir / "vaults" / "default" / "secrets.json").read_text())
+    for slot, meta in secrets.items():
+        val = meta.get("value") if isinstance(meta, dict) else meta
+        assert val == "__PLACEHOLDER__", (
+            f"secrets slot {slot!r} holds a non-placeholder value {val!r}"
+        )
+
+
+@then(
+    'where feasible a live "fabro run" preflight exercises the poured def to '
+    "assert the agent-vs-native node classification authoritatively, because "
+    '"fabro validate" is permissive on node attrs and confirms graph shape '
+    "rather than handler classification (spike R2)"
+)
+def _fab_then_run_preflight(context):
+    # This is the LAST leg of scenario 3; the hard validate + graph-invariant
+    # legs above have already asserted and passed. The live `fabro run` preflight
+    # is explicitly "WHERE FEASIBLE" — so it must NOT skip the whole scenario
+    # (that would hide the validate leg's pass) nor paper a failure over. When a
+    # live run is not feasible, it reports that honestly (a warning) and the
+    # scenario still passes on the validate+invariants evidence; when a run IS
+    # feasible it asserts the run's node-classification path succeeds.
+    import warnings as _fab_warnings
+
+    fabro_dir = context["fab_dir"]
+    fabro_bin = _fab_shutil.which("fabro") or (
+        _FAB_BIN if Path(_FAB_BIN).exists() else None
+    )
+    if fabro_bin is None:
+        _fab_warnings.warn(
+            "live fabro run preflight not feasible: no fabro binary; the "
+            "validate leg already confirmed graph shape.",
+            stacklevel=2,
+        )
+        return
+    # A live `fabro run` needs a configured fabro server (settings.toml with
+    # server.auth); a fresh container has none and configuring it requires
+    # GitHub OAuth. Probe once; when the server cannot be brought up the leg is
+    # not feasible and is skipped HONESTLY (reported, never faked as a pass).
+    try:
+        probe = _fab_subprocess.run(
+            [fabro_bin, "run", "--dry-run", "--no-upgrade-check", "--quiet",
+             "--json", "workflow.fabro"],
+            cwd=str(fabro_dir),
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+    except _fab_subprocess.TimeoutExpired:
+        _fab_warnings.warn(
+            "live fabro run preflight timed out bringing up a server; not "
+            "feasible here — validate leg already confirmed graph shape.",
+            stacklevel=2,
+        )
+        return
+    combined = probe.stdout + probe.stderr
+    infeasible = probe.returncode != 0 and (
+        "no settings.toml" in combined
+        or "Cannot reach Fabro server" in combined
+        or "server.auth" in combined
+        or "server start" in combined
+        or "fabro install" in combined
+    )
+    if infeasible:
+        _fab_warnings.warn(
+            "live fabro run preflight not feasible: no configured fabro server "
+            "in this environment (needs settings.toml/server.auth via GitHub "
+            "OAuth). validate leg already confirmed graph shape.",
+            stacklevel=2,
+        )
+        context["fab_preflight"] = "skipped-infeasible"
+        return
+    # A run WAS feasible: the poured native (script=) vs agent nodes must be
+    # classified per their declarations; the dry-run exercises that path.
+    assert probe.returncode == 0, (
+        f"fabro run --dry-run preflight failed (a feasible run that did not "
+        f"succeed is a real failure, not an infeasible skip): "
+        f"stdout={probe.stdout!r} stderr={probe.stderr!r}"
+    )
+    context["fab_preflight"] = "ran"

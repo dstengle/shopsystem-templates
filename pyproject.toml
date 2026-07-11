@@ -75,4 +75,13 @@ shop_templates = [
     # `shop-templates bootstrap`. The BC serves the starter body as package data
     # via iter_starter_files / read_starter_file (tmpl-3ch / lead-v0m7).
     "templates/starter/**/*",
+    # The static .fabro/ fabro-engage topology skeleton (ADR-051, lead-7a8v):
+    # workflow.fabro + project.toml + workflow.toml + vaults/default/secrets.json.
+    # `_pour_fabro` reads these via iter_fabro_asset_files and pours them
+    # verbatim into a launched shop's .fabro/, so they MUST ride in the
+    # sdist+wheel or the pour emits an empty skeleton. Both the top-level and
+    # the nested (vaults/default/) globs are declared so a fresh install carries
+    # the whole tree (mirrors the templates/lead_skills/**/* nested-glob care).
+    "templates/fabro/*",
+    "templates/fabro/**/*",
 ]

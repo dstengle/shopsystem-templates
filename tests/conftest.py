@@ -30303,3 +30303,185 @@ def _fab_then_run_preflight(context):
         f"stdout={probe.stdout!r} stderr={probe.stderr!r}"
     )
     context["fab_preflight"] = "ran"
+
+
+# =======================================================================
+# lead-pbtj (tmpl-5jm): ADR-057 re-homes the fabro-def VALIDITY contract onto
+# the shop-templates-POURED /workspace/.fabro/ def as new pin d08bac49e20111f2.
+# The VALIDITY assertions (fabro validate exit 0 + zero diagnostics on the REAL
+# binary; the ADR-051 graph invariants; the __PLACEHOLDER__-only ADR-049 vault)
+# are UNCHANGED and re-home HERE, on the POURED def. The NEW emphasis is
+# SELF-CONTAINEDNESS: EVERY node body the workflow.fabro graph references (via
+# `prompt_file="nodes/<name>.md"`) has its body present in the poured
+# `.fabro/nodes/` alongside the graph, so the loop is runnable from the def
+# alone. Pours run into a TEMP workspace via the same real bootstrap harness;
+# the reference /workspace/.fabro/ is NEVER touched. Step defs reuse the
+# lead-7a8v fabro helpers (_fab_run_bootstrap_pour, _fab_parse_nodes,
+# _fab_parse_edges, _FAB_BIN).
+# =======================================================================
+@given(
+    "a shop-templates pour has emitted the self-contained fabro loop def into "
+    '"/workspace/.fabro/", not baked into bc-base'
+)
+def _fab_given_pour_self_contained(context, tmp_path):
+    ws = tmp_path / "ws"
+    rc = _fab_run_bootstrap_pour(ws, context, tmp_path)
+    assert rc == 0, f"bootstrap pour returned non-zero exit {rc}"
+    fab = ws / ".fabro"
+    # POURED (not baked): the def is materialized fresh into THIS workspace by
+    # the shop-templates pour — a workspace that started empty (git-init only),
+    # so its presence proves generation-at-pour-time, not a baked-in image.
+    assert fab.is_dir(), (
+        "the shop-templates pour did not emit the fabro loop def into "
+        f"{fab} — the def must be POURED, not baked into bc-base"
+    )
+    assert (fab / "workflow.fabro").is_file(), (
+        "the poured .fabro/ carries no workflow.fabro graph file"
+    )
+    context["fab_ws"] = ws
+    context["fab_dir"] = fab
+
+
+@when(
+    '"fabro validate" is executed against the poured fabro def at '
+    '"/workspace/.fabro/"'
+)
+def _fab_when_validate_poured(context):
+    fabro_dir = context["fab_dir"]
+    fabro_bin = _fab_shutil.which("fabro") or (
+        _FAB_BIN if Path(_FAB_BIN).exists() else None
+    )
+    if fabro_bin is None:
+        pytest.skip("real fabro binary is not available; SKIP honestly")
+    res = _fab_subprocess.run(
+        [fabro_bin, "validate", "--json", "--no-upgrade-check", "workflow.fabro"],
+        cwd=str(fabro_dir),
+        capture_output=True,
+        text=True,
+    )
+    context["fab_validate"] = res
+
+
+@then("it exits zero and reports zero diagnostics")
+def _fab_then_exit_zero_zero_diag(context):
+    res = context["fab_validate"]
+    assert res.returncode == 0, (
+        f"fabro validate exited {res.returncode}; stdout={res.stdout!r} "
+        f"stderr={res.stderr!r}"
+    )
+    doc = _fab_json.loads(res.stdout)
+    assert doc.get("diagnostics") == [], (
+        f"fabro validate reported non-empty diagnostics: {doc.get('diagnostics')!r}"
+    )
+    assert doc.get("valid") is True, f"fabro validate reported not-valid: {doc!r}"
+
+
+@then(
+    "the poured def is a self-contained bc-shop Implementer->Reviewer loop "
+    "graph per ADR-051: the graph file is present, every node body the graph "
+    "references is present in the def alongside it so the loop is runnable "
+    "from the def alone, the Reviewer node is the sole node that can emit a "
+    "gated work_done on the success path, and every fallible node carries an "
+    "explicit unconditional failsafe edge to a halt or blocked-emit sink so a "
+    "failed node never advances to the SUCCEEDED terminal"
+)
+def _fab_then_self_contained_invariants(context):
+    fabro_dir = context["fab_dir"]
+    # --- graph file present ---------------------------------------------
+    wf_path = fabro_dir / "workflow.fabro"
+    assert wf_path.is_file(), "the poured def has no workflow.fabro graph file"
+    wf = wf_path.read_text()
+    nodes = _fab_parse_nodes(wf)
+    edges = _fab_parse_edges(wf)
+
+    # --- SELF-CONTAINED (the NEW ADR-057 emphasis): every node body the graph
+    # references via prompt_file="nodes/<name>.md" is present in the poured def
+    # alongside the graph, so the loop is runnable from the def ALONE. --------
+    refs = sorted(set(re.findall(r'prompt_file="nodes/([^"]+)"', wf)))
+    assert refs, (
+        "workflow.fabro references no node bodies via prompt_file=; the "
+        "self-containedness assertion has nothing to prove against"
+    )
+    nodes_dir = fabro_dir / "nodes"
+    missing = [r for r in refs if not (nodes_dir / r).is_file()]
+    assert not missing, (
+        "the poured def is NOT self-contained: workflow.fabro references node "
+        f"bodies that are absent from {nodes_dir}: {missing}. The loop is not "
+        "runnable from the def alone (ADR-057 / ADR-051)."
+    )
+    empty = [r for r in refs if not (nodes_dir / r).read_text().strip()]
+    assert not empty, (
+        "the poured def is NOT self-contained: these graph-referenced node "
+        f"bodies are present but EMPTY, so the loop cannot run from them: {empty}"
+    )
+
+    # --- Reviewer node (emit_r) is the SOLE gated work_done emitter on the
+    # success path. The two --status complete emitters are emit_r (scenario,
+    # gated by wdg_r via reviewer signoff) and emit_f (disjoint flat lane). ----
+    complete_emitters = {
+        n for n, t in nodes.items()
+        if "bc-emit work-done" in t and "--status complete" in t
+    }
+    assert complete_emitters == {"emit_r", "emit_f"}, (
+        f"unexpected work_done(complete) emitter set: {sorted(complete_emitters)}"
+    )
+    edge_pairs = {(s, d) for s, d, _a in edges}
+    assert ("wdg_r", "emit_r") in edge_pairs, "emit_r is not gated by wdg_r"
+    assert ("emit_r", "done") in edge_pairs, (
+        "emit_r does not reach the SUCCEEDED terminal"
+    )
+    assert any(
+        s == "review" and d == "wdg_r" and "signoff" in a for s, d, a in edges
+    ), "the reviewer signoff does not route to the work-done gate wdg_r"
+    emit_f_in = {s for s, d, _a in edges if d == "emit_f"}
+    assert emit_f_in == {"wdg_f"}, (
+        f"emit_f is reachable from unexpected nodes {sorted(emit_f_in)}; it must "
+        "stay on the disjoint flat lane so emit_r is the sole success-path emitter"
+    )
+
+    # --- every fallible non-terminal node carries an unconditional
+    # outcome=failed failsafe edge to a halt/blocked-emit sink, and no
+    # outcome=failed edge reaches SUCCEEDED (except the documented armed
+    # empty-inbox idle fork). ------------------------------------------------
+    sources = {s for s, _d, _a in edges}
+    exempt = {"start", "reported"}
+    for src in sorted(sources - exempt):
+        failed = [
+            (d, a) for s, d, a in edges if s == src and "outcome=failed" in a
+        ]
+        assert failed, (
+            f"node {src!r} has no unconditional outcome=failed failsafe edge"
+        )
+    for s, d, a in edges:
+        if "outcome=failed" in a and d == "done":
+            assert s == "armed", (
+                f"a failed node reaches the SUCCEEDED terminal via {s} -> done "
+                "(only the documented armed empty-inbox idle fork may)"
+            )
+
+
+@then(
+    "the poured def's native fabro vault holds only the value "
+    '"__PLACEHOLDER__" for each of its provider-key and token slots, with no '
+    "real credential present in the def (ADR-049), so that any real credential "
+    "the loop uses is sourced from the agent-vault surface baked in S1 and "
+    "never from the fabro vault"
+)
+def _fab_then_vault_placeholder_only(context):
+    fabro_dir = context["fab_dir"]
+    secrets_path = fabro_dir / "vaults" / "default" / "secrets.json"
+    assert secrets_path.is_file(), (
+        "the poured def has no native fabro vault at vaults/default/secrets.json"
+    )
+    secrets = _fab_json.loads(secrets_path.read_text())
+    assert secrets, (
+        "the native fabro vault is empty; it must declare its provider-key and "
+        "token slots (each holding __PLACEHOLDER__) so the ADR-049 no-real-"
+        "credential guarantee is asserted against real slots"
+    )
+    for slot, meta in secrets.items():
+        val = meta.get("value") if isinstance(meta, dict) else meta
+        assert val == "__PLACEHOLDER__", (
+            f"native fabro vault slot {slot!r} holds a non-placeholder value "
+            f"{val!r}; a real credential must never live in the def (ADR-049)"
+        )

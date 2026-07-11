@@ -136,6 +136,57 @@ def test_writing_plans_bdd_has_failing_test_subissue_and_deps_and_parallel():
     assert "parallel" in body
 
 
+def test_writing_plans_bdd_mandates_test_red_subissue_title_form():
+    """lead-lgga (request_bugfix, empty scenarios): the writing-plans-bdd skill
+    MUST mandate the `test(red): <behavior>` RED sub-issue TITLE form so bead
+    titles converge with the RED-commit vocabulary that Check 5
+    (@scenario_hash:488175f45c00bdc9) already pins for RED COMMITS, and which
+    `_subissue_is_red` (src/shop_templates/bc_emit.py) recognizes.
+
+    Before this fix the skill prescribed "write the failing test for
+    <behavior>" as THE RED sub-issue title — a `RED:`/prose title form the
+    detector false-NEGATIVES, false-refusing the work-done-gate Check-4
+    RED-existence precondition (observed lead-pbtj). The mandate retires
+    nothing: it CONVERGES authoring on the single canonical `test(red)` token.
+    """
+    body = _skill("writing-plans-bdd")
+
+    # (a) An explicit MANDATE: RED sub-issue titles MUST use test(red):.
+    assert "test(red): <behavior>" in body, (
+        "writing-plans-bdd no longer names the canonical test(red): <behavior> "
+        "RED sub-issue title form"
+    )
+    low = body.lower()
+    assert "must use" in low and "test(red)" in low, (
+        "writing-plans-bdd does not MANDATE the test(red): sub-issue title form"
+    )
+
+    # (b) The concrete `bd create` authoring example uses the test(red): title
+    #     form — and NO LONGER prescribes the detector-false-negating prose
+    #     "write the failing test for <behavior>" AS THE sub-issue title.
+    assert 'bd create "test(red):' in body, (
+        "the bd create RED example does not use the mandated test(red): title"
+    )
+    assert 'bd create "write the failing test for' not in body, (
+        "writing-plans-bdd still prescribes the non-canonical "
+        '"write the failing test for <behavior>" title in a bd create example'
+    )
+
+
+def test_subissue_is_red_accepts_test_red_and_documents_bare_red_noncanonical():
+    """The detector `_subissue_is_red` stays as-is (NOT forked to accept a bare
+    `red:` token) and already recognizes the mandated `test(red):` title; a bare
+    leading `RED:` title is NON-canonical and NOT detected — the mandate is the
+    fix, not a detector broadening (lead-lgga)."""
+    from shop_templates.bc_emit import _subissue_is_red
+
+    assert _subissue_is_red({"title": "test(red): mandate the title form"})
+    assert _subissue_is_red({"title": "write the failing test for X"})
+    # The bare `RED:` prose title the mandate steers authors AWAY from is
+    # deliberately NOT recognized by the unforked detector.
+    assert not _subissue_is_red({"title": "RED: pin d08bac49 something"})
+
+
 def test_subagent_driven_development_describes_parallel_and_gate():
     body = _skill("subagent-driven-development").lower()
     assert "parallel" in body

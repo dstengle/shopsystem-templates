@@ -115,7 +115,7 @@ echo "bootstrap: recorded resolved image '$RESOLVED_DIGEST' in $RUN_ENV." >&2
 # carries the floor forward and it tracks the framework rather than freezing.
 # (Override via EXPECTED_MIN_SHOP_TEMPLATES_VERSION for local testing.)
 # =======================================================================
-EXPECTED_MIN_SHOP_TEMPLATES_VERSION="${EXPECTED_MIN_SHOP_TEMPLATES_VERSION:-0.52.2}"
+EXPECTED_MIN_SHOP_TEMPLATES_VERSION="${EXPECTED_MIN_SHOP_TEMPLATES_VERSION:-0.52.3}"
 echo "bootstrap: verifying the pulled image's baked shop-templates version against the expected minimum '$EXPECTED_MIN_SHOP_TEMPLATES_VERSION' (PDR-026 provenance) before rendering." >&2
 BAKED_SHOP_TEMPLATES_VERSION="$(docker image inspect \
   --format '{{ index .Config.Labels "shopsystem.shop-templates.version" }}' \

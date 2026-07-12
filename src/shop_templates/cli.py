@@ -1853,6 +1853,19 @@ def _cmd_update(args: argparse.Namespace) -> int:
     # canonical LEAD skill-group. (lead-5mr5.)
     _mirror_skills(target, _skill_iterator_for(shop_type))
 
+    # Step 6b: (re)emit the .fabro/ fabro-engage projection (ADR-051, lead-7a8v)
+    # alongside .claude/, out of this SAME update pour (ADR-057 D2 "both out of
+    # the same pour"; request_bugfix lead-1cj1). Bootstrap already emits .fabro/
+    # via _pour_fabro after _pour_skills; the update path re-pours .claude/agents/
+    # and the skill tree but historically emitted NOTHING to .fabro/, so
+    # `shop-templates update --target <bc>` (the path bc-container launch runs)
+    # left no fabro def and `fabro engage` crashed. Invoke the SAME _pour_fabro
+    # here — its Layer-1 skeleton write_bytes and Layer-2 generated node bodies
+    # are deterministic (sorted, timestamp-free) and idempotent on re-pour, so
+    # this re-emits the complete def byte-identically on every update. Behavior
+    # of _pour_fabro is unchanged; update simply now invokes it as bootstrap does.
+    _pour_fabro(target)
+
     # Step 7: surface (without modifying) drift in .claude/shop/name.md.
     # Per scenario 97245affb1dbe5e4 (ADR-018 / ADR-007): name.md is the
     # single source of truth for shop identity and must hold the canonical

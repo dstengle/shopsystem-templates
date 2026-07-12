@@ -1,0 +1,47 @@
+# dispatcher.toml -- run/environment config for the ADR-058 REACTIVE DISPATCHER
+# graph (dispatcher.fabro). This is the `fabro engage` entrypoint: the engage
+# runs `fabro run dispatcher.toml`, which resolves the graph below and runs the
+# reactive inbox watch+dispatch loop (see dispatcher.fabro). Mirrors workflow.toml
+# (the ADR-051 per-message loop config); both are poured into the SAME `.fabro/`
+# def by shop-templates `_pour_fabro` so the engage is self-contained.
+
+_version = 1
+
+[workflow]
+graph = "dispatcher.fabro"
+
+# ---- RUNTIME INPUTS --------------------------------------------------------
+# BC_NAME is the canonical BC name the dispatcher supervises; the engage overrides
+# it per BC with `fabro run dispatcher.toml -I BC_NAME=<bc>`. Referenced in the
+# graph `goal=` via minijinja `{{ inputs.BC_NAME }}`. NOTE (proven in workflow.toml):
+# `{{ inputs.NAME }}` / `-I` reach AGENT `prompt=` text and the graph `goal=` ONLY,
+# NOT native `script=` sandboxes -- native nodes read $BC_NAME from the
+# [run.environment.env] overlay below. Keep the two tables in sync.
+[run.inputs]
+BC_NAME = "fabro-throwaway"        # canonical BC name; override per BC at engage
+
+# ---- ENV OVERLAY into the NATIVE script= sandbox ---------------------------
+# The GLOBAL [run.environment.env] overlay DOES reach a native `script=` sandbox as
+# real shell env vars (unlike [run.inputs]) -- the same finding workflow.toml pins.
+# This is what lets `prime` and `dispatch` be native no-LLM `script=` nodes that
+# read $BC_NAME. Per-BC override: pass `-I BC_NAME=..` (updates the agent-facing
+# input) AND, for the native sandbox, the engage renders this overlay from the BC
+# name. The HTTPS_PROXY/CA/proxy overlay lives in ~/.fabro/settings.toml's own
+# [run.environment.env] (agent-vault stays authoritative; fabro vault is placeholder).
+[run.environment.env]
+BC_NAME = "fabro-throwaway"
+
+[run.environment]
+id = "local"                       # ephemeral in-container fabro server
+
+[environments.local]
+provider = "local"                 # runs in the current process/cwd INSIDE the BC
+                                   # container; inherits parent env so HTTPS_PROXY ->
+                                   # agent-vault reaches every dispatched agent. The
+                                   # fabro vault holds only dummies
+                                   # (vaults/default/secrets.json).
+
+[run.pull_request]
+enabled = false                    # integrating-to-main (the workflow.fabro `integ`
+                                   # node) is the SOLE integration authority; the
+                                   # dispatcher opens no PRs.

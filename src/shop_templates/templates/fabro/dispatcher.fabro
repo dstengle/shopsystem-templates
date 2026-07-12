@@ -1,0 +1,70 @@
+// ============================================================================
+// ADR-058 REACTIVE DISPATCHER — the `fabro engage` entrypoint graph.
+//
+// The engage runs `fabro run dispatcher.toml`, whose `[workflow] graph=` points
+// here. This graph is the long-lived REACTIVE DISPATCHER: it primes the BC
+// session, then runs the reactive inbox watch+dispatch loop (dispatch_acp_agent.py)
+// that spawns ONE bc-shop-loop ACP agent — a `fabro run workflow.fabro` run keyed
+// to a single work_id — per inbound lead message. The per-message loop itself
+// (Implementer->Reviewer->GATED work_done) lives in the SIBLING workflow.fabro
+// def; this dispatcher only reacts to arrivals and hands each off.
+//
+// SEPARATION OF CONCERNS (ADR-051 workflow def vs ADR-058 dispatcher def):
+//   * workflow.fabro  — ONE bc-shop loop for ONE (BC_NAME, WORK_ID). ADR-051.
+//   * dispatcher.fabro — reactive supervisor that watches the inbox and dispatches
+//                        a workflow.fabro run per message. ADR-058. THIS FILE.
+// Both are poured into the SAME `.fabro/` def by shop-templates `_pour_fabro`, so
+// the engage resolves `dispatcher.toml` -> `dispatcher.fabro` -> (per message)
+// `workflow.fabro`, all self-contained in one poured def.
+//
+// STRUCTURAL ENFORCEMENT (mirrors workflow.fabro): `prime` and `dispatch` are
+// NATIVE `script=` deterministic nodes (shape=parallelogram) — NO LLM agency.
+// $BC_NAME arrives from the `[run.environment.env]` overlay in dispatcher.toml
+// (the same channel workflow.toml uses; `{{ inputs.BC_NAME }}`/`-I` reaches the
+// graph `goal=` only, NOT native `script=`). FAIL-CLOSED: every fallible node
+// carries an unconditional `condition="outcome=failed"` failsafe edge to the
+// native `halt` exit-1 sink, so a FAILED node never advances to the SUCCEEDED
+// terminal (`done`).
+//
+// CREDENTIALS: no node reads a real secret; the fabro vault (vaults/default/
+// secrets.json) holds only __PLACEHOLDER__ (ADR-049). Real credentials are
+// injected on the wire by agent-vault via the inherited HTTPS_PROXY overlay.
+// ============================================================================
+digraph BcShopDispatcher {
+    graph [
+        goal="ADR-058 reactive dispatcher for BC {{ inputs.BC_NAME }}: prime the BC session, then run the reactive inbox watch+dispatch loop (dispatch_acp_agent.py) that spawns ONE bc-shop-loop ACP agent — a workflow.fabro run keyed to a single work_id — per inbound lead message. HARD RULE: prime and dispatch are NATIVE non-LLM script nodes; every fallible node carries an unconditional outcome=failed failsafe edge to the halt sink so a failed node never reaches the SUCCEEDED terminal."
+        model_stylesheet="* { model: claude-haiku-4-5 }"
+        rankdir=TB
+        fallback_retry_target="halt"
+    ]
+
+    // ---------- terminals ---------------------------------------------------
+    start    [shape=Mdiamond, label="Start"]
+    done     [shape=Msquare,  label="Exit: SUCCEEDED\n(reactive dispatch loop ended cleanly)"]
+    halt     [shape=parallelogram,
+              label="HALTED / FAILED (terminal sink)",
+              script="echo 'HALT/FAILED: dispatcher session-start (prime) or the reactive dispatch loop failed; no BC work was dispatched'; exit 1"]
+
+    // ---------- session start (NATIVE; $BC_NAME from [run.environment.env]) --
+    prime    [shape=parallelogram, deterministic=true, retry=3,
+              label="prime dispatcher session",
+              script="set -e; shop-msg prime --bc \"$BC_NAME\"; bd prime"]
+
+    // ---------- reactive watch + per-message ACP dispatch (NATIVE) ----------
+    // dispatch_acp_agent.py runs the reactive shop-msg watch loop and, per inbound
+    // message, spawns a `fabro run workflow.fabro -I BC_NAME=.. -I WORK_ID=..` ACP
+    // agent (the ADR-051 bc-shop loop). It is a deterministic native step: exit 0
+    // => `succeeded` (loop ended cleanly), nonzero => `failed` (-> halt).
+    dispatch [shape=parallelogram, deterministic=true,
+              label="reactive inbox watch + per-message ACP dispatch",
+              script="python3 dispatch_acp_agent.py --bc \"$BC_NAME\""]
+
+    // ---------- edges (fail-closed: uncond success + outcome=failed catch) ---
+    start    -> prime
+
+    prime    -> dispatch                            // native success (uncond)
+    prime    -> halt     [condition="outcome=failed"]  // shop-msg/bd unreachable -> HALT
+
+    dispatch -> done                                // reactive loop ended cleanly
+    dispatch -> halt     [condition="outcome=failed"]  // dispatch loop error -> HALT
+}

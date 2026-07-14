@@ -30589,3 +30589,381 @@ def _fab_then_emit_blk_sources_shared_anchor(context):
         "the shared anchor must classify a 429 run tail as llm-path / "
         "rate-limit-429 from the operator-facing vocab"
     )
+
+# =======================================================================
+# lead-ifye3.1 (brief-017 / cand-002): the poured model_stylesheet is
+# abstracted from literal provider-bound model IDs to per-node-class fabro
+# input placeholders ({{ inputs.MODEL_CODING/MODEL_REVIEW/MODEL_DEFAULT }}).
+#
+# ADDITIVE (7653d06bddda72ed, 8aab2c5c071e349f): the poured skeleton expresses
+# each pinned node-class selector as a placeholder, poured VERBATIM with no
+# pour-time substitution (no tier/effort mapping table or active-provider dial
+# on the templates pour surface).
+#
+# SUPERSESSION (610455d3a0f4e373, 0435d261be5031fd, 0bc0fb71534cc0d6): once the
+# model_stylesheet carries live {{ inputs.MODEL_* }} templating, an UNBOUND
+# `fabro validate` FAILS LOUD with an undefined-template-variable diagnostic
+# (retiring eb8e74495f124e64 / d08bac49e20111f2's zero-diagnostics-when-unbound
+# pins), and the def re-validates clean once representative model IDs are bound.
+#
+# `fabro validate` has no `-I` flag (that lives on `fabro run`/`preflight`,
+# which need a configured server). The `-I NAME=VALUE` channel OVERRIDES the
+# `[run.inputs]` defaults table; binding the SAME inputs via `[run.inputs]` in a
+# COPY of the poured def (the poured def itself stays UNBOUND, so its own
+# unbound-validate keeps failing loud) is the faithful, server-free way to
+# validate the def with representative model IDs bound. Reuses the lead-7a8v /
+# lead-pbtj fabro helpers (_fab_run_bootstrap_pour, _fab_parse_nodes/_edges,
+# _FAB_BIN, _fab_then_validate_clean, _fab_then_graph_invariants,
+# _fab_then_exit_zero_zero_diag, _fab_then_self_contained_invariants,
+# _fab_then_vault_placeholder_only).
+# =======================================================================
+_FAB_REPR_MODELS = {
+    # representative, fabro-KNOWN model IDs (the same IDs the retired literal
+    # model_stylesheet used) bound for the three node-class placeholders.
+    "MODEL_CODING": "claude-sonnet-4-5",
+    "MODEL_REVIEW": "claude-sonnet-4-5",
+    "MODEL_DEFAULT": "claude-haiku-4-5",
+}
+
+
+def _fab_bound_validate(context, tmp_path):
+    """Run `fabro validate` on the poured def with representative model IDs
+    bound for the three node-class placeholders, via the `[run.inputs]` defaults
+    table (the same input the `-I NAME=VALUE` flag overrides) in a COPY of the
+    poured def. The poured def itself is left UNBOUND. Stores the CompletedProcess
+    in context["fab_validate"]."""
+    fabro_bin = _fab_shutil.which("fabro") or (_FAB_BIN if Path(_FAB_BIN).exists() else None)
+    if fabro_bin is None:
+        pytest.skip("real fabro binary is not available; SKIP honestly")
+    src = context["fab_dir"]
+    bound = tmp_path / "fab-bound"
+    if bound.exists():
+        _fab_shutil.rmtree(bound)
+    _fab_shutil.copytree(src, bound)
+    toml_path = bound / "workflow.toml"
+    toml_text = toml_path.read_text()
+    binding = "".join(f'{k} = "{v}"\n' for k, v in _FAB_REPR_MODELS.items())
+    new_text, n = re.subn(r"(?m)^(\[run\.inputs\][^\n]*\n)", r"\1" + binding, toml_text, count=1)
+    assert n == 1, "poured workflow.toml carries no [run.inputs] table to bind representative model IDs into"
+    toml_path.write_text(new_text)
+    res = _fab_subprocess.run(
+        [fabro_bin, "validate", "--json", "--no-upgrade-check", "workflow.fabro"],
+        cwd=str(bound), capture_output=True, text=True,
+    )
+    context["fab_validate"] = res
+
+
+@given(
+    'the canonical model_stylesheet skeleton asset is authored with one fabro "{{ inputs.<NAME> }}" placeholder per pinned node-class selector ".coding", ".review", and "*", using the input names "MODEL_CODING", "MODEL_REVIEW", and "MODEL_DEFAULT" respectively'
+)
+def _fab_given_model_stylesheet_asset_authored(context):
+    from importlib.resources import files
+    wf = (files("shop_templates.templates.fabro") / "workflow.fabro").read_text()
+    m = re.search(r'model_stylesheet="([^"]*)"', wf)
+    assert m, "the fabro skeleton asset carries no model_stylesheet attribute"
+    ss = m.group(1)
+    for sel, name in ((".coding", "MODEL_CODING"), (".review", "MODEL_REVIEW"), ("*", "MODEL_DEFAULT")):
+        assert ("{{ inputs.%s }}" % name) in ss, (
+            f"the canonical model_stylesheet asset does not express selector "
+            f"{sel!r} as its {{{{ inputs.{name} }}}} placeholder; got: {ss!r}"
+        )
+
+
+@then(
+    'the poured "/workspace/.fabro/workflow.fabro" carries a model_stylesheet attribute reading ".coding { model: {{ inputs.MODEL_CODING }} } .review { model: {{ inputs.MODEL_REVIEW }} } * { model: {{ inputs.MODEL_DEFAULT }} }"'
+)
+def _fab_then_poured_model_stylesheet_reads(context):
+    wf = (context["fab_dir"] / "workflow.fabro").read_text()
+    m = re.search(r'model_stylesheet="([^"]*)"', wf)
+    assert m, "the poured workflow.fabro carries no model_stylesheet attribute"
+    expected = ".coding { model: {{ inputs.MODEL_CODING }} } .review { model: {{ inputs.MODEL_REVIEW }} } * { model: {{ inputs.MODEL_DEFAULT }} }"
+    assert m.group(1) == expected, (
+        "poured model_stylesheet != expected placeholder shape.\n"
+        f"expected: {expected!r}\n     got: {m.group(1)!r}"
+    )
+
+
+@then(
+    'no node-class selector in the poured model_stylesheet resolves to a literal provider-bound model ID string such as "claude-sonnet-4-5" or "claude-haiku-4-5"'
+)
+def _fab_then_no_literal_model_id_in_stylesheet(context):
+    wf = (context["fab_dir"] / "workflow.fabro").read_text()
+    m = re.search(r'model_stylesheet="([^"]*)"', wf)
+    assert m, "the poured workflow.fabro carries no model_stylesheet attribute"
+    ss = m.group(1)
+    for lit in ("claude-sonnet-4-5", "claude-haiku-4-5"):
+        assert lit not in ss, (
+            f"a poured model_stylesheet selector resolves to the literal "
+            f"provider-bound model ID {lit!r}: {ss!r}"
+        )
+    assert not re.search(r"model:\s*claude-", ss), (
+        f"a node-class selector resolves to a literal claude model ID: {ss!r}"
+    )
+
+
+@given(
+    'the canonical model_stylesheet skeleton asset carries the abstract-labeled node-class placeholders'
+)
+def _fab_given_model_stylesheet_asset_abstract_labeled(context):
+    from importlib.resources import files
+    wf = (files("shop_templates.templates.fabro") / "workflow.fabro").read_text()
+    m = re.search(r'model_stylesheet="([^"]*)"', wf)
+    assert m and all(
+        ("{{ inputs.%s }}" % n) in m.group(1)
+        for n in ("MODEL_CODING", "MODEL_REVIEW", "MODEL_DEFAULT")
+    ), "the canonical model_stylesheet asset does not carry the abstract-labeled node-class placeholders"
+
+
+@when(
+    'a shop-templates pour is run twice over the identical skeleton asset into two separate workspaces'
+)
+def _fab_when_pour_twice_identical_skeleton(context, tmp_path):
+    dirs = []
+    for i in ("a", "b"):
+        ws = tmp_path / f"ws-ss-{i}"
+        rc = _fab_run_bootstrap_pour(ws, context, tmp_path)
+        assert rc == 0, f"bootstrap pour {i} returned non-zero exit {rc}"
+        dirs.append(ws / ".fabro")
+    context["fab_dirs"] = dirs
+    context["fab_dir"] = dirs[0]
+
+
+@then(
+    'the poured "/workspace/.fabro/workflow.fabro" model_stylesheet attribute is byte-identical across both pours'
+)
+def _fab_then_stylesheet_byte_identical_across_pours(context):
+    a, b = context["fab_dirs"]
+    ma = re.search(rb'model_stylesheet="([^"]*)"', (a / "workflow.fabro").read_bytes())
+    mb = re.search(rb'model_stylesheet="([^"]*)"', (b / "workflow.fabro").read_bytes())
+    assert ma and mb, "a poured workflow.fabro carries no model_stylesheet attribute"
+    assert ma.group(1) == mb.group(1), (
+        "the poured model_stylesheet is NOT byte-identical across the two pours: "
+        f"{ma.group(1)!r} != {mb.group(1)!r}"
+    )
+
+
+@then(
+    "the templates BC's pour mechanism performs no substitution of any placeholder into a literal model ID at pour time — every placeholder is poured verbatim, exactly as authored, unresolved"
+)
+def _fab_then_pour_performs_no_substitution(context):
+    from importlib.resources import files
+    asset = (files("shop_templates.templates.fabro") / "workflow.fabro").read_bytes()
+    ma = re.search(rb'model_stylesheet="([^"]*)"', asset)
+    assert ma, "the fabro skeleton asset carries no model_stylesheet attribute"
+    asset_ss = ma.group(1)
+    for d in context["fab_dirs"]:
+        m = re.search(rb'model_stylesheet="([^"]*)"', (d / "workflow.fabro").read_bytes())
+        assert m and m.group(1) == asset_ss, (
+            "the pour substituted the model_stylesheet instead of pouring it "
+            "verbatim from the static asset"
+        )
+    for name in (b"MODEL_CODING", b"MODEL_REVIEW", b"MODEL_DEFAULT"):
+        placeholder = b"{{ inputs." + name + b" }}"
+        assert placeholder in asset_ss, (
+            f"the asset does not author placeholder {name!r}"
+        )
+        for d in context["fab_dirs"]:
+            m = re.search(rb'model_stylesheet="([^"]*)"', (d / "workflow.fabro").read_bytes())
+            assert placeholder in m.group(1), (
+                f"placeholder {name!r} was resolved/removed at pour time — the "
+                "pour must emit every placeholder verbatim, unresolved"
+            )
+
+
+@then(
+    "the tier+effort-to-model mapping table and the active-provider dial are both absent from the templates BC's pour surface — resolving a placeholder to a literal model ID is not a templates-BC behavior"
+)
+def _fab_then_no_mapping_table_or_provider_dial(context):
+    for d in context["fab_dirs"]:
+        m = re.search(r'model_stylesheet="([^"]*)"', (d / "workflow.fabro").read_text())
+        assert m and "claude-" not in m.group(1), (
+            "the poured model_stylesheet resolves a placeholder to a literal "
+            "model ID — a resolution the templates pour surface must NOT perform"
+        )
+        for p in sorted(d.rglob("*")):
+            if not p.is_file():
+                continue
+            try:
+                body = p.read_text()
+            except (UnicodeDecodeError, OSError):
+                continue
+            for name in ("MODEL_CODING", "MODEL_REVIEW", "MODEL_DEFAULT"):
+                for line in body.splitlines():
+                    if name in line and "claude-" in line:
+                        raise AssertionError(
+                            f"poured file {p.name!r} pairs placeholder {name!r} with a "
+                            f"literal provider-bound model ID — a tier/effort mapping "
+                            f"table or active-provider dial that must be ABSENT from the "
+                            f"templates pour surface: {line!r}"
+                        )
+
+
+@given(
+    'a shop-templates pour has emitted the fabro def into "/workspace/.fabro/", whose model_stylesheet carries the "MODEL_CODING", "MODEL_REVIEW", and "MODEL_DEFAULT" fabro input placeholders (brief-017)'
+)
+def _fab_given_pour_emitted_placeholders(context, tmp_path):
+    ws = tmp_path / "ws"
+    rc = _fab_run_bootstrap_pour(ws, context, tmp_path)
+    assert rc == 0, f"bootstrap pour returned non-zero exit {rc}"
+    context["fab_ws"] = ws
+    context["fab_dir"] = ws / ".fabro"
+    m = re.search(r'model_stylesheet="([^"]*)"', (context["fab_dir"] / "workflow.fabro").read_text())
+    assert m and all(
+        ("{{ inputs.%s }}" % n) in m.group(1)
+        for n in ("MODEL_CODING", "MODEL_REVIEW", "MODEL_DEFAULT")
+    ), (
+        "the poured def's model_stylesheet does not carry the MODEL_CODING/"
+        "MODEL_REVIEW/MODEL_DEFAULT fabro input placeholders (brief-017)"
+    )
+
+
+@when(
+    '"fabro validate" is executed against the poured def using the REAL fabro binary with no "-I" input bound for any of the three node-class placeholders'
+)
+def _fab_when_validate_unbound(context):
+    fabro_dir = context["fab_dir"]
+    fabro_bin = _fab_shutil.which("fabro") or (_FAB_BIN if Path(_FAB_BIN).exists() else None)
+    if fabro_bin is None:
+        pytest.skip("real fabro binary is not available; SKIP honestly")
+    res = _fab_subprocess.run(
+        [fabro_bin, "validate", "--json", "--no-upgrade-check", "workflow.fabro"],
+        cwd=str(fabro_dir), capture_output=True, text=True,
+    )
+    context["fab_validate"] = res
+
+
+@then(
+    'it exits non-zero and reports a diagnostic naming an undefined template variable for the unbound node-class placeholder in the model_stylesheet attribute'
+)
+def _fab_then_unbound_validate_fails_loud(context):
+    res = context["fab_validate"]
+    assert res.returncode != 0, (
+        "unbound fabro validate must FAIL LOUD on the live model_stylesheet "
+        f"placeholders; got exit 0. stdout={res.stdout!r} stderr={res.stderr!r}"
+    )
+    doc = _fab_json.loads(res.stdout)
+    diags = doc.get("diagnostics") or []
+    undef = [
+        d for d in diags
+        if d.get("rule") == "template_undefined_variable"
+        and "model_stylesheet" in (d.get("message") or "")
+        and any(n in (d.get("message") or "") for n in ("MODEL_CODING", "MODEL_REVIEW", "MODEL_DEFAULT"))
+    ]
+    assert undef, (
+        "unbound fabro validate did not report an undefined-template-variable "
+        f"diagnostic naming a node-class placeholder in model_stylesheet: {diags!r}"
+    )
+    context["fab_unbound_diags"] = diags
+
+
+@then(
+    'this confirms the live "{{ inputs.<NAME> }}" templating is genuinely evaluated by "fabro validate" rather than silently ignored, the same mechanism the cand-002 empirical probe directly proved, and replaces the retired assertion that an unbound "fabro validate" exits zero with zero diagnostics — that assertion no longer holds once model_stylesheet carries live per-node-class placeholders instead of literal model IDs'
+)
+def _fab_then_confirms_live_templating_supersedes_retired(context):
+    res = context["fab_validate"]
+    assert res.returncode != 0
+    doc = _fab_json.loads(res.stdout)
+    assert doc.get("valid") is False, (
+        "fabro validate reported valid=true on an unbound live-templated def; "
+        "the {{ inputs.<NAME> }} templating is not being evaluated"
+    )
+    assert doc.get("diagnostics"), (
+        "the retired zero-diagnostics-when-unbound assertion still holds — the "
+        "def is not carrying live per-node-class templating"
+    )
+
+
+@when(
+    '"fabro validate" is executed against the poured def using the REAL fabro binary with representative literal model IDs bound via "-I MODEL_CODING", "-I MODEL_REVIEW", and "-I MODEL_DEFAULT"'
+)
+def _fab_when_validate_bound_representative(context, tmp_path):
+    _fab_bound_validate(context, tmp_path)
+
+
+@then(
+    'where feasible a live "fabro run" preflight, with the same representative model IDs bound, exercises the poured def to assert the agent-vs-native node classification authoritatively, because "fabro validate" is permissive on node attrs and confirms graph shape rather than handler classification (spike R2)'
+)
+def _fab_then_run_preflight_bound(context):
+    import warnings as _fab_warnings
+    fabro_dir = context["fab_dir"]
+    fabro_bin = _fab_shutil.which("fabro") or (_FAB_BIN if Path(_FAB_BIN).exists() else None)
+    if fabro_bin is None:
+        _fab_warnings.warn(
+            "live fabro run preflight not feasible: no fabro binary; the validate "
+            "leg already confirmed graph shape.",
+            stacklevel=2,
+        )
+        return
+    inputs = []
+    for k, v in _FAB_REPR_MODELS.items():
+        inputs += ["-I", f"{k}={v}"]
+    try:
+        probe = _fab_subprocess.run(
+            [fabro_bin, "run", "--dry-run", "--no-upgrade-check", "--quiet", "--json", *inputs, "workflow.fabro"],
+            cwd=str(fabro_dir), capture_output=True, text=True, timeout=90,
+        )
+    except _fab_subprocess.TimeoutExpired:
+        _fab_warnings.warn(
+            "live fabro run preflight timed out bringing up a server; not feasible "
+            "here — validate leg already confirmed graph shape.",
+            stacklevel=2,
+        )
+        return
+    combined = probe.stdout + probe.stderr
+    infeasible = probe.returncode != 0 and (
+        "no settings.toml" in combined
+        or "Cannot reach Fabro server" in combined
+        or "server.auth" in combined
+        or "server start" in combined
+        or "fabro install" in combined
+    )
+    if infeasible:
+        _fab_warnings.warn(
+            "live fabro run preflight not feasible: no configured fabro server in "
+            "this environment (needs settings.toml/server.auth via GitHub OAuth), "
+            "even with the representative model IDs bound. validate leg already "
+            "confirmed graph shape.",
+            stacklevel=2,
+        )
+        context["fab_preflight"] = "skipped-infeasible"
+        return
+    assert probe.returncode == 0, (
+        "fabro run --dry-run preflight (representative model IDs bound) failed — a "
+        "feasible run that did not succeed is a real failure, not an infeasible "
+        f"skip: stdout={probe.stdout!r} stderr={probe.stderr!r}"
+    )
+    context["fab_preflight"] = "ran"
+
+
+@given(
+    'a shop-templates pour has emitted the self-contained fabro loop def into "/workspace/.fabro/", not baked into bc-base, whose model_stylesheet carries the "MODEL_CODING", "MODEL_REVIEW", and "MODEL_DEFAULT" fabro input placeholders (brief-017)'
+)
+def _fab_given_pour_self_contained_placeholders(context, tmp_path):
+    ws = tmp_path / "ws"
+    rc = _fab_run_bootstrap_pour(ws, context, tmp_path)
+    assert rc == 0, f"bootstrap pour returned non-zero exit {rc}"
+    fab = ws / ".fabro"
+    assert fab.is_dir(), (
+        "the shop-templates pour did not emit the fabro loop def into "
+        f"{fab} — the def must be POURED, not baked into bc-base"
+    )
+    assert (fab / "workflow.fabro").is_file(), (
+        "the poured .fabro/ carries no workflow.fabro graph file"
+    )
+    m = re.search(r'model_stylesheet="([^"]*)"', (fab / "workflow.fabro").read_text())
+    assert m and all(
+        ("{{ inputs.%s }}" % n) in m.group(1)
+        for n in ("MODEL_CODING", "MODEL_REVIEW", "MODEL_DEFAULT")
+    ), (
+        "the poured self-contained def's model_stylesheet does not carry the "
+        "MODEL_CODING/MODEL_REVIEW/MODEL_DEFAULT fabro input placeholders (brief-017)"
+    )
+    context["fab_ws"] = ws
+    context["fab_dir"] = fab
+
+
+@when(
+    '"fabro validate" is executed against the poured fabro def at "/workspace/.fabro/" with representative literal model IDs bound via "-I MODEL_CODING", "-I MODEL_REVIEW", and "-I MODEL_DEFAULT"'
+)
+def _fab_when_validate_poured_bound_representative(context, tmp_path):
+    _fab_bound_validate(context, tmp_path)

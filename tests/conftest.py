@@ -30485,3 +30485,107 @@ def _fab_then_vault_placeholder_only(context):
             f"native fabro vault slot {slot!r} holds a non-placeholder value "
             f"{val!r}; a real credential must never live in the def (ADR-049)"
         )
+
+
+# =======================================================================
+# lead-s6cy: additive coverage on the fabro-def pour surface — the re-homed
+# bounded-retry (closes lead-6ev8) + diagnostic-block (closes lead-01jw.3)
+# fixes. The poured workflow.fabro carries real workflow-level bounded retry
+# on the six LLM/ACP agent nodes, and the failsafe emit_blk sources its
+# diagnostic triple from the single shared Python anchor module (ADR-062).
+# =======================================================================
+
+# The six LLM/ACP judgment-agent nodes and their required bounded-retry counts.
+_FAB_AGENT_RETRY_COUNTS = {
+    "classify": 4,
+    "suff": 3,
+    "plan": 3,
+    "impl": 3,
+    "review": 3,
+    "impl_f": 3,
+}
+
+
+@then(
+    '''the poured def's six LLM/ACP agent nodes each carry real workflow-level '''
+    '''bounded retry — "max_retries" with the per-node count (classify=4; suff, '''
+    '''plan, impl, review, impl_f=3) plus "retry_policy=exponential" for spaced, '''
+    '''per-attempt-capped, total-wait-bounded backoff — not the inert "retry=" '''
+    '''negative control that fails-fast to the failsafe on the first 429'''
+)
+def _fab_then_agent_nodes_bounded_retry(context):
+    wf = (context["fab_dir"] / "workflow.fabro").read_text()
+    nodes = _fab_parse_nodes(wf)
+    for name, count in _FAB_AGENT_RETRY_COUNTS.items():
+        decl = nodes.get(name)
+        assert decl, f"poured workflow.fabro has no agent node {name!r}"
+        assert re.search(rf"\bmax_retries\s*=\s*{count}\b", decl), (
+            f"agent node {name!r} lacks real max_retries={count} (bounded, "
+            f"total-wait-bounded retry); got:\n{decl}"
+        )
+        assert re.search(r"\bretry_policy\s*=\s*exponential\b", decl), (
+            f"agent node {name!r} lacks retry_policy=exponential (spaced, "
+            f"per-attempt-capped exponential backoff); got:\n{decl}"
+        )
+        # the inert `retry=<N>` negative control must NOT remain on the agent node
+        assert not re.search(r"[,\[\s]retry\s*=", decl), (
+            f"agent node {name!r} still carries the inert `retry=` negative "
+            f"control instead of real max_retries + retry_policy:\n{decl}"
+        )
+
+
+@then(
+    '''the poured def's failsafe "emit_blk" node sources its diagnostic triple '''
+    '''— failing-node identifier plus reason-class plus infra detail-marker plus '''
+    '''the captured run tail — from the single shared Python anchor module '''
+    '''"shop_templates.fabro_diagnostics" (ADR-062), with the reason-class and '''
+    '''detail-marker vocab never hardcoded into the graph and the last-resort '''
+    '''path emitting reason-class=unknown with the captured tail rather than a '''
+    '''bare empty block'''
+)
+def _fab_then_emit_blk_sources_shared_anchor(context):
+    wf = (context["fab_dir"] / "workflow.fabro").read_text()
+    nodes = _fab_parse_nodes(wf)
+    decl = nodes.get("emit_blk")
+    assert decl, "poured workflow.fabro has no emit_blk failsafe node"
+    # sources the diagnostic from the shared anchor module, not hardcoded vocab
+    assert "shop_templates.fabro_diagnostics" in decl, (
+        "emit_blk must source its diagnostic triple from the shared anchor "
+        "module shop_templates.fabro_diagnostics (ADR-062)"
+    )
+    # the content-free failsafe summary is gone
+    assert "a deliverable-side gate or step failed" not in decl, (
+        "emit_blk still carries the content-free failsafe summary"
+    )
+    # still emits work_done(blocked) — the ADR-051 blocked-never-complete stays
+    assert "--status blocked" in decl and "shop-msg respond work_done" in decl, (
+        "emit_blk must still emit work_done(blocked), never a silent complete"
+    )
+    # reason-class literals are diagnostic-only and never hardcoded in the graph
+    for lit in ("deliverable-gate", "infra-path", "llm-path"):
+        assert lit not in wf, (
+            f"reason-class literal {lit!r} is hardcoded into workflow.fabro; per "
+            f"ADR-062 it must live only in the shared anchor module"
+        )
+    # detail-marker vocab is not hardcoded into the emit_blk node body
+    for lit in ("oauth-shim", "agent-vault", "proxy", "rate-limit-429"):
+        assert lit not in decl, (
+            f"detail-marker literal {lit!r} is hardcoded into the emit_blk node; "
+            f"per ADR-062 it must be sourced from the shared anchor"
+        )
+    # the shared anchor's last-resort path emits reason-class=unknown WITH the
+    # captured tail — never a bare empty block, never a silent complete.
+    from shop_templates import fabro_diagnostics as _fd
+
+    last_resort = _fd.build_blocked_summary(failing_node="", run_tail="")
+    assert last_resort.strip() and "unknown" in last_resort, (
+        "the shared anchor last-resort path must emit reason-class=unknown, "
+        "never a bare empty block"
+    )
+    classified = _fd.build_blocked_summary(
+        failing_node="impl", run_tail="anthropic HTTP 429 rate limit"
+    )
+    assert "llm-path" in classified and "rate-limit-429" in classified, (
+        "the shared anchor must classify a 429 run tail as llm-path / "
+        "rate-limit-429 from the operator-facing vocab"
+    )

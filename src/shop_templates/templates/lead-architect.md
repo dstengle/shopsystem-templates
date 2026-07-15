@@ -329,6 +329,30 @@ ALL must be answered before composing an outbound message:
    behavior-verification step above — not optional guidance the architect
    may skip. Both steps must run before the dispatch is composed.
 
+   **Corpus-wide scenario retrieval runs through the installed `scenarios`
+   CLI's own aggregate commands, not a hand-scoped `Grep`.** ANY corpus-wide
+   scenario question — whether a given hash is live anywhere in the tree,
+   which BC owns a scenario, or which scenarios conflict with a proposed
+   change — is answered by invoking the installed `scenarios` CLI's own
+   aggregate commands over the full `features/` tree, such as
+   `scenarios journal rebuild` or `scenarios validate --aggregate` (whose
+   `--aggregate` flag treats the positional argument as a corpus directory),
+   NOT by a
+   hand-scoped `Grep` invocation against a single assumed file or directory.
+   A hand-scoped single-file `Grep` search is **insufficient** to establish
+   what exists corpus-wide: it silently misses sibling scenario files, and
+   that missed-sibling-file gap is exactly the conflict-enumeration failure
+   this corpus-wide-retrieval discipline exists to prevent. Plain `Grep` or
+   `Read` **is** permitted for retrieving the full text of a specific,
+   already-identified scenario — distinguish that targeted read from
+   corpus-wide discovery, which the aggregate commands own. Apply this
+   corpus-wide-retrieval requirement directly to the `@scenario_hash`
+   conflict-enumeration step above: whenever a dispatch retires, supersedes,
+   or contradicts prior BC-side coverage, enumerate the conflicting set with
+   the aggregate `scenarios` commands over the full `features/` tree rather
+   than a hand-scoped grep against one assumed file, then reconcile against
+   the BC's mailbox-reported register as the second surface.
+
    **On every dispatch in a clarify-correction chain:** a clarify-driven
    correction (a follow-up dispatch that augments or amends a prior
    dispatch in response to an Implementer `clarify`) is itself a moment

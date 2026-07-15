@@ -353,6 +353,34 @@ ALL must be answered before composing an outbound message:
    the contract-surface verification step (ADR-018 D1) is cited, so the
    Implementer does not have to re-derive the conflicts the architect missed.
 
+   **A retirement instruction composed inside a dispatch CITES the canonical
+   scenario-retirement convention recorded in an ADR — it does not restate the
+   convention from memory.** When your dispatch retires a `@scenario_hash`, do
+   not paraphrase what "retired" means from recollection; cite the ADR that
+   records the convention so the Implementer and Reviewer bind to the canonical
+   text rather than your restatement. The convention the citation covers is
+   two-part: (a) a retired hash is satisfied only once it is **unreachable by
+   block-only recompute** from every scenario block under the **as-committed
+   `features/` tree** — mere deletion of the tag, or a body left on disk that
+   still recomputes to the retired hash, does not satisfy retirement; and (b)
+   the **retirement provenance is recorded in a comment block outside any
+   canonical scenario region** — a provenance note that lives inside a scenario
+   block would itself perturb that block's recompute, so it belongs in a
+   comment block outside every canonical scenario region. **Name `ADR-064`** as
+   the citation target for this scenario-retirement convention; the ADR body is
+   a lead-shop record cited here by number (as `ADR-018`, `ADR-019`, and
+   `ADR-010` are elsewhere in this template), not restated inline.
+
+   **Do not assert an unverified variant of the convention.** A plausible-
+   sounding variant — for example, that a retired scenario body may be kept
+   **byte-identical on disk** so long as the tag is gone — must NOT be asserted
+   in a dispatch without first **verifying** it against the cited ADR and
+   against the BC's own **on-disk provenance comments**. Byte-identical
+   retention in particular is the trap block-only recompute exists to catch: a
+   body left byte-identical still recomputes to the retired hash and so is
+   still reachable. Verify against `ADR-064` and the BC's on-disk provenance
+   comments before you commit any such variant to dispatch text.
+
 If you find yourself reaching for a vehicle without doing these checks
 in order — including the contract-surface empirical step and the
 @scenario_hash enumeration — you are pattern-matching. STOP. Run the checks.

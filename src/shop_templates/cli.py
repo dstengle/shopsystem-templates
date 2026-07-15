@@ -91,6 +91,14 @@ _LEAD_SKILLS_PKG = "shop_templates.templates.lead_skills"
 # GitHub repo creation / template-repository marking is a separate lead action
 # (tmpl-3ch / lead-v0m7, PDR-019 U1, ADR-040 D1/D3, briefs/012 §2).
 _STARTER_PKG = "shop_templates.templates.starter"
+# The canonical docs subtree — shop-agnostic fleet documentation (runbooks and
+# the like) that shopsystem-templates ships to EVERY BC. It rides its own
+# package-data subtree and is poured into the target BC's docs/ directory by
+# `_pour_docs` (invoked by bootstrap and update), mirroring how the skill tree
+# and fabro skeleton ride their subtrees. Unlike .claude/skills/ this pour is
+# ADDITIVE (canonical-managed files only) and never prunes a BC's own authored
+# docs. (lead-pq9ex.)
+_DOCS_PKG = "shop_templates.templates.docs"
 
 # The canonical role-set assignment per shop type. The bootstrap surface
 # uses this to decide which role files to pour into .claude/agents/ for
@@ -285,6 +293,44 @@ def iter_starter_files():
                 yield rel, child.read_bytes()
 
     yield from _walk(root, "")
+
+
+def iter_doc_files():
+    """Yield (relative_posix_path, content_bytes) for every file under the
+    canonical docs package-data tree, recursively. Relative path rooted at
+    templates/docs/ (e.g. "runbooks/beads-schema-skew-recovery.md"). Served from
+    importlib.resources package data — never read from a filesystem path under
+    the product working directory. Mirrors iter_skill_files().
+
+    This is the delivery surface for shop-agnostic canonical docs (fleet
+    runbooks and the like) that shopsystem-templates ships to EVERY BC: the
+    pour (`_pour_docs`, invoked by bootstrap and update) walks this iterator and
+    writes each file into the target BC's docs/ directory, exactly as the skill
+    tree and fabro skeleton ride their own package-data subtrees. (lead-pq9ex.)"""
+    root = files(_DOCS_PKG)
+
+    def _walk(node, prefix):
+        for child in node.iterdir():
+            rel = child.name if prefix == "" else f"{prefix}/{child.name}"
+            if child.is_dir():
+                yield from _walk(child, rel)
+            elif child.is_file():
+                yield rel, child.read_bytes()
+
+    yield from _walk(root, "")
+
+
+def read_doc_file(rel: str) -> str:
+    """Return the named canonical doc file's text from package data.
+
+    `rel` is a posix-relative path rooted at templates/docs/ (e.g.
+    "runbooks/beads-schema-skew-recovery.md"). Served from importlib.resources
+    package data; raises FileNotFoundError if no such file. The docs analogue of
+    read_starter_file / read_ops_template. (lead-pq9ex.)"""
+    resource = files(_DOCS_PKG)
+    for part in rel.split("/"):
+        resource = resource / part
+    return resource.read_text()
 
 
 def read_starter_file(rel: str) -> str:
@@ -499,6 +545,26 @@ def _pour_skills(target: Path, iterator=iter_skill_files) -> None:
     skills_root = target / ".claude" / "skills"
     for rel, body in iterator():
         dest = skills_root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(body)
+
+
+def _pour_docs(target: Path) -> None:
+    """Pour the canonical docs package-data tree into <target>/docs/.
+
+    Walks iter_doc_files() and writes each canonical doc into the BC's docs/
+    directory (e.g. templates/docs/runbooks/beads-schema-skew-recovery.md ->
+    <target>/docs/runbooks/beads-schema-skew-recovery.md). This is the delivery
+    surface by which every BC receives shop-agnostic fleet documentation via the
+    same pour path bootstrap/update already use for .claude/ and .fabro/.
+
+    Unlike _mirror_skills, this pour is ADDITIVE: it writes only the canonical
+    set and NEVER prunes or clobbers a BC's own authored docs. docs/ is a
+    shop-owned directory that merely also receives canonical content — it is not
+    a fully canonical-managed tree like .claude/skills/. (lead-pq9ex.)"""
+    docs_root = target / "docs"
+    for rel, body in iter_doc_files():
+        dest = docs_root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(body)
 
@@ -1483,6 +1549,11 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     # re-pours into both projections. Deterministic by construction.
     _pour_fabro(target)
 
+    # Pour the canonical docs tree into docs/ (shop-agnostic fleet runbooks and
+    # the like) out of this SAME pour. Additive: writes only the canonical set,
+    # never prunes shop-authored docs. (lead-pq9ex.)
+    _pour_docs(target)
+
     # Lead-shop ops scaffolding (PDR-003 path F — shop-owned). For a
     # "lead" shop, render the converged five-file ops set (compose.yaml,
     # bin/shop-shell, bin/shop-scenario-completion, bin/agent-vault-provision,
@@ -1865,6 +1936,15 @@ def _cmd_update(args: argparse.Namespace) -> int:
     # this re-emits the complete def byte-identically on every update. Behavior
     # of _pour_fabro is unchanged; update simply now invokes it as bootstrap does.
     _pour_fabro(target)
+
+    # Step 6c: (re)pour the canonical docs tree into docs/ out of this SAME
+    # update pour, so every BC receives shop-agnostic fleet documentation (e.g.
+    # the beads Dolt schema-skew recovery runbook, lead-pq9ex) via the same pour
+    # path it already receives .claude/ and .fabro/. Additive and idempotent:
+    # re-pours the canonical set byte-identically and never prunes or clobbers a
+    # BC's own authored docs (docs/ is shop-owned; it merely also receives
+    # canonical content). (lead-pq9ex.)
+    _pour_docs(target)
 
     # Step 7: surface (without modifying) drift in .claude/shop/name.md.
     # Per scenario 97245affb1dbe5e4 (ADR-018 / ADR-007): name.md is the

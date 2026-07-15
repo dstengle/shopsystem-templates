@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shop-templates"
-version = "0.52.4"
+version = "0.52.5"
 description = "Validated role-prompt templates for shops in the shop-system. Distributed as package data; consumed via the `shop-templates` CLI rather than read from a known filesystem path."
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -84,4 +84,12 @@ shop_templates = [
     # the whole tree (mirrors the templates/lead_skills/**/* nested-glob care).
     "templates/fabro/*",
     "templates/fabro/**/*",
+    # The canonical docs subtree — shop-agnostic fleet documentation (runbooks
+    # and the like) that ships to EVERY BC and is poured into the target's
+    # docs/ by `_pour_docs` via iter_doc_files (lead-pq9ex). Must ride the
+    # sdist+wheel or a real `pip install shop-templates` pours an empty docs
+    # tree (the same lead-5mr5 lesson as the lead_skills subtree). Both the
+    # top-level and nested globs are declared so the whole tree carries.
+    "templates/docs/*",
+    "templates/docs/**/*",
 ]

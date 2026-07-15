@@ -960,6 +960,204 @@ def then_content_forbids_unverified_retirement_variant(context: dict) -> None:
 
 
 # -----------------------------------------------------------------------
+# Then steps — corpus-wide scenario retrieval via the installed scenarios
+# CLI aggregate commands, not a hand-scoped grep (lead-gg926):
+#   lead-architect b4795e33b958f6e2, lead-po 6161fd393e4662c6
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the content directs the architect that any corpus-wide scenario question — "
+    "whether a hash is live anywhere in the tree, which BC owns a scenario, or "
+    "which scenarios conflict with a proposed change — is answered by invoking "
+    'the installed "scenarios" CLI\'s own aggregate commands over the full '
+    '"features/" tree, such as "scenarios journal rebuild" or "scenarios '
+    'validate --aggregate", not by a hand-scoped "Grep" invocation against a '
+    "single assumed file or directory"
+)
+def then_architect_corpus_wide_via_aggregate_cli(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "corpus-wide" in lc, (
+        "lead-architect template must frame corpus-wide scenario questions "
+        "(lead-gg926 / b4795e33b958f6e2)"
+    )
+    assert "scenarios journal rebuild" in content, (
+        "lead-architect template must name 'scenarios journal rebuild' as an "
+        "aggregate CLI command (lead-gg926 / b4795e33b958f6e2)"
+    )
+    assert "scenarios validate --aggregate" in content, (
+        "lead-architect template must name 'scenarios validate --aggregate' as "
+        "an aggregate CLI command (lead-gg926 / b4795e33b958f6e2)"
+    )
+    assert "features/" in content, (
+        "lead-architect template must scope the aggregate commands over the full "
+        "'features/' tree (lead-gg926 / b4795e33b958f6e2)"
+    )
+    assert "hand-scoped" in lc and "grep" in lc, (
+        "lead-architect template must contrast the aggregate commands against a "
+        "hand-scoped Grep (lead-gg926 / b4795e33b958f6e2)"
+    )
+
+
+@then(
+    'the content names a hand-scoped single-file "Grep" search as insufficient '
+    "to establish what exists corpus-wide, citing the missed-sibling-file "
+    "conflict-enumeration gap this discipline exists to prevent"
+)
+def then_architect_single_file_grep_insufficient(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "hand-scoped" in lc and "insufficient" in lc, (
+        "lead-architect template must name a hand-scoped single-file Grep as "
+        "insufficient corpus-wide (lead-gg926 / b4795e33b958f6e2)"
+    )
+    assert "sibling" in lc, (
+        "lead-architect template must cite the missed-sibling-file "
+        "conflict-enumeration gap (lead-gg926 / b4795e33b958f6e2)"
+    )
+
+
+@then(
+    'the content permits plain "Grep" or "Read" for retrieving the full text of '
+    "a specific, already-identified scenario, distinguishing that use from "
+    "corpus-wide discovery"
+)
+def then_architect_permits_grep_read_for_identified_scenario(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "permit" in lc, (
+        "lead-architect template must permit plain Grep/Read for a specific "
+        "already-identified scenario (lead-gg926 / b4795e33b958f6e2)"
+    )
+    assert "already-identified" in lc, (
+        "lead-architect template must distinguish an already-identified scenario "
+        "from corpus-wide discovery (lead-gg926 / b4795e33b958f6e2)"
+    )
+    assert "grep" in lc and "read" in lc, (
+        "lead-architect template must name both Grep and Read as permitted for a "
+        "specific scenario's full text (lead-gg926 / b4795e33b958f6e2)"
+    )
+
+
+@then(
+    "the content directs the architect to apply this corpus-wide-retrieval "
+    "requirement to the existing @scenario_hash conflict-enumeration step "
+    "required whenever a dispatch retires, supersedes, or contradicts prior "
+    "BC-side coverage"
+)
+def then_architect_applies_to_conflict_enumeration_step(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "@scenario_hash" in content, (
+        "lead-architect template must tie the requirement to the @scenario_hash "
+        "conflict-enumeration step (lead-gg926 / b4795e33b958f6e2)"
+    )
+    assert "corpus-wide" in lc, (
+        "lead-architect template must apply the corpus-wide-retrieval requirement "
+        "to the enumeration step (lead-gg926 / b4795e33b958f6e2)"
+    )
+    assert any(t in lc for t in ("retire", "supersede", "contradict")), (
+        "lead-architect template must name the retire/supersede/contradict "
+        "trigger for the enumeration step (lead-gg926 / b4795e33b958f6e2)"
+    )
+
+
+@then(
+    "the content directs the PO that, before authoring or sharpening a scenario, "
+    "it establishes whether an equivalent or conflicting scenario already exists "
+    'in the "features/" corpus by invoking the installed "scenarios" CLI\'s own '
+    'corpus-wide commands (such as "scenarios journal rebuild" over the full '
+    '"features/" tree, or "scenarios validate --aggregate"), not by a '
+    'hand-scoped "Grep" invocation against a single assumed file or directory'
+)
+def then_po_corpus_wide_before_authoring(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "authoring or sharpening" in lc, (
+        "lead-po template must gate the check before authoring or sharpening a "
+        "scenario (lead-gg926 / 6161fd393e4662c6)"
+    )
+    assert "corpus" in lc, (
+        "lead-po template must frame the 'features/' corpus check "
+        "(lead-gg926 / 6161fd393e4662c6)"
+    )
+    assert "scenarios journal rebuild" in content, (
+        "lead-po template must name 'scenarios journal rebuild' as a corpus-wide "
+        "command (lead-gg926 / 6161fd393e4662c6)"
+    )
+    assert "scenarios validate --aggregate" in content, (
+        "lead-po template must name 'scenarios validate --aggregate' as a "
+        "corpus-wide command (lead-gg926 / 6161fd393e4662c6)"
+    )
+    assert "hand-scoped" in lc and "grep" in lc, (
+        "lead-po template must contrast the corpus-wide commands against a "
+        "hand-scoped Grep (lead-gg926 / 6161fd393e4662c6)"
+    )
+
+
+@then(
+    'the content names a hand-scoped single-file "Grep" search as insufficient '
+    "to establish what exists corpus-wide"
+)
+def then_po_single_file_grep_insufficient(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "hand-scoped" in lc and "insufficient" in lc, (
+        "lead-po template must name a hand-scoped single-file Grep as "
+        "insufficient corpus-wide (lead-gg926 / 6161fd393e4662c6)"
+    )
+    assert "corpus-wide" in lc, (
+        "lead-po template must state the insufficiency is about establishing what "
+        "exists corpus-wide (lead-gg926 / 6161fd393e4662c6)"
+    )
+
+
+@then(
+    'the content permits plain "Grep" or "Read" for reading the full text of a '
+    "specific, already-identified scenario, distinguishing that use from "
+    "corpus-wide discovery"
+)
+def then_po_permits_grep_read_for_identified_scenario(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "permit" in lc, (
+        "lead-po template must permit plain Grep/Read for a specific "
+        "already-identified scenario (lead-gg926 / 6161fd393e4662c6)"
+    )
+    assert "already-identified" in lc, (
+        "lead-po template must distinguish an already-identified scenario from "
+        "corpus-wide discovery (lead-gg926 / 6161fd393e4662c6)"
+    )
+    assert "grep" in lc and "read" in lc, (
+        "lead-po template must name both Grep and Read as permitted for a "
+        "specific scenario's full text (lead-gg926 / 6161fd393e4662c6)"
+    )
+
+
+@then(
+    "the content directs the PO to treat a hand-scoped grep that misses a "
+    "sibling scenario file as a defect in the retrieval method, not an "
+    "acceptable outcome"
+)
+def then_po_missed_sibling_is_retrieval_defect(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "sibling" in lc, (
+        "lead-po template must name the missed-sibling scenario file "
+        "(lead-gg926 / 6161fd393e4662c6)"
+    )
+    assert "defect" in lc, (
+        "lead-po template must treat the missed-sibling grep as a defect "
+        "(lead-gg926 / 6161fd393e4662c6)"
+    )
+    assert "retrieval method" in lc, (
+        "lead-po template must locate the defect in the retrieval method "
+        "(lead-gg926 / 6161fd393e4662c6)"
+    )
+
+
+# -----------------------------------------------------------------------
 # Then steps — role-complete restructure: identity / posture / CLI ordering
 # -----------------------------------------------------------------------
 #

@@ -81,7 +81,16 @@
 digraph BcShopLoop {
     graph [
         goal="Recreate the bc-shop Implementer->Reviewer loop for BC {{ inputs.BC_NAME }} / work {{ inputs.WORK_ID }} and emit a GATED work_done via shop-msg/bc-emit. Reviewer is the SOLE work_done emitter on the scenario path. HARD RULE: a FAILED node must never advance to the SUCCEEDED terminal; every fallible node carries an explicit unconditional failsafe edge to halt (infra) or emit_blk (deliverable). STRUCTURAL RULE: every state-changing action (inbox drain, integrate, work-done gate, bc-emit) is a NATIVE non-LLM script node; agents may ONLY judge and route."
-        model_stylesheet=".coding { model: {{ inputs.MODEL_CODING }} } .review { model: {{ inputs.MODEL_REVIEW }} } * { model: {{ inputs.MODEL_DEFAULT }} }"
+        // NOTE (lead-ifye3.6): no `model_stylesheet` attribute is emitted. fabro
+        // >= v0.267.0-nightly.0 makes `{{ }}` inside a `model_stylesheet` a HARD
+        // PARSE ERROR, so the prior `{{ inputs.MODEL_* }}` placeholder shape
+        // (lead-ifye3.1 / brief-017) crashed a nested-container launch on the new
+        // bc-base image at validation. Per the lead's clarify_response, the
+        // attribute is dropped (bare/absent), which passes `fabro validate`; no
+        // per-tier model resolution is (re)introduced here (out of scope,
+        // brief-021 SS6). ADR-051 graph invariants and the ADR-049
+        // __PLACEHOLDER__-only vault are unchanged — this touches only the
+        // model_stylesheet attribute.
         rankdir=TB
         fallback_retry_target="halt"
     ]

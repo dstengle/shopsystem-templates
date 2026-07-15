@@ -132,6 +132,50 @@ def test_runbook_content_covers_required_substance():
     assert "mitigation" in body
 
 
+def test_runbook_content_covers_trap_5_substance():
+    """Trap 5 — the blanket purge unmasks a stale non-editable global — must
+    be documented in the shipped runbook: its symptom (a --system-site-packages
+    venv whose blanket glob deletes the reviewer's own pointer and silently
+    resolves <pkg> from the inherited global), the 'no purge can remove it'
+    mechanism (a non-editable dist-info, not a .pth), both mitigations
+    (provision WITHOUT --system-site-packages; else re-point via a
+    uniquely-named non-__editable__ .pth) INCLUDING the probe-established
+    zz-prefix-non-precedence correction, the retained/reaffirmed Trap-4 assert
+    note, and the PURGE / RE-POINT / ASSERT composite rule."""
+    body = read_doc_file(_RUNBOOK_REL).lower()
+
+    # Enumerated as a fifth hazard.
+    assert "trap 5" in body
+    assert "five hazard traps" in body
+
+    # Symptom: --system-site-packages venv, blanket glob deletes the OWN
+    # editable pointer, import still succeeds from the inherited global.
+    assert "system-site-packages" in body
+    assert "non-editable" in body
+
+    # Mechanism: the stale global is a non-editable dist-info, not a .pth, so
+    # no purge can remove it — the blanket purge unmasks it.
+    assert "no purge can remove it" in body
+    assert "dist-info" in body
+    assert "unmasks" in body
+
+    # Both mitigations.
+    assert "without" in body  # (i) provision WITHOUT --system-site-packages
+    assert "zz-" in body       # (ii) re-point via a uniquely-named .pth
+    # The probe-established correction: zz- is NOT load-bearing for precedence.
+    assert "not load-bearing" in body
+    assert "precedence" in body
+    assert "cargo-cult" in body
+
+    # Trap 4's in-process resolution assert is retained/reaffirmed, not weakened.
+    assert "retained" in body
+    assert "mandatory" in body
+
+    # The composite rule: purge, re-point, then assert.
+    assert "re-point" in body
+    assert "purge, re-point" in body
+
+
 def test_runbook_content_is_shop_agnostic():
     """No BC-specific paths, names, or repos may be hardcoded in the shipped
     content — it is delivered to EVERY BC. In particular the line-13 gloss
@@ -145,6 +189,7 @@ def test_runbook_content_is_shop_agnostic():
         "shopsystem-product",
         "shopsystem-lead",
         "github.com/dstengle",
+        "engage.py",
     ]
     for token in banned:
         assert token not in body, (

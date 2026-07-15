@@ -844,6 +844,122 @@ def then_content_directs_cite_enumeration_in_dispatch(context: dict) -> None:
 
 
 # -----------------------------------------------------------------------
+# Then steps — lead-architect cites ADR-064's scenario-retirement
+# convention when composing a retirement instruction (lead-ivkrp /
+# f1de4dd08ab5abc1). A retirement instruction composed inside a dispatch
+# must CITE the canonical scenario-retirement convention recorded in an
+# ADR rather than restate it from memory; the template must name the
+# two-part convention, name ADR-064 as the citation target, and forbid
+# asserting an unverified variant without checking the ADR and on-disk
+# provenance comments.
+# -----------------------------------------------------------------------
+
+
+@then(
+    "the content directs the architect that a retirement instruction composed "
+    "inside a dispatch cites the canonical scenario-retirement convention "
+    "recorded in an ADR, rather than restating the convention from memory"
+)
+def then_content_directs_cite_retirement_convention_from_adr(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "retirement instruction" in lc, (
+        "template must name a 'retirement instruction' composed inside a "
+        "dispatch (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "cite" in lc, (
+        "template must direct the architect to CITE the canonical "
+        "scenario-retirement convention (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "scenario-retirement convention" in lc or (
+        "scenario-retirement" in lc and "convention" in lc
+    ), (
+        "template must name the canonical 'scenario-retirement convention' "
+        "as the thing being cited (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "from memory" in lc, (
+        "template must direct citing the ADR-recorded convention rather than "
+        "restating it from memory (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+
+
+@then(
+    "the content names the two-part convention the citation covers: a retired "
+    "hash is satisfied only once it is unreachable by block-only recompute "
+    'from every scenario block under the as-committed "features/" tree, and '
+    "retirement provenance is recorded in a comment block outside any "
+    "canonical scenario region"
+)
+def then_content_names_two_part_retirement_convention(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    # Part (a): a retired hash is unreachable by block-only recompute from
+    # every scenario block under the as-committed features/ tree.
+    assert "unreachable" in lc, (
+        "template must state a retired hash is satisfied only once it is "
+        "UNREACHABLE by recompute (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "block-only" in lc, (
+        "template must name the block-only recompute as the means the retired "
+        "hash is made unreachable by (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "as-committed" in lc and "features/" in content, (
+        "template must scope the recompute to every scenario block under the "
+        "as-committed features/ tree (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    # Part (b): retirement provenance recorded in a comment block outside any
+    # canonical scenario region.
+    assert "provenance" in lc, (
+        "template must name retirement provenance as the second part of the "
+        "convention (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "comment block" in lc, (
+        "template must state retirement provenance is recorded in a comment "
+        "block (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "outside" in lc and "canonical scenario region" in lc, (
+        "template must place the provenance comment block OUTSIDE any "
+        "canonical scenario region (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+
+
+@then('the content names "ADR-064" as the citation target for that convention')
+def then_content_names_adr_064_citation_target(context: dict) -> None:
+    content = context["template_content"]
+    assert "ADR-064" in content, (
+        "template must name 'ADR-064' as the citation target for the "
+        "scenario-retirement convention (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+
+
+@then(
+    "the content directs the architect not to assert an unverified variant of "
+    "the convention, such as keeping a retired scenario body byte-identical on "
+    "disk, without first verifying it against the cited ADR and the BC's own "
+    "on-disk provenance comments"
+)
+def then_content_forbids_unverified_retirement_variant(context: dict) -> None:
+    content = context["template_content"]
+    lc = content.lower()
+    assert "unverified variant" in lc, (
+        "template must forbid asserting an 'unverified variant' of the "
+        "convention (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "byte-identical" in lc, (
+        "template must name the byte-identical-on-disk variant as the example "
+        "not to assert unverified (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "verify" in lc, (
+        "template must require verifying the variant before asserting it "
+        "(lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+    assert "on-disk" in lc and "provenance" in lc, (
+        "template must require checking against the BC's own on-disk "
+        "provenance comments (lead-ivkrp / f1de4dd08ab5abc1)"
+    )
+
+
+# -----------------------------------------------------------------------
 # Then steps — role-complete restructure: identity / posture / CLI ordering
 # -----------------------------------------------------------------------
 #

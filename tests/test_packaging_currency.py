@@ -913,3 +913,24 @@ def test_delivered_create_bc_skill_names_bc_creation_mechanism(built_sdist):
         f"up a BC (shop-templates bootstrap --shop-type bc / gh repo create / "
         f"bc-container launch flags)"
     )
+
+
+def test_delivered_create_bc_skill_forces_main_initial_branch(built_sdist):
+    """lead-1gt5: the delivered create-bc SKILL.md body must direct forcing
+    `main` as the BC repo's initial branch. Without an explicit branch-naming
+    step the operator's `git init` inherits the local `init.defaultBranch`
+    default (`master` when unset), which rides through `gh repo create
+    --source . --push` to become the pushed GitHub repo's default branch —
+    breaking downstream bc-launcher/fabro clone+launch tooling that assumes
+    `main`. The skill body must carry `git init -b main` (the block explicitly
+    naming the initial branch). Asserts against the BUILT ARTIFACT so a
+    delivered skill still missing the branch-forcing step is caught."""
+    body = _sdist_member(built_sdist, CREATE_BC_REL)
+    assert "git init -b main" in body, (
+        f"delivered {CREATE_BC_REL} does not force `main` as the BC repo's "
+        f"initial branch (lead-1gt5): expected a `git init -b main` step (or an "
+        f"equivalent rename-to-main + set-default + delete-master step) so the "
+        f"scaffolded repo is not pushed with a `master` default branch that "
+        f"downstream bc-launcher/fabro tooling — which assumes `main` — cannot "
+        f"clone+launch against"
+    )

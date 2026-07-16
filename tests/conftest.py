@@ -18248,6 +18248,272 @@ def then_poured_skill_names_terminal_artifact(skill: str, context: dict) -> None
     )
 
 
+# -----------------------------------------------------------------------
+# Step definitions — gated PM skills name the shop-knowledge template-fetch,
+# schema-validate, and validation-failure-surface closing protocol
+# (lead-5msa9.2; scenarios 107bb9e2d7ddb530, cfdf2213b1c77bfb,
+# c0c636fb86c5579c, c47a92f5486ea893).
+#
+# The knowledge BC governs eight artifact typedefs. A gated PM skill's closing
+# protocol must (a) fetch the canonical `<type>` template via the literal
+# `shop-knowledge template <type>`, (b) validate the produced document via the
+# literal `shop-knowledge validate`, and (c) surface a validation failure to the
+# product authority rather than closing silently. product-narrative is gated on
+# its current-state-revision branch only (README/site branches are ungated);
+# problem-space-mapping is entirely ungated (no typedef governs it).
+# -----------------------------------------------------------------------
+
+from shop_templates.cli import _pour_skills as _lead_pour_skills  # noqa: E402
+
+# Bare verbs the validation-gate step must never stand on alone, without the
+# literal `shop-knowledge validate` naming it on the same step.
+_SHOP_KNOWLEDGE_BARE_VERBS = ("check", "verify", "confirm", "ensure")
+
+
+def _poured_lead_skill_body(skill: str) -> str:
+    """Pour the canonical lead skill-group into a scratch tree and return the
+    poured `<skill>/SKILL.md` body (byte-for-byte the shipped package data)."""
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="lead-5msa9-pour-"))
+    _lead_pour_skills(tmp, _iter_lead_skill_files)
+    return (tmp / ".claude" / "skills" / skill / "SKILL.md").read_text()
+
+
+def _shopknow_paragraphs(body: str) -> list[str]:
+    """Split a SKILL.md body into paragraph 'steps' (blocks separated by blank
+    lines), each whitespace-normalized so a phrase that hard-wraps across
+    physical lines still matches as one contiguous step."""
+    blocks = re.split(r"\n\s*\n", body)
+    return [" ".join(b.split()) for b in blocks if b.strip()]
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/{skill}/SKILL.md" names fetching the '
+        'canonical "{typ}" template via "{cmd}" before or while producing the '
+        'artifact'
+    )
+)
+def then_skill_names_template_fetch(skill, typ, cmd, context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / skill / "SKILL.md").read_text()
+    assert cmd in body, (
+        f".claude/skills/{skill}/SKILL.md does not name fetching the canonical "
+        f"{typ!r} template via the literal command {cmd!r}"
+    )
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/{skill}/SKILL.md" names running '
+        '"shop-knowledge validate" against the produced "{typ}" document '
+        'before the session closes'
+    )
+)
+def then_skill_names_validate_gate(skill, typ, context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / skill / "SKILL.md").read_text()
+    assert "shop-knowledge validate" in body, (
+        f".claude/skills/{skill}/SKILL.md does not name running the literal "
+        f"'shop-knowledge validate' against the produced {typ!r} document"
+    )
+    assert typ in body, (
+        f".claude/skills/{skill}/SKILL.md names 'shop-knowledge validate' but "
+        f"does not name the produced {typ!r} document it validates"
+    )
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/{skill}/SKILL.md" names surfacing a '
+        'validation failure to the product authority rather than closing the '
+        'session silently'
+    )
+)
+def then_skill_names_failure_surface(skill, context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (real / ".claude" / "skills" / skill / "SKILL.md").read_text()
+    # The failure-surface instruction must live in a step (paragraph) that ties
+    # a validation failure to surfacing it to the product authority rather than
+    # closing silently — not merely mention the authority somewhere unrelated.
+    surface_step = next(
+        (
+            p
+            for p in _shopknow_paragraphs(body)
+            if "product authority" in p.lower()
+            and ("fail" in p.lower() or "invalid" in p.lower())
+            and "silent" in p.lower()
+        ),
+        None,
+    )
+    assert surface_step is not None, (
+        f".claude/skills/{skill}/SKILL.md does not name surfacing a validation "
+        f"failure to the product authority rather than closing the session "
+        f"silently"
+    )
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/product-narrative/SKILL.md" names that '
+        'its README and site closing branches do not require '
+        '"shop-knowledge validate", because README and site are not among the '
+        "knowledge BC's eight recognized artifact types"
+    )
+)
+def then_product_narrative_readme_site_ungated(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (
+        real / ".claude" / "skills" / "product-narrative" / "SKILL.md"
+    ).read_text()
+    low = body.lower()
+    assert "eight" in low and "artifact type" in low, (
+        "product-narrative/SKILL.md does not name the knowledge BC's eight "
+        "recognized artifact types"
+    )
+    ungated_step = next(
+        (
+            p
+            for p in _shopknow_paragraphs(body)
+            if "readme" in p.lower()
+            and "site" in p.lower()
+            and "shop-knowledge validate" in p
+            and ("not require" in p.lower() or "do not" in p.lower())
+            and "eight" in p.lower()
+        ),
+        None,
+    )
+    assert ungated_step is not None, (
+        "product-narrative/SKILL.md does not name that its README and site "
+        "closing branches do not require 'shop-knowledge validate' because "
+        "README and site are not among the knowledge BC's eight recognized "
+        "artifact types"
+    )
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/product-narrative/SKILL.md" names that '
+        'only its current-state-revision closing branch requires '
+        '"shop-knowledge validate"'
+    )
+)
+def then_product_narrative_only_current_state_gated(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (
+        real / ".claude" / "skills" / "product-narrative" / "SKILL.md"
+    ).read_text()
+    gated_step = next(
+        (
+            p
+            for p in _shopknow_paragraphs(body)
+            if "current-state" in p.lower()
+            and "shop-knowledge validate" in p
+            and "only" in p.lower()
+        ),
+        None,
+    )
+    assert gated_step is not None, (
+        "product-narrative/SKILL.md does not name that ONLY its "
+        "current-state-revision closing branch requires 'shop-knowledge "
+        "validate'"
+    )
+
+
+@then(
+    parsers.parse(
+        'the content of ".claude/skills/problem-space-mapping/SKILL.md" does '
+        'not name "shop-knowledge validate" or "shop-knowledge template" as a '
+        'required closing step'
+    )
+)
+def then_problem_space_mapping_ungated(context: dict) -> None:
+    real = context["last_invocation_target"]
+    body = (
+        real / ".claude" / "skills" / "problem-space-mapping" / "SKILL.md"
+    ).read_text()
+    assert "shop-knowledge validate" not in body, (
+        "problem-space-mapping/SKILL.md must not name 'shop-knowledge "
+        "validate' — no typedef governs a problem-space-map artifact type"
+    )
+    assert "shop-knowledge template" not in body, (
+        "problem-space-mapping/SKILL.md must not name 'shop-knowledge "
+        "template' as a required closing step — no typedef governs it"
+    )
+
+
+# --- Scenario c47a92f5486ea893: the located schema-validation step names the
+#     literal "shop-knowledge validate", never a bare verb alone. ---
+
+
+@given(parsers.parse('the poured "{skill}" SKILL.md\'s closing protocol step'))
+def given_poured_skill_closing_step(skill: str, context: dict) -> None:
+    context["shopknow_skill"] = skill
+    context["shopknow_body"] = _poured_lead_skill_body(skill)
+
+
+@when(
+    "I locate the step describing validating the produced artifact against "
+    "its schema"
+)
+def when_locate_schema_validation_step(context: dict) -> None:
+    body = context["shopknow_body"]
+    # The schema-validation gate is the step (paragraph) that speaks of
+    # validating the produced artifact "against its schema". Locate it by that
+    # role — independent of which verb or command it names, so a bare-verb
+    # phrasing that omits the literal is still located and caught by the Thens.
+    # (The altitude rule's "no schemas" caution is deliberately NOT matched:
+    # it does not describe validating the produced artifact against its schema.)
+    steps = [
+        p
+        for p in _shopknow_paragraphs(body)
+        if "against its schema" in p.lower()
+    ]
+    context["shopknow_located_steps"] = steps
+
+
+@then(
+    'that step names the literal substring "shop-knowledge validate" on the '
+    "same step"
+)
+def then_located_step_names_literal(context: dict) -> None:
+    skill = context["shopknow_skill"]
+    steps = context["shopknow_located_steps"]
+    assert steps, (
+        f"{skill}/SKILL.md has no closing-protocol step describing schema "
+        f"validation of the produced artifact"
+    )
+    for step in steps:
+        assert "shop-knowledge validate" in step, (
+            f"{skill}/SKILL.md schema-validation step does not name the literal "
+            f"substring 'shop-knowledge validate': {step.strip()!r}"
+        )
+
+
+@then(
+    'that step does not describe the validation using a bare verb — "check", '
+    '"verify", "confirm", or "ensure" — without naming the literal substring '
+    '"shop-knowledge validate" on the same step'
+)
+def then_located_step_not_bare_verb(context: dict) -> None:
+    skill = context["shopknow_skill"]
+    steps = context["shopknow_located_steps"]
+    assert steps, (
+        f"{skill}/SKILL.md has no closing-protocol step describing schema "
+        f"validation of the produced artifact"
+    )
+    for step in steps:
+        low = step.lower()
+        has_bare_verb = any(v in low for v in _SHOP_KNOWLEDGE_BARE_VERBS)
+        if has_bare_verb:
+            assert "shop-knowledge validate" in step, (
+                f"{skill}/SKILL.md schema-validation step uses a bare verb "
+                f"without naming the literal 'shop-knowledge validate' on the "
+                f"same step: {step.strip()!r}"
+            )
+
+
 # --- Update scenarios e803b4c9 / 4a008549 / a14e5a0a ---
 
 @given(

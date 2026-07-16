@@ -74,9 +74,12 @@ health failure.
 ### Heal an unprovisioned-but-recoverable tracker
 
 If the tracker's working set is empty and it has no issue_prefix configured,
-but the committed registry names a definite issue_prefix and carries at
-least one issue, the tracker is unprovisioned-but-recoverable. The health
-step heals it:
+but the committed registry names a definite issue_prefix, the tracker is
+unprovisioned-but-recoverable. A committed prefix alone qualifies for the
+adopt-heal **regardless** of how many issues the committed registry carries
+— whether it carries many issues or a fresh registry that commits a prefix
+but **zero issues** (a 0-issue import is a valid empty no-op import). The
+health step heals it:
 
 - **Adopt the committed issue_prefix** as the tracker's configured prefix.
   The adopted prefix is taken FROM the committed registry — it is **not
@@ -87,7 +90,9 @@ step heals it:
   preserving each committed issue's **original id unchanged** — no committed
   issue is dropped, renumbered, or overwritten by the heal, and the heal
   fabricates no issues. A committed registry of 23 issues yields a working
-  set containing exactly those 23 issues with their original ids.
+  set containing exactly those 23 issues with their original ids; a
+  committed registry of zero issues imports zero issues (an empty no-op
+  import), consistent with preserving every committed id.
 
 After healing, the step **re-validates** the tracker: after the heal
 `bd create` exits zero yielding a new id under the adopted prefix, and after
